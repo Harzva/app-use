@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional, Set, Tuple
+from .io_utils import atomic_write_json
 
 
 class SafetyViolationError(RuntimeError):
@@ -229,10 +230,7 @@ class AntiBanGuard:
 
     def _save(self, doc: Dict[str, Any]) -> None:
         try:
-            self.state_path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.state_path.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
-            tmp.replace(self.state_path)
+            atomic_write_json(self.state_path, doc)
         except OSError:
             pass
 

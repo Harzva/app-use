@@ -9,6 +9,7 @@ from pathlib import Path
 from .engine import WeChatControlEngine
 from .mcp_server import create_http_server
 from .workbench import ReviewLedger, Workbench, WorkbenchError
+from .io_utils import atomic_write_json
 
 DEMO_CONTACT = "演练好友"
 DEMO_QUESTION = "请问试用期限是几天？"
@@ -239,10 +240,10 @@ def serve(data, driver=None, target=None, fact=None, *, integrated=False):
         archive.mkdir(parents=True, exist_ok=True)
         sample = archive / "metadata.json"
         if not sample.exists():
-            sample.write_text(json.dumps({
+            atomic_write_json(sample, {
                 "title": "样本归档：试用须知", "account": "演练资料",
                 "exported_at": "2026-11-16T00:00:00+08:00",
-            }, ensure_ascii=False), encoding="utf-8")
+            }, newline=False)
     threading.Thread(target=wb.monitor_loop, daemon=True).start()
     key = secrets.token_hex(32)
     with create_http_server(engine, port=0, workbench=wb, preview_secret=key,

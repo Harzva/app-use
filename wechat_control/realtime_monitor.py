@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from .contact_profiler import CARE_LEVEL_ORDER, normalize_care_level
 from .live_inspector import _matches_target, _slugify_target
 from .safety import normalize_chat_name
+from .io_utils import atomic_write_json
 
 if TYPE_CHECKING:
     from .engine import WeChatControlEngine
@@ -157,10 +158,7 @@ class WeChatRealtimeMonitor:
 
     def _save_state(self, state: Dict[str, Any]) -> None:
         state["updatedAt"] = _utc_iso_now()
-        self.state_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.state_path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        tmp.replace(self.state_path)
+        atomic_write_json(self.state_path, state)
 
     def _append_event(self, event_type: str, payload: Dict[str, Any]) -> None:
         self.events_path.parent.mkdir(parents=True, exist_ok=True)
@@ -353,11 +351,17 @@ class WeChatRealtimeMonitor:
                 contact_state["lastSeenPreview"] = row_preview
                 return {"checked": False, "skipReason": "row_matches_last_outbound", "rowPreview": row_preview}
             if not prev_preview:
+                # 首次见到该行：打开建立基线（此前只有今天时间戳才打开，
+                # 会漏掉预览无时间戳的新消息——比如压测消息预览不含 HH:MM）
                 if _TODAY_HHMM_RE.search(row_preview):
                     should_open = True
                     trigger_reason = "today_activity_preview"
+                elif unread_badge:
+                    should_open = True
+                    trigger_reason = "unread_badge"
                 else:
-                    # Baseline non-today historical rows without clicking away from active screen
+                    # 未读徽标为空且预览无今天时间戳：仍建立基线并跳过本轮。
+                    # 但记录 preview 签名，下次变化时 preview_changed 会触发。
                     contact_state["lastSeenPreview"] = row_preview
                     return {"checked": False, "skipReason": "baseline_historical_row", "rowPreview": row_preview}
             elif row_preview != prev_preview:
@@ -729,6 +733,11 @@ class WeChatRealtimeMonitor:
                 memory_context=mem_ctx,
             )
             reply_text = str(smart.get("replyText") or "").strip()
+            # 客户出口净化：内部术语 → 友好话术（LLM 模仿 KB 技术条目时可能外泄）
+            try:
+                reply_text = self.engine.personas.sanitize_for_customer(reply_text)
+            except Exception:
+                pass  # 净化失败保留原文（宁可不完美，不丢回复）
 
             draft_record = {
                 "signature": msg_sig,

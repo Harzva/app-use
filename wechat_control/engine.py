@@ -40,6 +40,7 @@ from .realtime_monitor import _looks_like_timestamp, WeChatRealtimeMonitor
 from .sales_crm_hub import WeChatSalesCRMHub
 from .soul_memory_profiler import SoulMemoryProfiler
 from .ui_schema import WeChatUIProtocolNavigator
+from .io_utils import atomic_write_json
 from .safety import (
     AntiBanGuard,
     AuditLogger,
@@ -188,10 +189,7 @@ class HostingManager:
     def _persist(self) -> None:
         doc = self.status()
         try:
-            self._state_path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self._state_path.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
-            tmp.replace(self._state_path)
+            atomic_write_json(self._state_path, doc)
         except OSError:
             pass
 
@@ -1904,9 +1902,7 @@ class WeChatControlEngine:
 
         for fname_str, doc in by_file.items():
             try:
-                tmp = Path(fname_str + ".tmp")
-                tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
-                tmp.replace(Path(fname_str))
+                atomic_write_json(Path(fname_str), doc)
             except OSError:
                 pass
         if appended:
@@ -2193,9 +2189,7 @@ class WeChatControlEngine:
             "historyPath": str(dest),
             "sourceChatlog": str(source_path),
         }
-        tmp = Path(str(dest) + ".tmp")
-        tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(dest)
+        atomic_write_json(dest, doc)
         refreshed = self.profile_contacts() or {}
         profiles = refreshed.get("profiles", []) or []
         touched = [
@@ -2364,9 +2358,7 @@ class WeChatControlEngine:
         doc["recordCount"] = len(doc["records"])
         doc["historyPath"] = str(path)
         try:
-            tmp = Path(str(path) + ".tmp")
-            tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
-            tmp.replace(path)
+            atomic_write_json(path, doc)
             self.audit.log("media_note_persist", "ok", {"target": clean, "note": note_text[:80]})
             return True
         except OSError:

@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from .live_inspector import _matches_target, _slugify_target
 from .safety import normalize_chat_name
+from .io_utils import atomic_write_json
 
 TIME_SLOTS = (
     "清晨 05:00-08:59",
@@ -162,7 +163,7 @@ class ContactBindingStore:
             "updatedAt": _utc_iso_now(),
             "bindings": data.get("bindings", {}),
         }
-        self.bindings_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        atomic_write_json(self.bindings_file, payload)
         return payload
 
     @staticmethod
@@ -406,7 +407,7 @@ class ContactStyleProfiler:
             ("AI/GitHub开源工程", ("github", "openbmb", "staffdeck", "openbot", "grok", "agent", "元宝", "sop", "开源")),
             ("学术论文/顶会", ("iclr", "acm", "tgrs", "ccf", "resworld", "遥感", "论文", "学术")),
             ("大模型社群讨论", ("model agent", "权重", "挂梯子", "turbo", "pluto", "嗯哼", "物芳", "没绷住")),
-            ("企业办公通知", ("企业微信", "安心的", "联系人B", "邀请", "管理员", "微信开放社区", "微信号", "微信团队")),
+            ("企业办公通知", ("企业微信", "安心的", "郝泽华", "邀请", "管理员", "微信开放社区", "微信号", "微信团队")),
             ("个人收藏/备忘录", ("文件传输", "工具箱", "笔记", "指南", "日记")),
             ("公众号/服务号资讯", ("公众号", "服务号", "村西边老王", "看一看", "百度网", "微信小店", "腾讯云")),
         ]
@@ -444,7 +445,7 @@ class ContactStyleProfiler:
                 "聚合类入口（包含多条推送或二级子会话），非单一自然人对话。",
                 "定期只读摘要抓取即可，无需直接发送聊天消息。",
             )
-        if "联系人A" in norm_title:
+        if "心安" in norm_title:
             return (
                 "轻松趣味视频号与新鲜工具分享型好友",
                 f"偏好视频号短视频与实用工具链接互动，平均片段约 {avg_length:.1f} 字；近期活跃于「{peak_slot}」。",
@@ -825,7 +826,7 @@ class ContactStyleProfiler:
 
         json_path = reports_dir / "contact_analytics_report.json"
         md_path = reports_dir / "contact_analytics_report.md"
-        json_path.write_text(json.dumps(analytics, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        atomic_write_json(json_path, analytics)
         md_path.write_text(self._format_markdown_report(analytics), encoding="utf-8")
         analytics["reportJsonPath"] = str(json_path)
         analytics["reportMarkdownPath"] = str(md_path)

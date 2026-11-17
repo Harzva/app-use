@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from .io_utils import atomic_write_json
 
 MAX_ARTICLE_BYTES = 20 * 1024 * 1024
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
@@ -844,7 +845,7 @@ class WeChatArticleExporter:
             "markdown_preview": full_md[:3000],
         }
         meta_path = target_dir / "metadata.json"
-        meta_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(meta_path, metadata, newline=False)
         metadata["metadata_path"] = str(meta_path)
         metadata["markdown_content"] = full_md
         return metadata
@@ -1258,7 +1259,7 @@ class WeChatArticleExporter:
             "markdown_preview": full_md[:3000],
         }
         meta_path = target_dir / "metadata.json"
-        meta_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(meta_path, metadata, newline=False)
         metadata["metadata_path"] = str(meta_path)
         metadata["markdown_content"] = full_md
         return metadata
@@ -1637,7 +1638,7 @@ class WeChatArticleExporter:
             "failedArticles": failed_articles,
         }
         catalog_path = bundle_dir / "account_catalog.json"
-        catalog_path.write_text(json.dumps(catalog, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(catalog_path, catalog, newline=False)
         catalog["catalogJsonPath"] = str(catalog_path)
         return catalog
 
@@ -1996,7 +1997,7 @@ class WeChatArticleExporter:
             "failedVideos": failed_videos,
         }
         cat_path = bundle_dir / "channels_catalog.json"
-        cat_path.write_text(json.dumps(catalog, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(cat_path, catalog, newline=False)
         catalog["catalogJsonPath"] = str(cat_path)
         return catalog
 

@@ -17,6 +17,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+from .io_utils import atomic_write_json
 
 DEFAULT_OPENBOT_KNOWLEDGE_DB = Path("/Users/mac/Library/Application Support/openbot/bot-knowledge/knowledge.sqlite")
 
@@ -966,7 +967,7 @@ class PersonaSwitchEngine:
                 "updatedAt": _utc_iso_now(),
                 "personas": DEFAULT_PERSONAS,
             }
-            self.personas_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            atomic_write_json(self.personas_file, payload)
 
     def _load(self) -> Dict[str, Any]:
         self._ensure_seeded()
@@ -987,7 +988,7 @@ class PersonaSwitchEngine:
             "updatedAt": _utc_iso_now(),
             "personas": personas,
         }
-        self.personas_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        atomic_write_json(self.personas_file, payload)
 
     def list_personas(self) -> Dict[str, Any]:
         personas = self._load()

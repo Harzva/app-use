@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from .article_exporter import DEFAULT_WECHAT_UA, _read_bounded_response, _validate_safe_http_url
+from .io_utils import atomic_write_json
 
 if TYPE_CHECKING:
     from .engine import WeChatControlEngine
@@ -374,7 +375,7 @@ class WeChatMediaLinkAnalyzer:
                     **llm,
                 }
                 art_path = self.analysis_dir / f"{analysis_id}.json"
-                art_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+                atomic_write_json(art_path, result, newline=False)
                 result["artifactPath"] = str(art_path)
                 return self._record_analysis(result)
 
@@ -491,7 +492,7 @@ class WeChatMediaLinkAnalyzer:
             **llm,
         }
         art_path = self.analysis_dir / f"{analysis_id}.json"
-        art_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(art_path, result, newline=False)
         result["artifactPath"] = str(art_path)
         return self._record_analysis(result)
 
@@ -602,7 +603,7 @@ class WeChatMediaLinkAnalyzer:
             **llm,
         }
         art_path = self.analysis_dir / f"{analysis_id}.json"
-        art_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(art_path, result, newline=False)
         result["artifactPath"] = str(art_path)
         return self._record_analysis(result)
 
@@ -808,6 +809,6 @@ class WeChatMediaLinkAnalyzer:
             **llm,
         }
         art_path = self.analysis_dir / f"{analysis_id}.json"
-        art_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(art_path, result, newline=False)
         result["artifactPath"] = str(art_path)
         return self._record_analysis(result)

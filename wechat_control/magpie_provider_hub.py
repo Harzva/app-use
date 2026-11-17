@@ -34,6 +34,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from .io_utils import atomic_write_json
 
 
 DEFAULT_PLUGIN_ROOT = Path(__file__).resolve().parent.parent
@@ -498,7 +499,7 @@ class MagpieProviderHub:
     def _save_state(self, state: Optional[Dict[str, Any]] = None) -> None:
         target = state if state is not None else self.state
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
-        self.config_path.write_text(json.dumps(target, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(self.config_path, target, newline=False)
 
     def is_llm_enabled(self) -> bool:
         return bool(self.state.get("llmReplyEnabled", True))

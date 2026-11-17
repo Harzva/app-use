@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .safety import normalize_chat_name
+from .io_utils import atomic_write_json
 
 _TIMESTAMP_DIVIDER_RE = re.compile(
     r"^(?:"
@@ -69,7 +70,7 @@ def _matches_target(target: str, candidate: str) -> bool:
     c_clean = normalize_chat_name(_clean_title_for_match(candidate)).casefold()
     if not c_clean:
         return False
-    # Reject message preview lines like "联系人A: [链接]..."
+    # Reject message preview lines like "心安: [链接]..."
     if ":" in c_clean or "：" in c_clean:
         return False
     # Prevent 1-on-1 friend name from matching multi-person group chat title containing "、"
@@ -530,6 +531,7 @@ class WeChatLiveInspector:
                     "visibleMessageCount": 0,
                     "visibleMessages": [],
                     "snapshotPath": str(overview_path),
+                    "avatarRel": r.get("avatarRel"),
                 }
                 for i, r in enumerate(rows)
             ]
@@ -559,7 +561,7 @@ class WeChatLiveInspector:
             }
             json_path = self.reports_dir / "wechat_management_report.json"
             md_path = self.reports_dir / "wechat_management_report.md"
-            json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            atomic_write_json(json_path, report)
             md_path.write_text(self._format_markdown_report(report), encoding="utf-8")
             report["reportJsonPath"] = str(json_path)
             report["reportMarkdownPath"] = str(md_path)
@@ -714,7 +716,7 @@ class WeChatLiveInspector:
 
         json_path = self.reports_dir / "wechat_management_report.json"
         md_path = self.reports_dir / "wechat_management_report.md"
-        json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        atomic_write_json(json_path, report)
         md_path.write_text(self._format_markdown_report(report), encoding="utf-8")
 
         report["reportJsonPath"] = str(json_path)
@@ -1014,5 +1016,5 @@ class WeChatLiveInspector:
             "records": merged,
             "historyPath": str(history_path),
         }
-        history_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        atomic_write_json(history_path, payload)
         return payload

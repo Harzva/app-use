@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import local_signing
+from .io_utils import atomic_write_json
 
 
 FOUR_TAB_PAGE_IDS = ["overview", "console", "workflows", "page_spec"]
@@ -332,7 +333,7 @@ def _enhance_botstudio_page_html(html: str) -> str:
             payload = {target: args.target || '', rebuild: !!args.rebuild};
           } else if (actionId === 'smart_reply') {
             endpoint = '/api/reply-preview';
-            payload = {target: args.target || '联系人A', incoming_text: args.incomingText || '', persona: args.persona || 'owner-digital-twin'};
+            payload = {target: args.target || '心安', incoming_text: args.incomingText || '', persona: args.persona || 'owner-digital-twin'};
           } else if (actionId === 'run_benchmark' || actionId === 'wechat_full_acceptance') {
             endpoint = '/api/overview';
             method = 'GET';
@@ -341,10 +342,10 @@ def _enhance_botstudio_page_html(html: str) -> str:
             method = 'GET';
           } else if (actionId === 'crm_analyze') {
             endpoint = '/api/crm/analyze';
-            payload = {target: args.target || '联系人A', incoming_text: args.incomingText || ''};
+            payload = {target: args.target || '心安', incoming_text: args.incomingText || ''};
           } else if (actionId === 'crm_formulas') {
             endpoint = '/api/crm/formulas';
-            payload = {target: args.target || '联系人A'};
+            payload = {target: args.target || '心安'};
           }
           if (!endpoint) return;
           try {
@@ -661,8 +662,8 @@ process.stdout.write(JSON.stringify({
         enhanced_html = _enhance_botstudio_page_html(compiled["pageHtml"])
         page_html_path.write_text(enhanced_html, encoding="utf-8")
         agent_md_path.write_text(compiled["agentMd"], encoding="utf-8")
-        agent_json_path.write_text(json.dumps(pkg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        plugin_copy_path.write_text(json.dumps(pkg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        atomic_write_json(agent_json_path, pkg)
+        atomic_write_json(plugin_copy_path, pkg)
         llms_txt_path.write_text(compiled["llmsTxt"], encoding="utf-8")
 
         return {
@@ -877,7 +878,7 @@ process.stdout.write(JSON.stringify({
             "mcpServers": status["botStudio"]["mcpServerConfig"]["mcpServers"],
             "studioAuthorization": status["botStudio"]["studioAuthorization"],
         }
-        target_path.write_text(json.dumps(bundle, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        atomic_write_json(target_path, bundle)
         return {
             "ok": True,
             "bundlePath": str(target_path),

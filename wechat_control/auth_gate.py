@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
+from .io_utils import atomic_write_json
 
 
 ALL_CAPABILITIES = (
@@ -92,7 +93,7 @@ class StudioAuthGate:
         self.auth_file.parent.mkdir(parents=True, exist_ok=True)
         state = dict(state)
         state["digestSha256"] = self._compute_digest(state)
-        self.auth_file.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        atomic_write_json(self.auth_file, state)
         return state
 
     def grant(
