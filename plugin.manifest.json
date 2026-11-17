@@ -4,7 +4,7 @@
   "dshPluginId": "dsh-plugin-wechat-ecosystem",
   "packageName": "@openbot/wechat-rpa-plugin",
   "dshPackageName": "@dsh-market/wechat-ecosystem",
-  "version": "2.4.36",
+  "version": "2.4.37",
   "title": "WeChat Ecosystem Studio (macOS RPA + Vision OCR + Bridge + Exporter)",
   "description": "Standalone software (.app + Web + CLI), DSH plugin (openbot.dsh-plugin/1), and Bot Studio 1.0.33 plugin for macOS WeChat desktop control, media export (articles/accounts/channels), and WeChatBridge Soul profiling under explicit Studio authorization.",
   "platform": "darwin",

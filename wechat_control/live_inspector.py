@@ -159,6 +159,23 @@ class WeChatLiveInspector:
     def _sleep(self, seconds: float) -> None:
         time.sleep(seconds)
 
+    def _capture_wechat_ocr(self, out_path: Path, *, timeout: float = 30.0,
+                            window_title: str = "微信") -> Dict[str, Any]:
+        """只截微信窗口做 OCR（--window-title 定位），避免截到覆盖在上面的无关窗口。
+
+        窗口不存在时退回不带 title 的调用（保留自动拉起能力）。
+        """
+        res = self._run_native(
+            ["capture-ocr", "--window-title", window_title, "--out", str(out_path)], timeout)
+        if res.get("ok"):
+            return res
+        if res.get("error_code") in ("window_not_found", "no_window"):
+            fallback = self._run_native(["capture-ocr", "--out", str(out_path)], timeout)
+            fallback["fallbackUsed"] = True
+            fallback["fallbackReason"] = res.get("error_code")
+            return fallback
+        return res
+
     def _activate_and_get_status(self) -> Dict[str, Any]:
         status = self._run_native(["status"], 10.0)
         windows = status.get("windows") or []
@@ -498,7 +515,7 @@ class WeChatLiveInspector:
 
         if not post_event_trusted:
             overview_path = self.snapshots_dir / "sessions_overview_p0.png"
-            overview_ocr = self._run_native(["capture-ocr", "--out", str(overview_path)], 15.0)
+            overview_ocr = self._capture_wechat_ocr(overview_path)
             elements = overview_ocr.get("elements") or []
             rows = self._cluster_session_rows(elements, split_x, win_h)
             right_info = self._parse_right_pane(elements, split_x, win_h)
@@ -559,7 +576,7 @@ class WeChatLiveInspector:
         self._click_rel(bounds, rail_x, avatar_y)
         self._sleep(0.45)
         profile_shot = self.snapshots_dir / "account_profile.png"
-        profile_ocr = self._run_native(["capture-ocr", "--out", str(profile_shot)], 15.0)
+        profile_ocr = self._capture_wechat_ocr(profile_shot)
         # Dismiss profile popup by clicking empty top bar area
         self._click_rel(bounds, win_w * 0.65, 24.0)
         self._sleep(0.25)
@@ -580,7 +597,7 @@ class WeChatLiveInspector:
 
         for page in range(max_session_pages):
             overview_path = self.snapshots_dir / f"sessions_overview_p{page}.png"
-            overview_ocr = self._run_native(["capture-ocr", "--out", str(overview_path)], 15.0)
+            overview_ocr = self._capture_wechat_ocr(overview_path)
             if not overview_ocr.get("ok"):
                 break
             rows = self._cluster_session_rows(overview_ocr.get("elements") or [], split_x, win_h)
@@ -601,7 +618,7 @@ class WeChatLiveInspector:
                 self._sleep(0.42)
 
                 snap_path = self.snapshots_dir / f"session_{session_counter:02d}.png"
-                cap = self._run_native(["capture-ocr", "--out", str(snap_path)], 15.0)
+                cap = self._capture_wechat_ocr(snap_path)
                 elements = cap.get("elements") or []
                 right_info = self._parse_right_pane(elements, split_x, win_h)
 
@@ -649,7 +666,7 @@ class WeChatLiveInspector:
 
         for page in range(max_contact_pages):
             c_snap = self.snapshots_dir / f"contacts_p{page}.png"
-            c_ocr = self._run_native(["capture-ocr", "--out", str(c_snap)], 15.0)
+            c_ocr = self._capture_wechat_ocr(c_snap)
             parsed = self._parse_contacts_pane(c_ocr.get("elements") or [], split_x, win_h)
             digest = "|".join(parsed["listItems"])
             if digest == prev_page_digest and page > 0:
@@ -796,7 +813,7 @@ class WeChatLiveInspector:
         self._sleep(0.35)
 
         cur_snap = self.snapshots_dir / f"nav_{slug}_cur.png"
-        cur_ocr = self._run_native(["capture-ocr", "--out", str(cur_snap)], 15.0)
+        cur_ocr = self._capture_wechat_ocr(cur_snap)
         elements = cur_ocr.get("elements") or []
         right_info = self._parse_right_pane(elements, split_x, win_h)
         if right_info["headerTitle"] and _matches_target(target, right_info["headerTitle"]):
@@ -818,7 +835,7 @@ class WeChatLiveInspector:
                 self._click_rel(bounds, row["clickRelX"], row["clickRelY"])
                 self._sleep(0.45)
                 click_snap = self.snapshots_dir / f"nav_{slug}_matched.png"
-                cap = self._run_native(["capture-ocr", "--out", str(click_snap)], 15.0)
+                cap = self._capture_wechat_ocr(click_snap)
                 cap_els = cap.get("elements") or []
                 after_right = self._parse_right_pane(cap_els, split_x, win_h)
                 if after_right["headerTitle"] and _matches_target(target, after_right["headerTitle"]):
@@ -843,7 +860,7 @@ class WeChatLiveInspector:
         seen_pages: set[str] = set()
         for page in range(max_pages):
             page_snap = self.snapshots_dir / f"nav_{slug}_p{page}.png"
-            cap = self._run_native(["capture-ocr", "--out", str(page_snap)], 15.0)
+            cap = self._capture_wechat_ocr(page_snap)
             page_els = cap.get("elements") or []
             page_rows = self._cluster_session_rows(page_els, split_x, win_h)
             digest = "|".join(f"{r['titleSnippet']}::{r['previewSnippet']}" for r in page_rows)
@@ -856,7 +873,7 @@ class WeChatLiveInspector:
                     self._click_rel(bounds, row["clickRelX"], row["clickRelY"])
                     self._sleep(0.45)
                     matched_snap = self.snapshots_dir / f"nav_{slug}_matched.png"
-                    m_cap = self._run_native(["capture-ocr", "--out", str(matched_snap)], 15.0)
+                    m_cap = self._capture_wechat_ocr(matched_snap)
                     m_els = m_cap.get("elements") or []
                     m_right = self._parse_right_pane(m_els, split_x, win_h)
                     if m_right["headerTitle"] and _matches_target(target, m_right["headerTitle"]):
@@ -910,7 +927,7 @@ class WeChatLiveInspector:
 
         for page in range(max(1, scroll_pages)):
             snap_path = self.snapshots_dir / f"observe_{slug}_p{page}.png"
-            cap = self._run_native(["capture-ocr", "--out", str(snap_path)], 15.0)
+            cap = self._capture_wechat_ocr(snap_path)
             elements = cap.get("elements") or []
             right_info = self._parse_right_pane(elements, split_x, win_h)
             digest = "|".join(m["text"] for m in right_info["messages"])

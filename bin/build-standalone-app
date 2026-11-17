@@ -13,8 +13,8 @@ VISION_BIN="$ROOT_DIR/bin/wechat-vision-ax"
 BIN_OUT="$ROOT_DIR/bin/wechat-studio-app"
 mkdir -p "$ROOT_DIR/bin" "$ROOT_DIR/dist" "/Volumes/SanDisk/Builds"
 
-APP_VERSION="2.4.36"
-APP_BUILD="2436"
+APP_VERSION="2.4.37"
+APP_BUILD="2437"
 
 swiftc -O "$ROOT_DIR/native/wechat_vision_ax.swift" \
   -framework AppKit \

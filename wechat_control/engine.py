@@ -413,17 +413,30 @@ class WeChatControlEngine:
                            window_title: str = "微信") -> Dict[str, Any]:
         """只截微信窗口做 OCR（--window-title 定位），避免截到覆盖在上面的无关窗口。
 
-        原生层指定 window-title 时不会自动拉起微信，因此窗口不存在时退回不带 title 的
-        调用（保留 ensureWeChatMainWindow 的自动恢复能力），并在结果里标注 fallbackUsed。
+        两层兜底：
+        1. 窗口不存在（window_not_found）→ 退回不带 title 的调用（保留自动拉起能力）
+        2. 截图成功但 OCR 为空（窗口被其他应用完全遮挡时 macOS 返回空白）→ 激活微信后重截一次
         """
         res = self._run_native(["capture-ocr", "--window-title", window_title, "--out", str(out_path)], timeout)
-        if res.get("ok"):
-            return res
-        if res.get("error_code") in ("window_not_found", "no_window"):
-            fallback = self._run_native(["capture-ocr", "--out", str(out_path)], timeout)
-            fallback["fallbackUsed"] = True
-            fallback["fallbackReason"] = res.get("error_code")
-            return fallback
+        if not res.get("ok"):
+            if res.get("error_code") in ("window_not_found", "no_window"):
+                fallback = self._run_native(["capture-ocr", "--out", str(out_path)], timeout)
+                fallback["fallbackUsed"] = True
+                fallback["fallbackReason"] = res.get("error_code")
+                return fallback
+            if res.get("error_code") != "window_occluded":
+                return res
+        # 窗口被完全遮挡（原生层返回 window_occluded / 空结果）→ 激活微信后重截一次
+        if res.get("error_code") == "window_occluded" or not (res.get("elements") or []):
+            self._run_native(["activate"], 10.0)
+            time.sleep(0.8)
+            retry = self._run_native(
+                ["capture-ocr", "--window-title", window_title, "--out", str(out_path)], timeout)
+            if retry.get("ok") and (retry.get("elements") or []):
+                retry["retriedAfterActivate"] = True
+                return retry
+            retry["occluded"] = True
+            return retry
         return res
 
     def _enhance_lowres_ocr(self, args: List[str], data: Dict[str, Any], *, timeout: float) -> Dict[str, Any]:

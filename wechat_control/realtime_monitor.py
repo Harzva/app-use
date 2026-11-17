@@ -442,7 +442,14 @@ class WeChatRealtimeMonitor:
             state["daemon"]["lastPollAt"] = _utc_iso_now()
             state["daemon"]["lastError"] = str(cap.get("error") or cap.get("error_code"))
             self._save_state(state)
-            self._append_event("poll_error", cap)
+            # 窗口被遮挡是环境状态而非程序故障：单独事件，便于首页区分提示
+            if cap.get("error_code") == "window_occluded":
+                self._append_event("window_occluded", {
+                    "status": "wechat_hidden",
+                    "hint": "微信窗口被其他应用完全遮挡，巡检暂停；把微信切到前台或最小化遮挡窗口即可恢复",
+                })
+            else:
+                self._append_event("poll_error", cap)
             return cap
 
         bounds = cap["bounds"]

@@ -2872,7 +2872,26 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       if (h.running || h.enabled) {
         const pause = hostingHumanPause();
         const pauseFresh = pause.paused && pause.agoMs < 5 * 60_000;
-        if (pauseFresh) {
+        // 微信窗口被遮挡：环境状态，需明确提示（否则用户以为机器人坏了）
+        const evsNow = STATE?.monitor?.recentEvents || [];
+        let occludedTs = 0;
+        for (const ev of evsNow) {
+          if (ev.event === "window_occluded" || ev.event === "human_idle_resumed") {
+            const t = new Date(ev.ts || "").getTime();
+            if (Number.isFinite(t) && t >= occludedTs) {
+              occludedTs = t;
+              if (ev.event === "window_occluded") { /* last state = occluded */ }
+            }
+          }
+        }
+        const lastOccluded = evsNow.filter(e => e.event === "window_occluded").map(e => new Date(e.ts || "").getTime()).sort((a,b)=>b-a)[0] || 0;
+        const occludedFresh = lastOccluded && (Date.now() - lastOccluded) < 5 * 60_000;
+        if (occludedFresh && !pauseFresh) {
+          badge.textContent = "🟠 微信窗口被遮挡 · " + targets.length + " 位好友";
+          badge.classList.add("on");
+          badge.classList.remove("off");
+          meta.textContent = "微信被其他应用完全遮挡，巡检暂停（macOS 遮挡保护）· 把微信切到前台即可自动恢复 · 消息不会丢失";
+        } else if (pauseFresh) {
           badge.textContent = "🟡 托管让路中 · " + targets.length + " 位好友";
           badge.classList.add("on");
           badge.classList.remove("off");

@@ -374,6 +374,27 @@ func captureWindowImage(_ window: WindowCandidate) -> CGImage? {
     )
 }
 
+/// 检测图像是否全透明（macOS 对被其他应用完全遮挡的窗口返回 alpha=0 的空图）。
+/// 采样网格点，若所有采样点 alpha 都为 0 则判定为遮挡。
+func isImageFullyTransparent(_ image: CGImage) -> Bool {
+    let w = image.width, h = image.height
+    guard w > 8, h > 8 else { return true }
+    let sampleW = min(w, 64), sampleH = min(h, 64)
+    var pixels = [UInt8](repeating: 0, count: sampleW * sampleH * 4)
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    guard let ctx = CGContext(data: &pixels, width: sampleW, height: sampleH,
+                              bitsPerComponent: 8, bytesPerRow: sampleW * 4,
+                              space: colorSpace,
+                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+        return false
+    }
+    ctx.draw(image, in: CGRect(x: 0, y: 0, width: sampleW, height: sampleH))
+    for i in stride(from: 3, to: pixels.count, by: 4) {
+        if pixels[i] != 0 { return false }
+    }
+    return true
+}
+
 func parseTitleFromHeaderOCR(_ window: WindowCandidate) -> String? {
     guard CGPreflightScreenCaptureAccess(),
           let image = captureWindowImage(window) else { return nil }
@@ -972,6 +993,14 @@ func cmdCaptureOCR(options: [String: String], allowActivation: Bool = true) {
     }
     guard let cgImage = captureWindowImage(mainWin) else {
         failJSON("CGWindowListCreateImage returned nil.", code: "capture_failed")
+    }
+    // 遮挡检测：macOS 对被其他应用完全遮挡的窗口返回全透明图（alpha=0），OCR 必然为空。
+    // 明确报 window_occluded，让上层区分「窗口被遮挡」与「OCR 真失败」。
+    if isImageFullyTransparent(cgImage) {
+        failJSON(
+            "WeChat window is fully occluded by another app (macOS returns a transparent image). Bring WeChat to front or minimize the covering window.",
+            code: "window_occluded"
+        )
     }
 
     var savedPath: String? = nil
