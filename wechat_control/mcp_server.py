@@ -33,9 +33,18 @@ from .workbench import ReviewLedger, Workbench, WorkbenchError
 from .workbench_library import records as workbench_records
 
 MCP_PROTOCOL_VERSION = "2024-11-05"
+def _read_plugin_version() -> str:
+    """单一事实源：版本统一从 plugin.manifest.json 读取（build 脚本强制四处一致）。"""
+    try:
+        manifest = Path(__file__).resolve().parent.parent / "plugin.manifest.json"
+        return str(json.loads(manifest.read_text()).get("version") or "?")
+    except Exception:
+        return "?"
+
+
 SERVER_INFO = {
     "name": "openbot-wechat-rpa-control",
-    "version": "2.4.0",
+    "version": _read_plugin_version(),
 }
 
 MCP_TOOLS: List[Dict[str, Any]] = [
@@ -1355,7 +1364,7 @@ def create_http_server(
                 if path in ("/", "/console", "/index.html"):
                     self._send_html(200, render_web_console_html())
                 elif path == "/health":
-                    self._send_json(200, {"ok": True, "service": SERVER_INFO["name"]})
+                    self._send_json(200, {"ok": True, "service": SERVER_INFO["name"], "version": SERVER_INFO.get("version")})
                 elif path == "/auth/status":
                     self._send_json(200, engine.auth_status())
                 elif path in ("/api/overview", "/api/dashboard"):
