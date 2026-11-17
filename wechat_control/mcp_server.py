@@ -15,6 +15,19 @@ from .auth_gate import ALL_CAPABILITIES, StudioPluginUnauthorizedError
 from .background_observer import BackgroundObserver
 from .engine import WeChatControlEngine
 from .saved_drafts import SavedDraftError, SavedDraftStore
+
+def _maybe_unquote_target(t: str) -> str:
+    """服务端兜底：前端某些旧入口可能传 URL 编码的 target，统一解码。"""
+    from urllib.parse import unquote
+    t = str(t or "").strip()
+    if "%" in t:
+        try:
+            dec = unquote(t)
+            if dec != t and "%" not in dec:
+                return dec
+        except Exception:
+            pass
+    return t
 from .web_console import render_web_console_html
 from .workbench import ReviewLedger, Workbench, WorkbenchError
 from .workbench_library import records as workbench_records
@@ -1565,10 +1578,10 @@ def create_http_server(
                 elif path == "/api/takeover":
                     action = str(body.get("action") or "takeover").strip().lower()
                     if action == "resume":
-                        res = engine.resume_contact(str(body.get("target") or ""))
+                        res = engine.resume_contact(_maybe_unquote_target(str(body.get("target") or "")))
                     else:
                         res = engine.takeover_contact(
-                            str(body.get("target") or ""),
+                            _maybe_unquote_target(str(body.get("target") or "")),
                             reason=str(body.get("reason") or "Web console human takeover"),
                         )
                     self._send_json(200, res)
