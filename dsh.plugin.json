@@ -62,7 +62,7 @@
           "target": {
             "type": "string",
             "title": "目标客户名称",
-            "default": "心安"
+            "default": "联系人A"
           },
           "incoming_text": {
             "type": "string",
@@ -83,7 +83,7 @@
           "target": {
             "type": "string",
             "title": "目标客户名称",
-            "default": "心安"
+            "default": "联系人A"
           }
         },
         "required": ["target"]
@@ -99,7 +99,7 @@
           "targetChat": {
             "type": "string",
             "title": "目标联系人或群聊",
-            "description": "可选：指定要读取的会话名称，如 心安",
+            "description": "可选：指定要读取的会话名称，如 联系人A",
             "default": ""
           },
           "includeContacts": {
@@ -250,8 +250,8 @@
           "target": {
             "type": "string",
             "title": "回复对象姓名或群名",
-            "description": "如 心安",
-            "default": "心安"
+            "description": "如 联系人A",
+            "default": "联系人A"
           },
           "incomingText": {
             "type": "string",

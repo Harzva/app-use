@@ -237,10 +237,10 @@ class WeChatRPABenchmarkSuite:
             clean_ok = False
 
         dedup = OutgoingMessageRegistry(dedup_window_seconds=120.0)
-        d1, _, _ = dedup.check_and_record("心安", "测试消息", record_now=True)
-        d2, _, _ = dedup.check_and_record("心安", "测试消息", record_now=True)
-        allow = GroupAllowlistGuard(["心安", "openbot"])
-        a_yes = allow.is_allowed("心安")
+        d1, _, _ = dedup.check_and_record("联系人A", "测试消息", record_now=True)
+        d2, _, _ = dedup.check_and_record("联系人A", "测试消息", record_now=True)
+        allow = GroupAllowlistGuard(["联系人A", "openbot"])
+        a_yes = allow.is_allowed("联系人A")
         a_no = not allow.is_allowed("陌生群聊")
         elapsed = round((time.monotonic() - t0) * 1000.0, 2)
         passed = dirty_rejected and clean_ok and d1 and (not d2) and a_yes and a_no
@@ -346,7 +346,7 @@ class WeChatRPABenchmarkSuite:
         t0 = time.monotonic()
         # Test WeChatBridge parser + SoulMemoryProfiler synthesis + memory-augmented reply
         sample_chat = (
-            "·心安\n"
+            "·联系人A\n"
             "2026年11月15日 14:20\n"
             "明天早上9点一起测试OpenBot定时问候\n"
             "·我\n"
@@ -358,12 +358,12 @@ class WeChatRPABenchmarkSuite:
             txt_path.write_text(sample_chat, encoding="utf-8")
             bundle = WeChatBridgeImporter().load(txt_path)
             soul_data = self.engine.get_soul_profiles(rebuild=False)
-            mem_ctx = self.engine.soul_profiler.get_contact_memory_context("心安")
+            mem_ctx = self.engine.soul_profiler.get_contact_memory_context("联系人A")
             reply_preview = self.engine.personas.generate_smart_reply(
-                "心安",
+                "联系人A",
                 "咱们的定时测试进展怎么样啦？",
                 knowledge_store=self.engine.knowledge,
-                binding=self.engine.bindings.get_binding("心安"),
+                binding=self.engine.bindings.get_binding("联系人A"),
                 persona_override="owner-digital-twin",
                 memory_context=mem_ctx,
                 use_llm=False,
@@ -373,7 +373,7 @@ class WeChatRPABenchmarkSuite:
             bench_crm = WeChatSalesCRMHub(self.engine, db_path=Path(tmp) / "bench_crm.sqlite")
             bench_crm.sync_from_wechat()
             crm_analysis = bench_crm.enroll_contact(
-                "心安",
+                "联系人A",
                 stage="已报价",
                 note="Benchmark SalesCRM 15D 联动验证",
                 follow_up="2026-11-16T09:30",

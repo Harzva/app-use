@@ -221,7 +221,7 @@
           "id": "targetChat",
           "label": "目标联系人或群聊",
           "type": "text",
-          "placeholder": "可选：指定要读取的会话名称，如 心安",
+          "placeholder": "可选：指定要读取的会话名称，如 联系人A",
           "defaultValue": "",
           "required": false
         },

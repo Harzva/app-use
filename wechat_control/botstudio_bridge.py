@@ -332,7 +332,7 @@ def _enhance_botstudio_page_html(html: str) -> str:
             payload = {target: args.target || '', rebuild: !!args.rebuild};
           } else if (actionId === 'smart_reply') {
             endpoint = '/api/reply-preview';
-            payload = {target: args.target || '心安', incoming_text: args.incomingText || '', persona: args.persona || 'owner-digital-twin'};
+            payload = {target: args.target || '联系人A', incoming_text: args.incomingText || '', persona: args.persona || 'owner-digital-twin'};
           } else if (actionId === 'run_benchmark' || actionId === 'wechat_full_acceptance') {
             endpoint = '/api/overview';
             method = 'GET';
@@ -341,10 +341,10 @@ def _enhance_botstudio_page_html(html: str) -> str:
             method = 'GET';
           } else if (actionId === 'crm_analyze') {
             endpoint = '/api/crm/analyze';
-            payload = {target: args.target || '心安', incoming_text: args.incomingText || ''};
+            payload = {target: args.target || '联系人A', incoming_text: args.incomingText || ''};
           } else if (actionId === 'crm_formulas') {
             endpoint = '/api/crm/formulas';
-            payload = {target: args.target || '心安'};
+            payload = {target: args.target || '联系人A'};
           }
           if (!endpoint) return;
           try {

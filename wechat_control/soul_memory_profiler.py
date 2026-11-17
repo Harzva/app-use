@@ -8,7 +8,7 @@ to construct:
 1. **微信号主人「本我画像」(Owner / Self Soul Profile)**:
    - Analyzes all `self` / owner outgoing messages across chats and bridges to model the account
      owner's speaking style (average sentence length, catchphrases, punctuation/emoji habits),
-     active peak hours, core projects/facts (`zhhao_1995`, `郝泽华`, `安心的AI工作室`, `OpenBot`,
+     active peak hours, core projects/facts (`zhhao_1995`, `联系人B`, `安心的AI工作室`, `OpenBot`,
      `StaffDeck`), and cross-contact role-switching matrix.
    - Generates a live system prompt and keeps the `owner-digital-twin` ("🎭 号主本人数字分身")
      persona synchronized in `PersonaSwitchEngine`.
@@ -38,7 +38,7 @@ from .contact_profiler import FOLDER_CHAT_TITLES, extract_time_markers
 from .live_inspector import _matches_target, _slugify_target
 from .safety import normalize_chat_name
 
-DEFAULT_OWNER_ALIASES = ("我", "self", "owner", "本人", "号主", "郝泽华", "zhhao_1995")
+DEFAULT_OWNER_ALIASES = ("我", "self", "owner", "本人", "号主", "联系人B", "zhhao_1995")
 _NOISE_LINE_RE = re.compile(r"^[\W_0-9]{1,3}$")
 _URL_RE = re.compile(r"https?://[^\s<>\"']+")
 _GITHUB_RE = re.compile(r"(?:github\.com/[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)?|[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+)")
@@ -49,7 +49,7 @@ _COMMITMENT_HINTS = ("测试", "总结", "地址", "定时", "预约", "约定",
 _CATCHPHRASE_CANDIDATES = (
     "哈哈",
     "收到",
-    "久病成医",
+    "样例书名",
     "丝滑",
     "总结",
     "开源",
@@ -355,7 +355,7 @@ class SoulMemoryProfiler:
             ("影刀", "对比讨论过 RPA 与影刀/按键精灵自动化技术差异"),
             ("Personal Agent", "个人助手/虚拟机/云电脑硬件配置调研归档"),
             ("AI工具箱", "收藏并沉淀「宝藏 AI 工具箱」资料"),
-            ("郝泽华", "企业微信联系人「郝泽华@安心的AI工作室」"),
+            ("联系人B", "企业微信联系人「联系人B@安心的AI工作室」"),
         ]
         for needle, summary in entity_rules:
             if needle.casefold() in blob.casefold():
@@ -433,7 +433,7 @@ class SoulMemoryProfiler:
         peak_slot = str(analytics_entry.get("peakTimeSlot") or "时段样本待补充")
         categories = list(analytics_entry.get("contentCategories") or ["日常沟通"])
 
-        if "心安" in cf:
+        if "联系人A" in cf:
             personality_tag = "灵动接梗 · 工具与生活双栖密友"
             mbti_est = "ENFP / ENTP (脑洞好奇与分享欲强)"
             psych_summary = (
@@ -563,7 +563,7 @@ class SoulMemoryProfiler:
                 for ev in (cp.get("memories", {}).get("episodicEvents") or [])
                 if ev.get("direction") == "self"
             ]
-            if "心安" in cf:
+            if "联系人A" in cf:
                 role_mode = "轻松生活梗 & 共测挚友模式"
                 adj = "句短松弛、接住视频号/生活书名梗，愿陪对方测新机器人和工具"
             elif "openbot" in cf:
@@ -598,7 +598,7 @@ class SoulMemoryProfiler:
                 {
                     "id": "owner_fact_studio",
                     "category": "fact",
-                    "content": f"关联组织与团队：{studio_name}（与成员郝泽华等协同）",
+                    "content": f"关联组织与团队：{studio_name}（与成员联系人B等协同）",
                     "source": "wecom_invite_log",
                 },
                 {
@@ -615,13 +615,13 @@ class SoulMemoryProfiler:
                 },
             ]
             + all_facts
-            + [s for s in all_shared if any(k in s["content"] for k in ("OpenBot", "StaffDeck", "YoBot", "AI工具箱", "久病成医"))],
+            + [s for s in all_shared if any(k in s["content"] for k in ("OpenBot", "StaffDeck", "YoBot", "AI工具箱", "样例书名"))],
             limit=18,
         )
 
         traits = [
             "工程与系统思维强：关注 OpenBot、Agent、StaffDeck、RPA 与云电脑/工具箱实战评测",
-            "高共情分寸感（见人下菜碟）：对「心安」轻松接梗测试，对「openbot」务实讨论方案，对科研好友保持低噪克制",
+            "高共情分寸感（见人下菜碟）：对「联系人A」轻松接梗测试，对「openbot」务实讨论方案，对科研好友保持低噪克制",
             "短句高频、不喜冗长套话：自己发消息偏简洁口语，追求交互丝滑、省心与安全边界",
             "注重记忆与资产沉淀：习惯把有价值的文章、工具链接沉淀到文件传输助手或知识库",
         ]
