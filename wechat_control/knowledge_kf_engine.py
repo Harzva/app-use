@@ -213,7 +213,7 @@ DEFAULT_SEED_ENTRIES: List[Dict[str, Any]] = [
         "library": "shared",
         "kind": "script",
         "title": "实时监控与自动回复确认话术",
-        "body": "标准回复要点：1. 明确告知已通过后台实时消息监控捕获本条提问；2. 说明已接入本地微信客服知识库、专业术语词典与动态性格切换引擎；3. 邀请对方继续发送测试问题或业务咨询。",
+        "body": "标准回复要点：1. 明确告知已收到本条提问；2. 说明常见问题可即时解答，复杂问题可转人工；3. 邀请对方继续发送问题或业务咨询。",
         "keywords": ["回复消息", "能回复", "在吗", "测试", "你好", "收到", "实时监控", "自动回复"],
         "synonyms": ["可以回复", "看到消息", "智能回复确认"],
         "source": "openbot://scripts/live-reply-ack",
@@ -976,7 +976,7 @@ class PersonaSwitchEngine:
 
     # 内部术语（客户看不懂）：LLM 模仿知识库技术条目时可能外泄，出口统一净化
     _INTERNAL_JARGON_RE = re.compile(
-        r"(FTS5|AXUIElement|熔断|读回|Takeover|3x\b|prompt|system prompt)",
+        r"(FTS5|AXUIElement|熔断|读回|Takeover|3x\b|prompt|system prompt|RealtimeMessageMonitor|RealtimeMonitor|preview_reply|脏输入)",
         re.IGNORECASE,
     )
 
@@ -1044,6 +1044,11 @@ class PersonaSwitchEngine:
         is_kf_or_handoff = any(
             kw in in_cf for kw in ("客服", "退货", "政策", "人工", "接管", "知识库", "术语", "性格", "数字婚礼")
         )
+        # 显式转人工意图：无论 KB 是否命中，优先给出转接话术（与 realtime_monitor 手动接管检测对齐）
+        _handoff_kw = ("转人工", "转接人工", "人工客服", "找人工", "人工服务", "找真人", "真人客服",
+                       "人工接管", "人工在线", "找主管", "你们主管", "找经理", "找负责人", "要投诉",
+                       "transfer to human", "human agent", "real person")
+        is_explicit_handoff = any(kw in in_cf for kw in _handoff_kw)
 
         # Build fact-grounded answer tailored strictly in tone/structure by persona
         shared_mems = (mem_ctx.get("memories") or {}).get("sharedContext") or []
@@ -1099,13 +1104,24 @@ class PersonaSwitchEngine:
                 reply = f"结论：{core_fact}"
             else:
                 reply = f"嘿～简单来说区别在这：{core_fact} 是不是比纯靠死坐标靠谱多啦 😄"
+        elif is_explicit_handoff:
+            # 显式转人工意图优先于 KB 命中（包括英文 transfer to human）
+            if pid == "wecom-kf-pro":
+                reply = "好的，已为您标记转接人工客服，专员会尽快跟进您的问题，请稍候～"
+            elif pid == "rpa-tech-expert":
+                reply = f"已识别转人工意图；已进入人工接管队列，等待号主上线处理。"
+            elif pid == "concise-assistant":
+                reply = "已转人工，请稍候。"
+            else:
+                reply = "收到！马上帮你转人工，专员看到消息就会回复你哒～稍等一下哈 🙂"
         elif entries:
             top = (scripts_hit or knowledge_hit or terms_hit)[0]
             fact_excerpt = top["body"][:95].rstrip("。；， ")
             matched_term_titles = [t["title"].split(" (")[0] for t in terms_hit[:2]]
             term_badge = f"（参考术语：{'、'.join(matched_term_titles)}）" if matched_term_titles else ""
             if pid == "wecom-kf-pro":
-                reply = f"您好，针对您咨询的「{norm_in[:22]}」，依据《{top['title']}》为您说明：{fact_excerpt}。{term_badge}如仍需人工核对，我可以为您标记专员接管。"
+                kf_title = str(top["title"]).split(" (")[0]
+                reply = f"您好，针对您咨询的「{norm_in[:22]}」，为您说明：{fact_excerpt}。如仍需人工核对，我可以为您转接人工客服。"
             elif pid == "rpa-tech-expert":
                 reply = f"命中知识库《{top['title']}》{term_badge}：{fact_excerpt}。"
             elif pid == "concise-assistant":
@@ -1115,7 +1131,16 @@ class PersonaSwitchEngine:
         else:
             clean_in = norm_in[:28]
             recent_hint = f"（结合最近聊到的「{recent_messages[-1][:18]}」）" if recent_messages else ""
-            if pid == "wecom-kf-pro":
+            if is_explicit_handoff:
+                if pid == "wecom-kf-pro":
+                    reply = "好的，已为您标记转接人工客服，专员会尽快跟进您的问题，请稍候～"
+                elif pid == "rpa-tech-expert":
+                    reply = f"已识别转人工意图「{clean_in}」{recent_hint}；已进入人工接管队列，等待号主上线处理。"
+                elif pid == "concise-assistant":
+                    reply = "已转人工，请稍候。"
+                else:
+                    reply = "收到！马上帮你转人工，专员看到消息就会回复你哒～稍等一下哈 🙂"
+            elif pid == "wecom-kf-pro":
                 reply = f"您好，我已实时收到您的消息「{clean_in}」。当前知识库暂未收录该细分条款，我已为您记录并可转人工客服核对确认。"
             elif pid == "rpa-tech-expert":
                 reply = f"RealtimeMonitor 已捕获来信「{clean_in}」{recent_hint}；当前 KB 未命中精确术语条目，已进入标准人工待核队列。"
@@ -1200,6 +1225,9 @@ class PersonaSwitchEngine:
                 term for e in entries for term in (e.get("matchedTerms") or [])
             ][:8],
         }
+        # 内部人设（号主技术测试）保留技术口径；客户人设统一净化
+        if str(persona.get("id") or "") != "rpa-tech-expert":
+            final_text = self.sanitize_for_customer(final_text, max_len=int(persona.get("maxChars") or 160))
         return {
             "ok": True,
             "target": target,
@@ -1209,8 +1237,8 @@ class PersonaSwitchEngine:
             "matchedEntries": entries,
             "memoryCount": len(memory_refs),
             "memoryRefs": memory_refs[:6],
-            "replyText": self.sanitize_for_customer(final_text, max_len=int(persona.get("maxChars") or 160)),
             "templateFallbackReply": template_text,
+            "replyText": final_text,
             "generationMode": generation_mode,
             "modelUsed": model_used,
             "providerUsed": provider_used,
