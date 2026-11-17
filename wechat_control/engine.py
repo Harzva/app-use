@@ -1640,6 +1640,61 @@ class WeChatControlEngine:
         self.audit.log("hosting_stop", "ok", {"disabledReplies": disabled})
         return {"ok": True, "disabledReplies": disabled, **res}
 
+    def diagnostics(self, *, deep: bool = False) -> Dict[str, Any]:
+        """一键健康诊断：聚合各子系统状态 + 最近事件，供 /api/diagnostics 与排障使用。
+
+        deep=True 附加原生权限探测与 LLM 网关 TCP 探测（较慢）；
+        默认浅模式只读内存/磁盘状态。子系统的失败不影响整体报告。
+        """
+        report: Dict[str, Any] = {
+            "ok": True,
+            "generatedAt": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            manifest = DEFAULT_ROOT / "plugin.manifest.json"
+            report["version"] = str(json.loads(manifest.read_text()).get("version") or "?")
+        except Exception:
+            report["version"] = "?"
+        try:
+            report["auth"] = self.auth_status()
+        except Exception as exc:
+            report["auth"] = {"ok": False, "error": str(exc)}
+        try:
+            report["hosting"] = self.hosting_manager.status()
+        except Exception as exc:
+            report["hosting"] = {"ok": False, "error": str(exc)}
+        try:
+            report["antiban"] = self.antiban.status()
+        except Exception as exc:
+            report["antiban"] = {"ok": False, "error": str(exc)}
+        try:
+            report["knowledgeEntries"] = int(
+                self.knowledge.list_entries(include_drafts=False, limit=1).get("count") or 0
+            )
+        except Exception as exc:
+            report["knowledgeEntries"] = {"error": str(exc)}
+        try:
+            report["monitorState"] = self.monitor._load_state()
+        except Exception as exc:
+            report["monitorState"] = {"error": str(exc)}
+        try:
+            events: List[Dict[str, Any]] = []
+            if self.monitor.events_path.exists():
+                for line in self.monitor.events_path.read_text(encoding="utf-8").splitlines()[-20:]:
+                    line = line.strip()
+                    if line:
+                        try:
+                            events.append(json.loads(line))
+                        except Exception:
+                            pass
+            report["recentEvents"] = events
+        except Exception as exc:
+            report["recentEvents"] = {"error": str(exc)}
+        if deep:
+            report["permissions"] = self.permissions_status()
+            report["llmGateway"] = self.llm_gateway_status()
+        return report
+
     def hosting_status(self) -> Dict[str, Any]:
         self._require("status")
         return {"ok": True, **self.hosting_manager.status()}

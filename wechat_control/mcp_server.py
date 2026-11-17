@@ -640,7 +640,7 @@ MCP_TOOLS: List[Dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "target": {"type": "string", "default": "联系人A"},
+                "target": {"type": "string", "default": "心安"},
                 "incoming_text": {"type": "string", "default": ""},
             },
             "required": ["target"],
@@ -652,7 +652,7 @@ MCP_TOOLS: List[Dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "target": {"type": "string", "default": "联系人A"},
+                "target": {"type": "string", "default": "心安"},
                 "overrides": {"type": "object", "default": {}},
             },
             "required": ["target"],
@@ -1012,12 +1012,12 @@ class WeChatMCPServer:
             return self.engine.crm_overview(auto_sync=bool(args.get("auto_sync", True)))
         if name == "wechat_salescrm_analyze":
             return self.engine.crm_analyze_contact(
-                str(args.get("target") or "联系人A"),
+                str(args.get("target") or "心安"),
                 incoming_text=str(args.get("incoming_text") or ""),
             )
         if name == "wechat_salescrm_formulas":
             return self.engine.crm_evaluate_formulas(
-                str(args.get("target") or "联系人A"),
+                str(args.get("target") or "心安"),
                 overrides=args.get("overrides") if isinstance(args.get("overrides"), dict) else None,
             )
         raise KeyError(f"Unknown tool: {name}")
@@ -1390,6 +1390,9 @@ def create_http_server(
                     self._send_json(200, res)
                 elif path == "/api/permissions":
                     self._send_json(200, engine.permissions_status())
+                elif path == "/api/diagnostics":
+                    deep = parse_qs(parsed.query).get("deep", ["0"])[0] in ("1", "true", "yes")
+                    self._send_json(200, engine.diagnostics(deep=deep))
                 elif path == "/api/llm-gateway/relaunch":
                     self._send_json(200, engine.relaunch_llm_gateway())
                 elif path == "/api/avatar":
@@ -1916,7 +1919,7 @@ def create_http_server(
                             self._send_json(
                                 200,
                                 engine.crm_analyze_contact(
-                                    str(body.get("target") or "联系人A"),
+                                    str(body.get("target") or "心安"),
                                     incoming_text=str(body.get("incoming_text") or body.get("incomingText") or ""),
                                     formula_overrides=ov if isinstance(ov, dict) else None,
                                 ),
@@ -1926,7 +1929,7 @@ def create_http_server(
                             self._send_json(
                                 200,
                                 engine.crm_evaluate_formulas(
-                                    str(body.get("target") or "联系人A"),
+                                    str(body.get("target") or "心安"),
                                     overrides=ov if isinstance(ov, dict) else None,
                                 ),
                             )
@@ -1934,7 +1937,7 @@ def create_http_server(
                             self._send_json(
                                 200,
                                 engine.crm_adopt_draft(
-                                    str(body.get("target") or "联系人A"),
+                                    str(body.get("target") or "心安"),
                                     rank_index=int(body.get("rank_index") or body.get("rank") or 1),
                                     send_mode=str(body.get("send_mode") or body.get("sendMode") or "adopt_only"),
                                 ),
