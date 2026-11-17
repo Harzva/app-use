@@ -1674,7 +1674,7 @@ class WeChatControlEngine:
         except Exception as exc:
             report["knowledgeEntries"] = {"error": str(exc)}
         try:
-            report["monitorState"] = self.monitor._load_state()
+            report["monitorState"] = self.monitor.state_summary()
         except Exception as exc:
             report["monitorState"] = {"error": str(exc)}
         try:

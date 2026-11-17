@@ -155,6 +155,10 @@ class WeChatRealtimeMonitor:
             pass
         return self._default_state()
 
+    def state_summary(self) -> Dict[str, Any]:
+        """公开状态摘要（供诊断/首页聚合使用），替代外部直接调私有 _load_state。"""
+        return self._load_state()
+
     def _save_state(self, state: Dict[str, Any]) -> None:
         state["updatedAt"] = _utc_iso_now()
         self.state_path.parent.mkdir(parents=True, exist_ok=True)

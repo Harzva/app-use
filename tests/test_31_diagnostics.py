@@ -63,6 +63,12 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertTrue(rep["hosting"].get("enabled"))
         self.assertIn("诊断好友", rep["hosting"].get("targets") or [])
 
+    def test_web_console_has_diagnostics_ui(self):
+        from wechat_control.web_console import render_web_console_html
+        html = render_web_console_html()
+        for marker in ("diagBtn", "diagOverlay", "loadDiagnostics", "健康诊断"):
+            self.assertIn(marker, html, f"首页缺少诊断 UI 标记: {marker}")
+
     def test_diagnostics_http_endpoint(self):
         import threading
         import urllib.request

@@ -1739,6 +1739,19 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       </div>
     </div>
 
+    <div class="perm-overlay" id="diagOverlay" role="dialog" aria-modal="true" aria-labelledby="diagModalTitle">
+      <div class="perm-modal" style="max-width:640px;max-height:80vh;overflow:auto;">
+        <h2 id="diagModalTitle">🩺 健康诊断</h2>
+        <p class="perm-sub">一键查看授权、托管、频控、知识库与最近事件——排障从这里开始</p>
+        <div id="diagModalBody" style="text-align:left;font-size:13px;line-height:1.7;"><p class="hosting-empty">正在读取诊断数据…</p></div>
+        <div class="perm-modal-actions">
+          <button type="button" class="btn-solid" onclick="loadDiagnostics(false, true)">🔍 深度检查（含权限/网关探测）</button>
+          <button type="button" class="btn-outline" onclick="loadDiagnostics(true)">🔄 刷新</button>
+          <button type="button" class="btn-outline" onclick="hideDiagModal()">关闭</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Tab 2 (Default Chat-First Home): Live Chat & AI Copilot -->
     <section id="tab-monitor" class="tab-panel active">
       <details class="hosting-panel perm-panel" id="permPanel" open>
@@ -1761,6 +1774,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
           <button type="button" id="hostingEnableBtn" class="btn-solid hosting-btn" onclick="applyHosting(true)">🚀 一键托管</button>
           <button type="button" id="hostingDisableBtn" class="btn-outline" onclick="applyHosting(false)">⏹ 停止托管</button>
           <button type="button" id="llmFixBtn" class="btn-outline" onclick="relaunchLlmGateway()" hidden>🔧 启动 Magpie（修复 LLM 网关）</button>
+          <button type="button" id="diagBtn" class="btn-outline" onclick="loadDiagnostics(true)">🩺 健康诊断</button>
         </div>
         <details class="hosting-picker">
           <summary>选择托管好友 <span id="hostingCheckedCount" class="conversation-count"></span></summary>
@@ -2834,6 +2848,58 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         setWorkspaceAvailability("离线时可继续编辑，暂不能生成、保存待办或执行发送检查。", true);
         if (!STATE) renderMonitorEvents();
         if (notify) showToast("刷新失败，请重试。");
+      }
+    }
+
+    /* ---------- 健康诊断浮层 ---------- */
+    function hideDiagModal() {
+      document.getElementById("diagOverlay").classList.remove("visible");
+    }
+
+    function diagRow(label, value, tone) {
+      const cls = tone === "bad" ? "hosting-badge off" : (tone === "good" ? "hosting-badge on" : "hosting-badge");
+      const style = "display:inline-block;margin-right:6px;";
+      return '<div><span class="' + cls + '" style="' + style + '">' + label + '</span>' + (value || "-") + '</div>';
+    }
+
+    async function loadDiagnostics(open = false, deep = false) {
+      if (open) document.getElementById("diagOverlay").classList.add("visible");
+      const body = document.getElementById("diagModalBody");
+      if (open && !deep) body.innerHTML = '<p class="hosting-empty">正在读取诊断数据…</p>';
+      try {
+        const { status, data } = await apiJson("/api/diagnostics" + (deep ? "?deep=1" : ""));
+        if (status !== 200 || !data.ok) {
+          body.innerHTML = '<p class="hosting-empty">诊断读取失败：' + ((data && data.error) || status) + '</p>';
+          return;
+        }
+        const hosting = data.hosting || {};
+        const auth = (data.auth || {}).authorization || {};
+        const anti = data.antiban || {};
+        const events = Array.isArray(data.recentEvents) ? data.recentEvents : [];
+        const warnEvents = events.filter(e => /error|failed|rate_limited|paused|occluded/.test(String(e.event || ""))).slice(-6);
+        let html = "";
+        html += diagRow("版本", data.version || "?", "");
+        html += diagRow("授权", (auth.capabilities || []).length + " 项能力", (auth.capabilities || []).length ? "good" : "bad");
+        html += diagRow("托管", hosting.enabled ? ("🟢 托管中 · " + (hosting.targets || []).length + " 位好友") : "⚪ 未开启", hosting.enabled ? "good" : "");
+        html += diagRow("频控", "今日 " + (anti.daily || 0) + "/" + (anti.globalDaily || anti.global_daily || 60) + " · 全局小时 " + (anti.hourlyCount || anti.hourly || 0), "");
+        html += diagRow("知识库", data.knowledgeEntries + " 条已发布", "");
+        if (deep) {
+          const perms = data.permissions || {};
+          const llm = data.llmGateway || {};
+          html += diagRow("权限", perms.ok ? "✅ 三项权限就绪" : "❌ " + (perms.error || "存在缺失"), perms.ok ? "good" : "bad");
+          html += diagRow("LLM 网关", llm.ok ? ("✅ " + (llm.baseUrl || "可达")) : "❌ 不可达", llm.ok ? "good" : "bad");
+        }
+        if (warnEvents.length) {
+          html += '<div style="margin-top:10px;"><b>⚠️ 最近异常事件</b></div>';
+          html += '<div style="font-size:12px;color:#888;">' + warnEvents.map(e =>
+            '<div>' + new Date(e.ts || "").toLocaleTimeString("zh-CN", {hour: "2-digit", minute: "2-digit"}) + ' · ' + (e.event || "?") + ' · ' + ((e.target || e.error || e.reason || "") + "").slice(0, 40) + '</div>'
+          ).join("") + '</div>';
+        } else {
+          html += '<div style="margin-top:10px;color:#2a7;">✅ 最近无异常事件</div>';
+        }
+        body.innerHTML = html;
+      } catch (err) {
+        body.innerHTML = '<p class="hosting-empty">诊断请求失败：' + (err && err.message || err) + '</p>';
       }
     }
 
