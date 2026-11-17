@@ -2343,6 +2343,15 @@ class WeChatControlEngine:
             if not isinstance(doc, dict) or not doc.get("target"):
                 return False
         doc.setdefault("records", [])
+        # 内容级去重：同一链接/图片重复识别没有信息增量（遮挡重试会重复触发深读）
+        note_key = ("system", note_text[:200])
+        existing_keys = {
+            (str(r.get("direction") or ""), str(r.get("text") or "").strip()[:200])
+            for r in doc.get("records", [])
+            if r.get("kind") == "media_note"
+        }
+        if note_key in existing_keys:
+            return {"ok": True, "deduped": True, "target": clean}
         doc["records"].append({
             "text": note_text[:200],
             "kind": "media_note",
