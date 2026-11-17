@@ -1,82 +1,69 @@
-# `@dsh-market/wechat-ecosystem` — 微信全生态独立软件 + 原生 DSH 插件 + Bot Studio 集成平台 (`v2.0.0`)
+# WeChat Bot — macOS 微信智能客服机器人
 
-独立可运行、也可无缝作为原生 **DSH 插件 (`openbot.dsh-plugin/1`)** 接入 **Bot Studio (`dsh2codex`)** 的 macOS 微信全生态私域、知识库、文章/视频号归档与数字分身工作台（`v2.0.0`），内置 **Bot Studio Fail-Closed 授权门禁**与防抢鼠标物理停避护栏。
+[![Release](https://img.shields.io/github/v/release/Harzva/wechat-bot?include_prereleases)](https://github.com/Harzva/wechat-bot/releases)
+[![License](https://img.shields.io/badge/license-proprietary-red)]()
+[![Platform](https://img.shields.io/badge/platform-macOS%2014%2B%20Apple%20Silicon-black)]()
 
----
+> 一键托管微信好友，AI 自动回复（知识库 + 历史记忆 + 人设），转人工一键协同。
 
-## 三种独立 / 集成使用形态
+## ✨ 功能
 
-### 1. 独立桌面软件（Standalone macOS App + Web Console + CLI）
-无需依赖 Bot Studio 宿主即可独立运行：
-- **原生 macOS 应用**：`dist/WeChat Ecosystem Studio.app`（`native/wechat_studio_app.swift` 编译，Cocoa + WKWebView 原生外壳，自动拉起本地 `18788` 服务）：
-  ```bash
-  ./bin/build-standalone-app
-  open "dist/WeChat Ecosystem Studio.app"
-  ./bin/wechat-bot launch-app --verify-headless
-  ```
-- **独立网页控制端（Web Console）**：`./bin/wechat-bot console --host 127.0.0.1 --port 18788` -> `http://127.0.0.1:18788/`
-- **统一 CLI 入口**：`./bin/wechat-bot <command>`（`doctor` / `inspect-live` / `export-article` / `export-account` / `export-channels` / `soul-profile` / `benchmark` / `botstudio-bridge`）
+- 🚀 **一键托管好友**：勾选联系人 → 机器人自动回复他们的消息（45 秒轮询 · 真发送 · 重启自恢复）
+- 🧠 **智能回复**：FTS5 知识库检索 + Soul 记忆 + 人设 + LLM（Magpie 网关 / DeepSeek / GLM）
+- 🤚 **转人工协同**：客户发「转人工」自动停答接管；接管期间草稿自动进待办审阅台，一键恢复 AI
+- 🔗 **多媒体理解**：链接自动深读网页 / 图片 2x Vision OCR / 视频抓帧摘要——回复引用真实内容
+- 🛡️ **防封频控**：每小时/每日限额 · 人工操作自动让路 · 贝塞尔拟人鼠标轨迹 · 3x 读回熔断
+- 📥 **历史导入**：微信聊天记录导出 zip/txt 一键导入，历史注入回复上下文
+- 🖥 **微信式气泡流 UI**：实时刷新 · 谁发的（👤人工/🤖托管）一目了然 · OCR 低置信标注
 
-### 2. 原生 DSH 插件（`openbot.dsh-plugin/1`）
-符合 DSH 市场与 Agent Plugin Catalog 规范：
-- `dsh.plugin.json`（`schema: "openbot.dsh-plugin/1"`，`id: "dsh-plugin-wechat-ecosystem"`，`packageName: "@dsh-market/wechat-ecosystem"`，8 个标准化 Tools、3 个 Workbench Panels、1 个 Vertical Task）
-- `market/dsh-agent-plugin-catalog-entry.json`（`schema: "openbot.agent-plugin-catalog/1"`）
+## 🚀 5 分钟上手
 
-### 3. Bot Studio (`dsh2codex`) 工作台集成（4-Tab 页面 + MCP + HTTP）
-通过 `/Volumes/SanDisk/OpenBot/dsh2codex-workbench/src` 一键将 `dsh.plugin.json` 编译为 Bot Studio 可加载资产：
-```bash
-./bin/wechat-bot botstudio-bridge --compile-dsh --export-bundle
-```
-生成资产清单：
-- `market/wechat-rpa-control.preset.json`（`openbot.codex-workbench-preset/1`）
-- `market/wechat-rpa-control.plugin.json`（`openbot.codex-workbench-plugin/1`，含 `overview` / `console` / `workflows` / `page_spec` 4-Tab 页面）
-- `dist/botstudio-pages/wechat-ecosystem/{index.html,agent.md,agent.json,plugin.json,llms.txt}`（同时通过 HTTP `/botstudio-page/` 提供访问）
-- `logs/botstudio_integration_bundle.json`（含 `mcpServers` stdio 配置、DSH 清单与授权状态）
-
----
-
-## 核心能力矩阵
-
-1. **安全可控微信 RPA (`wx4py-macos` + `wechat-mac-rpa` + `WeChatBridge`)**：AXUIElement 控件定位、macOS `Vision` (`zh-Hans`) 2x OCR、**3x 长度读回熔断**、120 秒防重锁、群白名单、拟人抖动与 JSONL 审计。
-2. **标准 UI 协议 + 物理防抢鼠标 (`HumanActivityGuard` + `WeChatUIProtocolNavigator`)**：标准化 `wechat.ui-protocol/1` 视图/控件 Schema；检测到用户键鼠活动立即停避冷却（30s~90s），且遇到 `com.apple.SecurityAgent` 等系统鉴权弹窗绝对只读停机。
-3. **内容导出（单篇 + 服务号/公众号批量 + 视频号视频）**：
-   - `export-article`：导出微信文章为 Markdown 并本地保存全部图片素材。
-   - `export-account`：枚举并批量归档公众号/服务号历史文章（限流防抖 + SHA 去重 + SSRF 域名白名单）。
-   - `export-channels`：抓取/导出微信视频号列表与媒体。
-4. **本我性格 & 好友记忆 (`SoulMemoryProfiler`)**：基于聊天记录与 `WeChatBridge` 归档生成号主本我性格（`ENTJ`）与好友多维画像、MBTI 推定及长期事实/偏好/共同记忆存储。
-5. **多供应商模型枢纽 (`MagpieProviderHub`) & FTS5 知识库**：支持 Magpie Hub、OpenAI 兼容供应商接入与联系人专属模型/人格绑定。
-6. **MCP + HTTP 开放接口 & Kimi 基准评测**：22+ 单元测试与 9 模块 100 分自动化评测（`./bin/wechat-bot benchmark --run --with-tests`）。
-
----
-
-## 插件授权与常用命令
+### 1. 构建（需 Xcode Command Line Tools + Python 3.10+）
 
 ```bash
-export PYTHONPATH=/Volumes/SanDisk/OpenBot/wechat-rpa-control-20261115
-
-# 1. 环境、权限与授权自检
-./bin/wechat-bot doctor
-./bin/wechat-bot auth-grant          # 开启 Bot Studio Fail-Closed 授权（--read-only 只读；auth-revoke 撤权）
-
-# 2. 启动独立网页控制端 / 原生 macOS 软件 / MCP Server
-./bin/wechat-bot console --host 127.0.0.1 --port 18788
-./bin/wechat-bot serve-mcp
-./bin/wechat-bot launch-app --verify-headless
-
-# 3. 编译 DSH -> Bot Studio 集成包并跑全量 Benchmark
-./bin/wechat-bot botstudio-bridge --compile-dsh --export-bundle
-./bin/wechat-bot benchmark --run --with-tests
+git clone https://github.com/Harzva/wechat-bot.git
+cd wechat-bot
+./bin/build-standalone-app     # 编译 Swift + 打包 + 自动安装到 ~/Applications
+open -a "WeChat Bot"
 ```
 
----
+### 2. 授权（首次启动自动弹窗引导）
 
-## 仓库目录结构
+启动后按弹窗指引，在 **系统设置 → 隐私与安全性** 依次授权：
+- 辅助功能（读取微信窗口）
+- 系统事件控制（模拟键盘发送）
+- 屏幕录制（Vision OCR 识别消息）
 
-- `dsh.plugin.json` / `market/dsh-agent-plugin-catalog-entry.json`：原生 DSH 插件与目录清单
-- `market/wechat-rpa-control.preset.json` / `market/wechat-rpa-control.plugin.json`：`dsh2codex` 4-Tab 工作台构建产物
-- `native/wechat_studio_app.swift` -> `bin/wechat-studio-app` / `dist/WeChat Ecosystem Studio.app`：独立原生 macOS 软件
-- `native/wechat_vision_ax.swift` -> `bin/wechat-vision-ax`：Apple AX + Vision OCR + HID 空闲探测原生驱动
-- `wechat_control/botstudio_bridge.py`：独立形态、DSH 清单校验与 `dsh2codex` 编译器桥接
-- `wechat_control/{engine,mcp_server,cli,web_console,auth_gate}.py`：核心控制引擎、MCP/HTTP 服务与 Web 控制端
-- `wechat_control/{article_exporter,soul_memory_profiler,ui_schema,human_activity_guard,magpie_provider_hub,benchmark_suite}.py`：文章/视频号导出、Soul 记忆画像、UI 协议、防抢鼠标、Magpie 枢纽与基准测试
-- `tests/test_wechat_control.py`：全链路单元测试套件（23 项）
+> 提示：若列表里有旧条目，先「−」删除再重新添加（旧授权对新版本无效）。授权后回控制台点「🔄 重新检查」。
+
+### 3. 配置 LLM（可选，不配则用知识库模板回复）
+
+编辑 `config/model_providers.json`，填入你的模型网关：
+
+```json
+{
+  "gatewayUrl": "http://127.0.0.1:3425",
+  "activeModelId": "auto/deepseek-v4.1-flash",
+  "llmReplyEnabled": true
+}
+```
+
+### 4. 一键托管
+
+控制台首页 → 「选择托管好友」→ 勾选 → **🚀 一键托管**
+之后这些好友发消息，AI 自动回复；发「转人工」随时切换人工。
+
+## 📖 架构
+
+```
+微信窗口（AX + Vision OCR 轮询）
+  → 消息识别（文本/链接深读/图片OCR/视频抓帧）
+  → 生成回复（知识库 + Soul记忆 + 人设 + LLM）
+  → AX 模拟键盘发送（3x 读回校验 · 120s防重 · 拟人延迟）
+```
+
+旧版架构文档见 [README-arch-old.md](README-arch-old.md)。
+
+## 📄 License
+
+本项目源码仅供学习交流。使用请遵守微信使用规范，控制操作频率，勿用于骚扰行为。
