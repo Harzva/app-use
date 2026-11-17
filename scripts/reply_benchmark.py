@@ -103,15 +103,15 @@ PERSONA_SPECIFIC = [
 
 CATEGORIES = [
     ("寒暄问候", GREETINGS, {}),
-    ("产品咨询", PRODUCT_QA, {}),
-    ("价格咨询", PRICING, {}),
-    ("技术咨询", TECH_QA, {}),
+    ("产品咨询", PRODUCT_QA, {"expectAnswered": True}),
+    ("价格咨询", PRICING, {"expectAnswered": True}),
+    ("技术咨询", TECH_QA, {"expectAnswered": True}),
     ("转人工", HANDOFF, {"expectHandoff": True}),
     ("闲聊", CHITCHAT, {}),
     ("噪声输入", NOISY, {"allowGeneric": True}),
     ("链接消息", LINKS, {}),
     ("图片消息", IMAGE_DESC, {}),
-    ("人设专属", PERSONA_SPECIFIC, {"persona": "rpa-tech-expert"}),
+    ("人设专属", PERSONA_SPECIFIC, {"persona": "rpa-tech-expert", "expectAnswered": True}),
 ]
 
 PERSONAS = ["wecom-kf-pro", "warm-friend", "concise-assistant", "rpa-tech-expert"]
@@ -141,6 +141,8 @@ def run_benchmark(quick: bool = False) -> dict:
 
     results = []
     t0 = time.time()
+    # 寒暄确认话术不应抢答业务问题（答非所问检测基准线）
+    ACK_TITLES = ("实时监控与自动回复确认话术",)
     for cat_name, texts, flags in cats:
         forced_pid = flags.get("persona")
         for text in texts:
@@ -149,18 +151,30 @@ def run_benchmark(quick: bool = False) -> dict:
                 engine.persona_switch("基准用户", pid)
                 prev = engine.preview_smart_reply("基准用户", text)
                 reply = str(prev.get("replyText") or "")
+                docs = [str(d.get("title") or "") for d in (prev.get("basis") or {}).get("documentRefs", [])]
+                top_title = docs[0] if docs else ""
                 # rpa-tech-expert 定位为号主内部技术人设，不判术语外泄
                 customer_facing = pid != "rpa-tech-expert"
                 has_jargon = bool(JARGON_RE.search(reply)) if customer_facing else False
+                answered_ok = True
+                if flags.get("expectAnswered") and customer_facing:
+                    # 答所问：KB 有命中且 top 不是寒暄确认话术
+                    answered_ok = bool(prev.get("matchedCount")) and top_title and not any(
+                        a in top_title for a in ACK_TITLES
+                    )
+                length_ok = 8 <= len(reply.strip()) <= 200
                 entry = {
                     "category": cat_name,
                     "persona": pid,
                     "customerFacing": customer_facing,
                     "incoming": text[:48],
                     "reply": reply[:110],
+                    "topDoc": top_title,
                     "matchedCount": int(prev.get("matchedCount") or 0),
-                    "passed": bool(reply.strip()) and not has_jargon,
+                    "passed": bool(reply.strip()) and not has_jargon and answered_ok and length_ok,
                     "hasJargon": has_jargon,
+                    "answeredOk": answered_ok,
+                    "lengthOk": length_ok,
                 }
                 if flags.get("expectHandoff"):
                     entry["passed"] = entry["passed"] and bool(
@@ -186,9 +200,22 @@ def run_benchmark(quick: bool = False) -> dict:
     jargon_leaks = [r for r in results if r["hasJargon"]]
     by_cat = {}
     for r in results:
-        c = by_cat.setdefault(r["category"], {"total": 0, "passed": 0})
+        c = by_cat.setdefault(r["category"], {"total": 0, "passed": 0, "answered": 0, "distinctReplies": set()})
         c["total"] += 1
         c["passed"] += 1 if r["passed"] else 0
+        c["answered"] += 1 if r.get("answeredOk") else 0
+        c["distinctReplies"].add(r["reply"])
+    # 回复多样性：同类别不同问题不应千篇一律
+    diversity = {
+        cat: round(len(v["distinctReplies"]) / v["total"], 3)
+        for cat, v in by_cat.items() if v["total"] >= 4
+    }
+    answered_total = sum(1 for r in results if r.get("answeredOk") is not None) if False else None
+    # 答所问率（expectAnswered 类目）
+    ans_cases = [r for r in results if r.get("answeredOk") is not None]
+    answered_rate = round(sum(1 for r in ans_cases if r["answeredOk"]) / len(ans_cases), 4) if ans_cases else None
+    for c in by_cat.values():
+        c["distinctReplies"] = len(c["distinctReplies"])
 
     report = {
         "generatedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -197,6 +224,8 @@ def run_benchmark(quick: bool = False) -> dict:
         "passed": passed,
         "passRate": round(passed / total, 4) if total else 0,
         "jargonLeaks": len(jargon_leaks),
+        "answeredRate": answered_rate,
+        "replyDiversity": diversity,
         "frequencyGuard": {"ok": freq_ok, "blockedAtSend": freq_blocked_at},
         "elapsedSeconds": round(elapsed, 2),
         "byCategory": by_cat,
@@ -222,6 +251,7 @@ def main() -> int:
     rep = run_benchmark(quick=args.quick)
     print(f"话术基准: {rep['passed']}/{rep['totalCases']} 通过 "
           f"(通过率 {rep['passRate']:.1%})，术语外泄 {rep['jargonLeaks']} 条，"
+          f"答所问率 {rep['answeredRate'] if rep['answeredRate'] is not None else 'n/a'}，"
           f"频控 {'OK' if rep['frequencyGuard']['ok'] else 'FAIL'}，耗时 {rep['elapsedSeconds']}s")
     for cat, c in rep["byCategory"].items():
         mark = "✓" if c["passed"] == c["total"] else "✗"

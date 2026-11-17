@@ -214,7 +214,8 @@ DEFAULT_SEED_ENTRIES: List[Dict[str, Any]] = [
         "kind": "script",
         "title": "实时监控与自动回复确认话术",
         "body": "标准回复要点：1. 明确告知已收到本条提问；2. 说明常见问题可即时解答，复杂问题可转人工；3. 邀请对方继续发送问题或业务咨询。",
-        "keywords": ["回复消息", "能回复", "在吗", "测试", "你好", "收到", "实时监控", "自动回复"],
+        "customerScript": "您好，我在的～常见问题我可以即时为您解答，复杂问题也可以帮您转人工，请问有什么可以帮您？",
+        "keywords": ["在吗", "在线吗", "能回复", "回复消息", "收到", "你好", "实时监控"],
         "synonyms": ["可以回复", "看到消息", "智能回复确认"],
         "source": "openbot://scripts/live-reply-ack",
         "external": True,
@@ -233,11 +234,108 @@ DEFAULT_SEED_ENTRIES: List[Dict[str, Any]] = [
         "status": "published",
     },
     {
+        "id": "seed-faq-product-intro",
+        "library": "shared",
+        "kind": "faq",
+        "title": "WaveBot 产品介绍",
+        "body": "WaveBot 是一款运行在 macOS 上的微信智能客服助手：自动监听微信会话、按知识库即时回复好友咨询，支持一键托管多位好友、聊天记录导入、图片识别与语音转文字；发来的链接、文章与视频消息也能自动打开识别内容后回复，回复风格可按需切换（专业客服 / 轻松好友 / 简洁助手）。",
+        "keywords": ["WaveBot", "产品", "什么产品", "功能", "能做什么", "怎么用", "机器人", "是干什么的", "链接", "网页", "文章", "视频", "看懂", "打开看"],
+        "synonyms": ["智能客服", "微信助手", "自动客服"],
+        "source": "openbot://faq/product-intro",
+        "external": True,
+        "status": "published",
+    },
+    {
+        "id": "seed-faq-pricing",
+        "library": "shared",
+        "kind": "faq",
+        "title": "价格与获取方式",
+        "body": "WaveBot 目前在 GitHub 开源（github.com/Harzva/wechat-bot），可免费下载使用；暂无付费套餐与试用区别，如后续推出企业增值服务会在官网与公众号同步公告。",
+        "keywords": ["多少钱", "收费", "价格", "免费", "费用", "优惠", "试用", "退款", "计费", "折扣", "会员", "开发票", "购买", "太贵", "便宜"],
+        "synonyms": ["报价", "怎么收费", "免费版", "年付", "付款"],
+        "source": "openbot://faq/pricing",
+        "external": True,
+        "status": "published",
+    },
+    {
+        "id": "seed-faq-hosting-usage",
+        "library": "shared",
+        "kind": "faq",
+        "title": "自动回复与一键托管使用方法",
+        "body": "在首页「好友托管」面板勾选需要托管的好友，点「一键托管」即可：机器人只回复被托管好友的咨询，重启后自动恢复托管状态；随时可停止托管或对单个好友转人工。",
+        "keywords": ["自动回复", "托管", "一键托管", "选择好友", "监管", "开启", "怎么开", "自动恢复", "重启", "同时管", "几个好友", "停止"],
+        "synonyms": ["批量托管", "托管好友", "自动回复设置"],
+        "source": "openbot://faq/hosting-usage",
+        "external": True,
+        "status": "published",
+    },
+    {
+        "id": "seed-faq-privacy-security",
+        "library": "shared",
+        "kind": "faq",
+        "title": "数据安全与隐私说明",
+        "body": "所有消息识别、知识库检索与回复生成都在本机完成，聊天记录与日志保存在本地设备不上传云端；对外分享的代码与配置均已脱敏处理，可放心用于私域客服场景。",
+        "keywords": ["数据", "安全", "隐私", "泄露", "聊天记录", "存储", "本地", "脱敏", "上传", "保密"],
+        "synonyms": ["数据存在哪里", "信息安全", "数据保存"],
+        "source": "openbot://faq/privacy-security",
+        "external": True,
+        "status": "published",
+    },
+    {
+        "id": "seed-faq-voice-to-text",
+        "library": "shared",
+        "kind": "faq",
+        "title": "语音消息转文字说明",
+        "body": "支持语音消息转文字：收到语音后可调用微信自带「转文字」能力识别内容并据此回复；识别结果会以系统备注形式记录在聊天流中，识别不清时会请对方重发或转人工跟进。",
+        "keywords": ["语音", "转文字", "语音消息", "听写", "语音识别", "转写"],
+        "synonyms": ["语音转文字", "听语音"],
+        "source": "openbot://faq/voice-to-text",
+        "external": True,
+        "status": "published",
+    },
+    {
+        "id": "seed-faq-avatar-display",
+        "library": "shared",
+        "kind": "faq",
+        "title": "好友头像显示说明",
+        "body": "控制台对话流支持显示好友头像：从微信窗口识别好友位置后自动截取头像区域，在网页工作台的气泡对话中展示；未识别到时会显示默认占位头像，不影响回复功能。",
+        "keywords": ["头像", "显示头像", "加载头像", "头像更新", "占位头像"],
+        "synonyms": ["头像能显示吗", "头像不显示"],
+        "source": "openbot://faq/avatar-display",
+        "external": True,
+        "status": "published",
+    },
+    {
+        "id": "seed-faq-platform-requirements",
+        "library": "shared",
+        "kind": "faq",
+        "title": "系统要求与安装更新",
+        "body": "WaveBot 目前支持 macOS（建议 Apple Silicon 芯片），需授予辅助功能与屏幕录制权限；断网时基于本地知识库的回复仍可正常工作，联网大模型增强功能暂不可用；本地控制台提供 HTTP API（127.0.0.1:18788）可供其他系统对接；新版本可在 GitHub Releases 下载，覆盖安装即可完成更新，卸载时删除应用与本地日志目录即可。",
+        "keywords": ["mac", "系统要求", "安装", "更新", "版本", "卸载", "下载", "windows", "苹果", "intel", "权限", "多开", "断网", "离线", "联网", "api", "对接", "接口", "集成"],
+        "synonyms": ["支持mac吗", "怎么更新版本", "怎么卸载干净"],
+        "source": "openbot://faq/platform-requirements",
+        "external": True,
+        "status": "published",
+    },
+    {
+        "id": "seed-faq-human-service-hours",
+        "library": "shared",
+        "kind": "faq",
+        "title": "人工客服与响应时间",
+        "body": "机器人全天候在线即时回复；发送「转人工」即可转入人工队列，人工客服会在工作时间内尽快跟进复杂问题，紧急问题建议留下联系方式与问题描述以便优先处理。",
+        "keywords": ["人工多久", "工作时间", "在线时间", "回复时间", "服务时间", "响应时间", "人工在线", "多久回复", "联系", "遇到问题", "找谁", "找什么人", "问题找谁"],
+        "synonyms": ["什么时候回复", "客服在线吗"],
+        "source": "openbot://faq/human-service-hours",
+        "external": True,
+        "status": "published",
+    },
+    {
         "id": "seed-script-kf-takeover",
         "library": "shared",
         "kind": "script",
         "title": "企业客服标准接待与人工接管说明",
         "body": "标准客服口径：仅依据已发布且允许对外（external=1）的知识条目与专业术语作答；如遇未收录政策、订单争议或复杂售后，不编造承诺，立即标记人工接管（takeover）交由专员核对。",
+        "customerScript": "您好，您咨询的问题我已记录，会转交人工客服为您核对确认，请稍候～",
         "keywords": ["客服", "退货", "政策", "数字婚礼", "转人工", "人工接管", "咨询", "报价"],
         "synonyms": ["售后", "工单", "企业微信客服"],
         "source": "openbot://scripts/kf-takeover",
@@ -245,6 +343,12 @@ DEFAULT_SEED_ENTRIES: List[Dict[str, Any]] = [
         "status": "published",
     },
 ]
+
+# script 条目的 body 是给机器人看的话术要点（内部口径）；客户人设直接输出这里的话术本身
+SCRIPT_CUSTOMER_TEXT: Dict[str, str] = {
+    "seed-script-live-reply-ack": "您好，我在的～常见问题我可以即时为您解答，复杂问题也可以帮您转人工，请问有什么可以帮您？",
+    "seed-script-kf-takeover": "您好，您咨询的问题我已记录，会转交人工客服为您核对确认，请稍候～",
+}
 
 DEFAULT_PERSONAS: Dict[str, Dict[str, Any]] = {
     "warm-friend": {
@@ -1045,7 +1149,7 @@ class PersonaSwitchEngine:
             kw in in_cf for kw in ("客服", "退货", "政策", "人工", "接管", "知识库", "术语", "性格", "数字婚礼")
         )
         # 显式转人工意图：无论 KB 是否命中，优先给出转接话术（与 realtime_monitor 手动接管检测对齐）
-        _handoff_kw = ("转人工", "转接人工", "人工客服", "找人工", "人工服务", "找真人", "真人客服",
+        _handoff_kw = ("转人工", "转接人工", "人工客服", "找人工", "人工服务", "找真人", "真人客服", "真人",
                        "人工接管", "人工在线", "找主管", "你们主管", "找经理", "找负责人", "要投诉",
                        "transfer to human", "human agent", "real person")
         is_explicit_handoff = any(kw in in_cf for kw in _handoff_kw)
@@ -1065,7 +1169,7 @@ class PersonaSwitchEngine:
                 clue_note = f"（顺带记得咱们聊过的「{shared_clue}」）" if shared_clue else ""
                 reply = f"在的在的，刚看到消息～我这边实时监测一直开着呢{clue_note}，有啥直接发我就行！"
             elif entries:
-                top = (scripts_hit or knowledge_hit or terms_hit)[0]
+                top = entries[0]  # 按检索分数取最高，避免 script 条目硬优先导致答非所问
                 fact_excerpt = top["body"][:82].rstrip("。；， ")
                 clue_note = f"；结合咱们之前的「{shared_clue}」" if shared_clue else ""
                 reply = f"这事按咱们这边经验：{fact_excerpt}{clue_note}，你要测的话我随时帮你跑一下～（本我语态：{owner_tone}）"
@@ -1115,19 +1219,24 @@ class PersonaSwitchEngine:
             else:
                 reply = "收到！马上帮你转人工，专员看到消息就会回复你哒～稍等一下哈 🙂"
         elif entries:
-            top = (scripts_hit or knowledge_hit or terms_hit)[0]
-            fact_excerpt = top["body"][:95].rstrip("。；， ")
-            matched_term_titles = [t["title"].split(" (")[0] for t in terms_hit[:2]]
-            term_badge = f"（参考术语：{'、'.join(matched_term_titles)}）" if matched_term_titles else ""
-            if pid == "wecom-kf-pro":
-                kf_title = str(top["title"]).split(" (")[0]
-                reply = f"您好，针对您咨询的「{norm_in[:22]}」，为您说明：{fact_excerpt}。如仍需人工核对，我可以为您转接人工客服。"
-            elif pid == "rpa-tech-expert":
-                reply = f"命中知识库《{top['title']}》{term_badge}：{fact_excerpt}。"
-            elif pid == "concise-assistant":
-                reply = f"收到（匹配《{top['title']}》）：{fact_excerpt}。"
+            top = entries[0]  # 按检索分数取最高，避免 script 条目硬优先导致答非所问
+            # script 条目的 body 是话术要点（给机器人看的口径），客户人设直接输出话术本身
+            cs = SCRIPT_CUSTOMER_TEXT.get(str(top.get("id") or "")) or top.get("customerScript")
+            if str(top.get("kind")) == "script" and cs and pid != "rpa-tech-expert":
+                cs = str(cs)
+                reply = cs if pid == "concise-assistant" else (cs + " 有啥尽管问哈～" if pid == "warm-friend" else cs)
             else:
-                reply = f"收到你说的啦！我刚查了下「{top['title']}」：{fact_excerpt}～{term_badge}有需要随时继续聊呀 ✨"
+                fact_excerpt = top["body"][:95].rstrip("。；， ")
+                matched_term_titles = [t["title"].split(" (")[0] for t in terms_hit[:2]]
+                term_badge = f"（参考术语：{'、'.join(matched_term_titles)}）" if matched_term_titles else ""
+                if pid == "wecom-kf-pro":
+                    reply = f"您好，针对您咨询的「{norm_in[:22]}」，为您说明：{fact_excerpt}。如仍需人工核对，我可以为您转接人工客服。"
+                elif pid == "rpa-tech-expert":
+                    reply = f"命中知识库《{top['title']}》{term_badge}：{fact_excerpt}。"
+                elif pid == "concise-assistant":
+                    reply = f"收到（匹配《{top['title']}》）：{fact_excerpt}。"
+                else:
+                    reply = f"收到你说的啦！我刚查了下「{top['title']}」：{fact_excerpt}～{term_badge}有需要随时继续聊呀 ✨"
         else:
             clean_in = norm_in[:28]
             recent_hint = f"（结合最近聊到的「{recent_messages[-1][:18]}」）" if recent_messages else ""

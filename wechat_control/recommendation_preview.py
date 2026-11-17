@@ -54,7 +54,12 @@ def start_preview(data):
     )
     engine.models.state["llmReplyEnabled"] = False
     engine.auth_grant(capabilities=["status", "read_messages"], authorized_by="isolated-preview")
-    if not engine.knowledge.search_context("请问试用期限是几天？").get("entries"):
+    # 守卫按条目标题精确判断，避免默认 FAQ 命中导致演练条目从未播种
+    seeded = any(
+        e.get("title") == "试用期限"
+        for e in engine.knowledge.search_context("试用期限", external_only=True, limit=8).get("entries", [])
+    )
+    if not seeded:
         engine.knowledge.save_entry(title="试用期限", kind="faq", keywords=["试用期限"],
                                   body="试用期是七天。到期后可在工作台查看续期选项。")
     wb = PreviewWorkbench(engine, ReviewLedger(data / "inbox.sqlite"), idle_wait=0)
