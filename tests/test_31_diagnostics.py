@@ -269,6 +269,57 @@ class DiagnosticsTests(unittest.TestCase):
             srv.shutdown()
             srv.server_close()
 
+    def test_wide_window_split_x_and_card_bubble_clustering(self):
+        import struct
+        import zlib
+        from wechat_control.live_inspector import WeChatLiveInspector
+
+        # 生成与真实 853x1320 微信窗口同比例（含白/灰卡片底色）的 PNG，确保像素方向采样走真实分支
+        card_png = self.data / "wide_card.png"
+        w, h = 853, 800
+        rows_raw = bytearray()
+        for y in range(h):
+            rows_raw.append(0)
+            if 560 <= y <= 730:
+                rows_raw.extend((245, 245, 245) * 550 + (237, 238, 240) * 260 + (245, 245, 245) * (w - 810))
+            else:
+                rows_raw.extend((245, 245, 245) * w)
+
+        def _chunk(tag: bytes, data: bytes) -> bytes:
+            return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+        ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+        card_png.write_bytes(b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", zlib.compress(bytes(rows_raw))) + _chunk(b"IEND", b""))
+
+        elements = [
+            {"text": "Q 搜索", "bbox": {"x": 80, "y": 22, "width": 42, "height": 12}, "center": {"x": 101, "y": 28}},
+            {"text": "openbot (2)", "bbox": {"x": 505, "y": 22, "width": 80, "height": 14}, "center": {"x": 545, "y": 29}},
+            # 左栏右缘时间戳（x=464 < 489）：不得漏进右栏成为 timeMarker
+            {"text": "星期一", "bbox": {"x": 447, "y": 460, "width": 30, "height": 10}, "center": {"x": 462, "y": 465}},
+            {"text": "10/24", "bbox": {"x": 449, "y": 720, "width": 32, "height": 10}, "center": {"x": 465, "y": 725}},
+            # 右栏真实群聊卡片消息
+            {"text": "05:02", "bbox": {"x": 651, "y": 536, "width": 36, "height": 10}, "center": {"x": 669, "y": 541}},
+            {"text": "心安", "bbox": {"x": 557, "y": 572, "width": 26, "height": 16}, "center": {"x": 570, "y": 580}},
+            {"text": "又一个神级开源神器！爆火7.1K star", "bbox": {"x": 567, "y": 604, "width": 228, "height": 18}, "center": {"x": 681, "y": 613}},
+            {"text": "，让 AI 轻松搞定 36 种画风，口播⋯", "bbox": {"x": 565, "y": 626, "width": 222, "height": 18}, "center": {"x": 676, "y": 635}},
+            {"text": "C 菜鸟学Python", "bbox": {"x": 571, "y": 704, "width": 96, "height": 14}, "center": {"x": 619, "y": 711}},
+        ]
+        inferred = WeChatLiveInspector._infer_split_x(elements, 853.0)
+        self.assertEqual(inferred, 489.0)
+
+        structured = self.engine.inspector.extract_structured_bubbles(
+            {"elements": elements},
+            snapshot_path=card_png,
+            bounds={"width": 853.0, "height": 1320.0},
+        )
+        self.assertEqual(structured["headerTitle"], "openbot (2)")
+        bubbles = structured["bubbles"]
+        self.assertEqual(len(bubbles), 1)
+        self.assertEqual(bubbles[0]["direction"], "peer")
+        self.assertEqual(bubbles[0]["timeMarker"], "05:02")
+        self.assertIn("又一个神级开源神器", bubbles[0]["text"])
+        self.assertIn("菜鸟学Python", bubbles[0]["text"])
+
 
 if __name__ == "__main__":
     unittest.main()

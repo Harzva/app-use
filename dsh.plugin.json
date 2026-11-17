@@ -3,7 +3,7 @@
   "id": "dsh-plugin-wechat-ecosystem",
   "name": "dsh-plugin-wechat-ecosystem",
   "packageName": "@dsh-market/wechat-ecosystem",
-  "version": "2.4.62",
+  "version": "2.4.63",
   "title": "微信全生态私域与内容工作台",
   "domain": "ops",
   "companionBotId": "bot_wechat_ecosystem",

@@ -561,8 +561,8 @@ class WeChatRealtimeMonitor:
         bounds = cap["bounds"]
         win_w = float(bounds["width"])
         win_h = float(bounds["height"])
-        split_x = self.engine.inspector._split_x(win_w)
         elements = cap["ocrPayload"].get("elements") or []
+        split_x = float(cap["ocrPayload"].get("splitX") or self.engine.inspector._infer_split_x(elements, win_w))
 
         rows = self.engine.inspector._cluster_session_rows(elements, split_x, win_h)
         active_structured = self.engine.inspector.extract_structured_bubbles(

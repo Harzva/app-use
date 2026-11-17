@@ -35,6 +35,7 @@ _TIMESTAMP_DIVIDER_RE = re.compile(
 
 
 _BADGE_RE = re.compile(r"^\d{1,3}\+?$")
+_CARD_SOURCE_RE = re.compile(r"^[CVWcvw◎•·]\s*\S+")
 
 
 def _slugify_target(target: str) -> str:
@@ -199,6 +200,31 @@ class WeChatLiveInspector:
         return max(218.0, min(310.0, win_w * 0.38))
 
     @staticmethod
+    def _infer_split_x(elements: List[Dict[str, Any]], win_w: float) -> float:
+        """动态推断左栏会话列表与右栏聊天区的分界 X 坐标（兼容窄窗与宽屏窗口）。"""
+        base = WeChatLiveInspector._split_x(win_w)
+        header_candidates: List[Tuple[float, Dict[str, Any]]] = []
+        for el in elements or []:
+            center = el.get("center") or {}
+            cx = float(center.get("x", 0.0) or 0.0)
+            cy = float(center.get("y", 0.0) or 0.0)
+            txt = str(el.get("text") or "").strip()
+            if not txt or (len(txt) <= 1 and txt in "Q口〇•·+-×÷|"):
+                continue
+            if "搜索" in txt:
+                continue
+            if 6.0 <= cy <= 46.0 and cx > base:
+                bbox = el.get("bbox") or {}
+                bx = float(bbox.get("x", cx) or cx)
+                header_candidates.append((bx, el))
+        if header_candidates:
+            header_candidates.sort(key=lambda pair: pair[0])
+            leftmost_bx = header_candidates[0][0]
+            if (base + 24.0) < leftmost_bx < (win_w * 0.72):
+                return round(leftmost_bx - 16.0, 1)
+        return base
+
+    @staticmethod
     def _cluster_session_rows(elements: List[Dict[str, Any]], split_x: float, win_h: float) -> List[Dict[str, Any]]:
         """Group OCR fragments in the middle session column (64 <= x <= split_x) into chat rows."""
         mid_els: List[Dict[str, Any]] = []
@@ -241,7 +267,12 @@ class WeChatLiveInspector:
             for g in non_ts:
                 raw_txt = g.get("text", "").strip()
                 cleaned_no_ts = _clean_title_for_match(raw_txt)
-                if abs(g["center"]["y"] - top_y) <= 10.0 and ":" not in cleaned_no_ts and "：" not in cleaned_no_ts:
+                if (
+                    abs(g["center"]["y"] - top_y) <= 10.0
+                    and not _is_timestamp_line(raw_txt)
+                    and ":" not in cleaned_no_ts
+                    and "：" not in cleaned_no_ts
+                ):
                     title_candidates.append(g)
 
             if title_candidates:
@@ -409,11 +440,30 @@ class WeChatLiveInspector:
             y_top = by
             y_bottom = by + bh
 
+            dy = y_center - float(current["_lastCenterY"]) if current is not None else 0.0
+            same_group_head = (
+                current is not None
+                and current["direction"] == "peer"
+                and direction == "peer"
+                and current["timeMarker"] == active_time_marker
+                and len(current["lines"]) == 1
+                and len(current["lines"][0].strip()) <= 12
+                and -4.0 <= dy <= 125.0
+            )
+            card_footer_follow = (
+                current is not None
+                and current["direction"] == "peer"
+                and direction == "peer"
+                and current["timeMarker"] == active_time_marker
+                and len(txt) <= 20
+                and (bool(_CARD_SOURCE_RE.match(txt)) or "公众号" in txt or "视频号" in txt)
+                and -4.0 <= dy <= 95.0
+            )
             if (
                 current is not None
                 and current["direction"] == direction
                 and current["timeMarker"] == active_time_marker
-                and -4.0 <= (y_center - float(current["_lastCenterY"])) <= 34.0
+                and (-4.0 <= dy <= 34.0 or same_group_head or card_footer_follow)
             ):
                 current["lines"].append(txt)
                 current["text"] = WeChatLiveInspector._join_bubble_lines(current["lines"])
@@ -446,8 +496,8 @@ class WeChatLiveInspector:
         resolved_bounds = bounds or ocr_payload.get("window") or ocr_payload.get("bounds") or {}
         win_w = float(resolved_bounds.get("width", 585.0) or 585.0)
         win_h = float(resolved_bounds.get("height", 640.0) or 640.0)
-        split_x = float(ocr_payload.get("splitX") or self._split_x(win_w))
         elements = ocr_payload.get("elements") or []
+        split_x = float(ocr_payload.get("splitX") or self._infer_split_x(elements, win_w))
         right_info = self._parse_right_pane(elements, split_x, win_h)
         resolved_image = snapshot_path or ocr_payload.get("imagePath") or ocr_payload.get("snapshotPath")
         img_path = Path(resolved_image) if resolved_image else None
@@ -521,6 +571,7 @@ class WeChatLiveInspector:
             overview_path = self.snapshots_dir / "sessions_overview_p0.png"
             overview_ocr = self._capture_wechat_ocr(overview_path)
             elements = overview_ocr.get("elements") or []
+            split_x = self._infer_split_x(elements, win_w)
             rows = self._cluster_session_rows(elements, split_x, win_h)
             right_info = self._parse_right_pane(elements, split_x, win_h)
 
@@ -605,7 +656,9 @@ class WeChatLiveInspector:
             overview_ocr = self._capture_wechat_ocr(overview_path)
             if not overview_ocr.get("ok"):
                 break
-            rows = self._cluster_session_rows(overview_ocr.get("elements") or [], split_x, win_h)
+            overview_els = overview_ocr.get("elements") or []
+            split_x = self._infer_split_x(overview_els, win_w)
+            rows = self._cluster_session_rows(overview_els, split_x, win_h)
             if not rows:
                 break
 
@@ -625,10 +678,11 @@ class WeChatLiveInspector:
                 snap_path = self.snapshots_dir / f"session_{session_counter:02d}.png"
                 cap = self._capture_wechat_ocr(snap_path)
                 elements = cap.get("elements") or []
-                right_info = self._parse_right_pane(elements, split_x, win_h)
+                cap_split_x = self._infer_split_x(elements, win_w)
+                right_info = self._parse_right_pane(elements, cap_split_x, win_h)
 
                 # If clicking entered a folder (like 服务号/公众号), return back to Chats list
-                mid_after = self._cluster_session_rows(elements, split_x, win_h)
+                mid_after = self._cluster_session_rows(elements, cap_split_x, win_h)
                 entered_folder = False
                 if len(mid_after) != len(rows) and (
                     not mid_after or mid_after[0]["titleSnippet"] != rows[0]["titleSnippet"]
@@ -821,6 +875,7 @@ class WeChatLiveInspector:
         cur_snap = self.snapshots_dir / f"nav_{slug}_cur.png"
         cur_ocr = self._capture_wechat_ocr(cur_snap)
         elements = cur_ocr.get("elements") or []
+        split_x = self._infer_split_x(elements, win_w)
         right_info = self._parse_right_pane(elements, split_x, win_h)
         if right_info["headerTitle"] and _matches_target(target, right_info["headerTitle"]):
             return {
@@ -843,7 +898,8 @@ class WeChatLiveInspector:
                 click_snap = self.snapshots_dir / f"nav_{slug}_matched.png"
                 cap = self._capture_wechat_ocr(click_snap)
                 cap_els = cap.get("elements") or []
-                after_right = self._parse_right_pane(cap_els, split_x, win_h)
+                cap_split_x = self._infer_split_x(cap_els, win_w)
+                after_right = self._parse_right_pane(cap_els, cap_split_x, win_h)
                 if after_right["headerTitle"] and _matches_target(target, after_right["headerTitle"]):
                     return {
                         "ok": True,
@@ -851,11 +907,11 @@ class WeChatLiveInspector:
                         "matchedTitle": after_right["headerTitle"],
                         "alreadyOpen": False,
                         "bounds": bounds,
-                        "splitX": split_x,
+                        "splitX": cap_split_x,
                         "snapshotPath": str(click_snap),
                         "ocrPayload": cap,
                     }
-                self._return_from_folder_if_needed(bounds, rows, cap_els, split_x, win_h)
+                self._return_from_folder_if_needed(bounds, rows, cap_els, cap_split_x, win_h)
 
         # Scroll back to top of the middle session list and scan downward
         for _ in range(8):
@@ -868,7 +924,8 @@ class WeChatLiveInspector:
             page_snap = self.snapshots_dir / f"nav_{slug}_p{page}.png"
             cap = self._capture_wechat_ocr(page_snap)
             page_els = cap.get("elements") or []
-            page_rows = self._cluster_session_rows(page_els, split_x, win_h)
+            page_split_x = self._infer_split_x(page_els, win_w)
+            page_rows = self._cluster_session_rows(page_els, page_split_x, win_h)
             digest = "|".join(f"{r['titleSnippet']}::{r['previewSnippet']}" for r in page_rows)
             if page > 0 and digest in seen_pages:
                 break
@@ -881,7 +938,8 @@ class WeChatLiveInspector:
                     matched_snap = self.snapshots_dir / f"nav_{slug}_matched.png"
                     m_cap = self._capture_wechat_ocr(matched_snap)
                     m_els = m_cap.get("elements") or []
-                    m_right = self._parse_right_pane(m_els, split_x, win_h)
+                    m_split_x = self._infer_split_x(m_els, win_w)
+                    m_right = self._parse_right_pane(m_els, m_split_x, win_h)
                     if m_right["headerTitle"] and _matches_target(target, m_right["headerTitle"]):
                         return {
                             "ok": True,
@@ -889,11 +947,11 @@ class WeChatLiveInspector:
                             "matchedTitle": m_right["headerTitle"],
                             "alreadyOpen": False,
                             "bounds": bounds,
-                            "splitX": split_x,
+                            "splitX": m_split_x,
                             "snapshotPath": str(matched_snap),
                             "ocrPayload": m_cap,
                         }
-                    self._return_from_folder_if_needed(bounds, page_rows, m_els, split_x, win_h)
+                    self._return_from_folder_if_needed(bounds, page_rows, m_els, m_split_x, win_h)
 
             if page + 1 < max_pages:
                 self._scroll_rel(bounds, safe_session_x, min(win_h - 80.0, 320.0), dy=-8)

@@ -2589,8 +2589,9 @@ class WeChatControlEngine:
             if ocr_res.get("ok") and (ocr_res.get("elements") or []):
                 win_w = float(ocr_res.get("imageWidth") or 853.0)
                 win_h = float(ocr_res.get("imageHeight") or 1320.0)
-                split_x = self.inspector._split_x(win_w)
-                rows = self.inspector._cluster_session_rows(ocr_res.get("elements") or [], split_x, win_h)
+                elements = ocr_res.get("elements") or []
+                split_x = self.inspector._infer_split_x(elements, win_w)
+                rows = self.inspector._cluster_session_rows(elements, split_x, win_h)
                 for row in rows:
                     cand = str(row.get("titleSnippet") or "").strip()
                     rel = row.get("avatarRel")
