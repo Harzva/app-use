@@ -23,7 +23,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from .contact_profiler import CARE_LEVEL_ORDER, normalize_care_level
 from .live_inspector import _matches_target, _slugify_target
 from .safety import normalize_chat_name
-from .io_utils import atomic_write_json
 
 if TYPE_CHECKING:
     from .engine import WeChatControlEngine
@@ -158,7 +157,10 @@ class WeChatRealtimeMonitor:
 
     def _save_state(self, state: Dict[str, Any]) -> None:
         state["updatedAt"] = _utc_iso_now()
-        atomic_write_json(self.state_path, state)
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.state_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(self.state_path)
 
     def _append_event(self, event_type: str, payload: Dict[str, Any]) -> None:
         self.events_path.parent.mkdir(parents=True, exist_ok=True)
@@ -303,7 +305,7 @@ class WeChatRealtimeMonitor:
         bounds = win["bounds"]
         self.engine.inspector.snapshots_dir.mkdir(parents=True, exist_ok=True)
         snap_path = self.engine.inspector.snapshots_dir / "monitor_poll_cur.png"
-        ocr_payload = self.engine.capture_wechat_ocr(snap_path, timeout=30.0)
+        ocr_payload = self.engine._run_native(["capture-ocr", "--out", str(snap_path)], 15.0)
         if not ocr_payload.get("ok"):
             return {
                 "ok": False,
@@ -351,17 +353,11 @@ class WeChatRealtimeMonitor:
                 contact_state["lastSeenPreview"] = row_preview
                 return {"checked": False, "skipReason": "row_matches_last_outbound", "rowPreview": row_preview}
             if not prev_preview:
-                # 首次见到该行：打开建立基线（此前只有今天时间戳才打开，
-                # 会漏掉预览无时间戳的新消息——比如压测消息预览不含 HH:MM）
                 if _TODAY_HHMM_RE.search(row_preview):
                     should_open = True
                     trigger_reason = "today_activity_preview"
-                elif unread_badge:
-                    should_open = True
-                    trigger_reason = "unread_badge"
                 else:
-                    # 未读徽标为空且预览无今天时间戳：仍建立基线并跳过本轮。
-                    # 但记录 preview 签名，下次变化时 preview_changed 会触发。
+                    # Baseline non-today historical rows without clicking away from active screen
                     contact_state["lastSeenPreview"] = row_preview
                     return {"checked": False, "skipReason": "baseline_historical_row", "rowPreview": row_preview}
             elif row_preview != prev_preview:
@@ -383,7 +379,7 @@ class WeChatRealtimeMonitor:
         )
         ocr_payload = nav.get("ocrPayload")
         if not isinstance(ocr_payload, dict) or not ocr_payload.get("elements"):
-            ocr_payload = self.engine.capture_wechat_ocr(snap_path, timeout=30.0)
+            ocr_payload = self.engine._run_native(["capture-ocr", "--out", str(snap_path)], 15.0)
         structured = self.engine.inspector.extract_structured_bubbles(
             ocr_payload,
             snapshot_path=snap_path,
@@ -397,6 +393,113 @@ class WeChatRealtimeMonitor:
             "snapshotPath": str(snap_path),
             "rowPreview": row_preview,
         }
+
+    def _agent_dispatch_notes(
+        self,
+        binding: Dict[str, Any],
+        target: str,
+        bubbles: List[Dict[str, Any]],
+        incoming_text: str,
+        inspected: Dict[str, Any],
+    ) -> Tuple[List[str], Optional[Dict[str, Any]]]:
+        """Agent 分发与链接/图片/视频深读：产出注入回复上下文的识别备注（并持久化 media_note）。
+
+        返回 (extra_notes, dispatched_receipt)；深读失败静默降级，不影响回复主流程。
+        """
+        extra_notes: List[str] = []
+        dispatched_receipt: Optional[Dict[str, Any]] = None
+        if not (hasattr(self.engine, "agent_dispatcher") and (
+            binding.get("boundAgentId") or binding.get("autoAnalyzeLinksAndMedia", True)
+        )):
+            return extra_notes, dispatched_receipt
+        try:
+            parsed_tasks = self.engine.agent_dispatcher.parse_messages_for_instructions(
+                target,
+                bubbles[-6:],
+                snapshot_path=Path(inspected["snapshotPath"]) if inspected.get("snapshotPath") else None,
+            )
+            interesting = [
+                t
+                for t in parsed_tasks
+                if t.get("kind") in ("link_deep_read", "agent_instruction", "video_analysis", "image_card_analysis")
+            ]
+            if interesting and (
+                any(t.get("kind") == "link_deep_read" for t in interesting)
+                or binding.get("autoDispatchInstructions", True)
+            ):
+                vision_model = str(binding.get("visionModelId") or "auto/deepseek-v4.1-flash")
+                for it in interesting[:2]:
+                    if it.get("kind") == "link_deep_read" and it.get("url") and hasattr(self.engine, "media_analyzer"):
+                        lres = self.engine.media_analyzer.analyze_link(
+                            str(it["url"]),
+                            contact=target,
+                            context_text=incoming_text,
+                            model_id=vision_model,
+                        )
+                        if lres.get("summary"):
+                            extra_notes.append(f"[链接深读:{lres.get('title','')}] {lres.get('summary')}")
+                    elif it.get("kind") == "image_card_analysis" and hasattr(self.engine, "media_analyzer"):
+                        # 图片/图文卡片深读：对巡检快照做 2x Vision OCR + 视觉模型识别，
+                        # 让机器人"看懂"客户发来的图片而不仅看到 [图片] 占位符。
+                        # analyze_image_or_card 要求 crop_region（source_snapshot 只作底图），全图裁剪=整窗识别
+                        snap_path = Path(inspected["snapshotPath"]) if inspected.get("snapshotPath") else None
+                        crop_region = self._png_size(snap_path) if snap_path else None
+                        if crop_region:
+                            ires = self.engine.media_analyzer.analyze_image_or_card(
+                                source_snapshot=snap_path,
+                                crop_region=crop_region,
+                                from_viewer_window=False,
+                                contact=target,
+                                context_text=it.get("rawText") or incoming_text,
+                                model_id=vision_model,
+                            )
+                            if ires.get("summary"):
+                                extra_notes.append(f"[图片识别:{ires.get('title','') or '图片'}] {ires.get('summary')}")
+                    elif it.get("kind") == "video_analysis" and hasattr(self.engine, "media_analyzer"):
+                        # 视频消息：若客户点开过（微信媒体查看窗存在）则抓帧 OCR；
+                        # 查看窗不在时 analyze_video 自行降级，摘要失败不影响回复主流程
+                        vres = self.engine.media_analyzer.analyze_video(
+                            from_viewer_window=True,
+                            window_title="图片和视频",
+                            contact=target,
+                            context_text=it.get("rawText") or incoming_text,
+                            model_id=vision_model,
+                        )
+                        if vres.get("summary"):
+                            extra_notes.append(f"[视频识别:{vres.get('title','') or '视频'}] {vres.get('summary')}")
+                    else:
+                        extra_notes.append(f"[识别指令:{it.get('category')}] {it.get('rawText','')}")
+                if extra_notes:
+                    # 深读结果持久化：客户下次再提同一链接/图片时机器人仍记得内容
+                    for note in extra_notes:
+                        try:
+                            self.engine.append_media_note(target, note)
+                        except Exception:
+                            pass
+                    dispatched_receipt = {
+                        "boundAgentId": binding.get("boundAgentId") or "bot_wechat_ecosystem",
+                        "tasks": interesting[:4],
+                        "notes": extra_notes,
+                    }
+        except Exception:
+            dispatched_receipt = None
+        return extra_notes, dispatched_receipt
+
+    def _memory_context_with_history(self, target: str) -> Optional[Dict[str, Any]]:
+        """联系人记忆画像 + 聊天历史往来摘要（历史缺失不阻塞回复生成）。"""
+        mem_ctx = (
+            self.engine.soul_profiler.get_contact_memory_context(target)
+            if hasattr(self.engine, "soul_profiler")
+            else None
+        )
+        try:
+            history_snippet = self.engine.recent_history_thread(target, limit=6)
+            if history_snippet:
+                mem_ctx = dict(mem_ctx or {})
+                mem_ctx["historyThreadSnippet"] = history_snippet
+        except Exception:
+            pass  # 历史上下文缺失不阻塞回复生成
+        return mem_ctx
 
     def poll_once(
         self,
@@ -446,14 +549,7 @@ class WeChatRealtimeMonitor:
             state["daemon"]["lastPollAt"] = _utc_iso_now()
             state["daemon"]["lastError"] = str(cap.get("error") or cap.get("error_code"))
             self._save_state(state)
-            # 窗口被遮挡是环境状态而非程序故障：单独事件，便于首页区分提示
-            if cap.get("error_code") == "window_occluded":
-                self._append_event("window_occluded", {
-                    "status": "wechat_hidden",
-                    "hint": "微信窗口被其他应用完全遮挡，巡检暂停；把微信切到前台或最小化遮挡窗口即可恢复",
-                })
-            else:
-                self._append_event("poll_error", cap)
+            self._append_event("poll_error", cap)
             return cap
 
         bounds = cap["bounds"]
@@ -635,95 +731,12 @@ class WeChatRealtimeMonitor:
                 continue
 
             recent_peer_msgs = [str(b.get("text", "")) for b in bubbles[-6:] if b.get("text")]
-            dispatched_receipt: Optional[Dict[str, Any]] = None
-            if hasattr(self.engine, "agent_dispatcher") and (
-                binding.get("boundAgentId") or binding.get("autoAnalyzeLinksAndMedia", True)
-            ):
-                try:
-                    parsed_tasks = self.engine.agent_dispatcher.parse_messages_for_instructions(
-                        target,
-                        bubbles[-6:],
-                        snapshot_path=Path(inspected["snapshotPath"]) if inspected.get("snapshotPath") else None,
-                    )
-                    interesting = [
-                        t
-                        for t in parsed_tasks
-                        if t.get("kind") in ("link_deep_read", "agent_instruction", "video_analysis", "image_card_analysis")
-                    ]
-                    if interesting and (
-                        any(t.get("kind") == "link_deep_read" for t in interesting)
-                        or binding.get("autoDispatchInstructions", True)
-                    ):
-                        vision_model = str(binding.get("visionModelId") or "auto/deepseek-v4.1-flash")
-                        extra_notes: List[str] = []
-                        for it in interesting[:2]:
-                            if it.get("kind") == "link_deep_read" and it.get("url") and hasattr(self.engine, "media_analyzer"):
-                                lres = self.engine.media_analyzer.analyze_link(
-                                    str(it["url"]),
-                                    contact=target,
-                                    context_text=incoming_text,
-                                    model_id=vision_model,
-                                )
-                                if lres.get("summary"):
-                                    extra_notes.append(f"[链接深读:{lres.get('title','')}] {lres.get('summary')}")
-                            elif it.get("kind") == "image_card_analysis" and hasattr(self.engine, "media_analyzer"):
-                                # 图片/图文卡片深读：对巡检快照做 2x Vision OCR + 视觉模型识别，
-                                # 让机器人"看懂"客户发来的图片而不仅看到 [图片] 占位符。
-                                # analyze_image_or_card 要求 crop_region（source_snapshot 只作底图），全图裁剪=整窗识别
-                                snap_path = Path(inspected["snapshotPath"]) if inspected.get("snapshotPath") else None
-                                crop_region = self._png_size(snap_path) if snap_path else None
-                                if crop_region:
-                                    ires = self.engine.media_analyzer.analyze_image_or_card(
-                                        source_snapshot=snap_path,
-                                        crop_region=crop_region,
-                                        from_viewer_window=False,
-                                        contact=target,
-                                        context_text=it.get("rawText") or incoming_text,
-                                        model_id=vision_model,
-                                    )
-                                    if ires.get("summary"):
-                                        extra_notes.append(f"[图片识别:{ires.get('title','') or '图片'}] {ires.get('summary')}")
-                            elif it.get("kind") == "video_analysis" and hasattr(self.engine, "media_analyzer"):
-                                # 视频消息：若客户点开过（微信媒体查看窗存在）则抓帧 OCR；
-                                # 查看窗不在时 analyze_video 自行降级，摘要失败不影响回复主流程
-                                vres = self.engine.media_analyzer.analyze_video(
-                                    from_viewer_window=True,
-                                    window_title="图片和视频",
-                                    contact=target,
-                                    context_text=it.get("rawText") or incoming_text,
-                                    model_id=vision_model,
-                                )
-                                if vres.get("summary"):
-                                    extra_notes.append(f"[视频识别:{vres.get('title','') or '视频'}] {vres.get('summary')}")
-                            else:
-                                extra_notes.append(f"[识别指令:{it.get('category')}] {it.get('rawText','')}")
-                        if extra_notes:
-                            recent_peer_msgs = recent_peer_msgs + extra_notes
-                            # 深读结果持久化：客户下次再提同一链接/图片时机器人仍记得内容
-                            for note in extra_notes:
-                                try:
-                                    self.engine.append_media_note(target, note)
-                                except Exception:
-                                    pass
-                            dispatched_receipt = {
-                                "boundAgentId": binding.get("boundAgentId") or "bot_wechat_ecosystem",
-                                "tasks": interesting[:4],
-                                "notes": extra_notes,
-                            }
-                except Exception:
-                    dispatched_receipt = None
-            mem_ctx = (
-                self.engine.soul_profiler.get_contact_memory_context(target)
-                if hasattr(self.engine, "soul_profiler")
-                else None
+            extra_notes, dispatched_receipt = self._agent_dispatch_notes(
+                binding, target, bubbles, incoming_text, inspected,
             )
-            try:
-                history_snippet = self.engine.recent_history_thread(target, limit=6)
-                if history_snippet:
-                    mem_ctx = dict(mem_ctx or {})
-                    mem_ctx["historyThreadSnippet"] = history_snippet
-            except Exception:
-                pass  # 历史上下文缺失不阻塞回复生成
+            if extra_notes:
+                recent_peer_msgs = recent_peer_msgs + extra_notes
+            mem_ctx = self._memory_context_with_history(target)
             smart = self.engine.personas.generate_smart_reply(
                 target,
                 incoming_text,
@@ -733,11 +746,6 @@ class WeChatRealtimeMonitor:
                 memory_context=mem_ctx,
             )
             reply_text = str(smart.get("replyText") or "").strip()
-            # 客户出口净化：内部术语 → 友好话术（LLM 模仿 KB 技术条目时可能外泄）
-            try:
-                reply_text = self.engine.personas.sanitize_for_customer(reply_text)
-            except Exception:
-                pass  # 净化失败保留原文（宁可不完美，不丢回复）
 
             draft_record = {
                 "signature": msg_sig,
