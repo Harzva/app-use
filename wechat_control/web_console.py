@@ -1729,11 +1729,18 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       <div class="perm-modal">
         <h2 id="permModalTitle">需要授权以下权限才能正常使用 WeChat Bot</h2>
         <p class="perm-sub">自动化读取与回复微信消息依赖这三项 macOS 权限，缺一不可</p>
+        <details class="hosting-picker" style="margin:0 12px 8px;">
+          <summary style="font-size:12px;color:#888;">为什么之前授权过，现在又要授权？</summary>
+          <div style="font-size:12px;color:#666;line-height:1.6;padding:6px 4px;">
+            App 每次更新后代码签名会变化，macOS 会把它视为<b>新的应用</b>，旧授权随之失效——这是系统安全机制，不是 bug。<br>
+            正确做法：打开系统设置 → 隐私与安全性 → 辅助功能 / 屏幕录制，先把列表里的<b>旧 WeChat Bot 条目「−」删除</b>，再点「+」重新添加当前安装的 WeChat Bot。
+          </div>
+        </details>
         <div class="perm-steps" id="permModalSteps"></div>
         <div class="perm-items perm-modal-items" id="permModalItems"></div>
         <div class="perm-modal-actions">
           <a id="permModalOpenSettings" class="btn-solid" href="x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" style="text-decoration:none;">⚙️ 打开系统设置去授权</a>
-          <button type="button" class="btn-outline" onclick="loadPermissions(true)">🔄 我已勾选，重新检查</button>
+          <button type="button" class="btn-outline" onclick="window.PERM_MODAL_DISMISSED = false; loadPermissions(true)">🔄 我已勾选，重新检查</button>
         </div>
         <span class="perm-modal-later" onclick="hidePermModal()">稍后再说（首页会保留警示）</span>
       </div>
@@ -1760,7 +1767,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
           <div class="perm-items" id="permItems"><p class="hosting-empty">正在检查系统权限…</p></div>
           <div class="perm-actions">
             <a id="permOpenSettings" class="btn-outline" href="x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" style="text-decoration:none;">⚙️ 打开系统设置 · 隐私与安全性</a>
-            <button type="button" id="permRecheckBtn" class="btn-solid" onclick="loadPermissions(true)">🔄 重新检查</button>
+            <button type="button" id="permRecheckBtn" class="btn-solid" onclick="window.PERM_MODAL_DISMISSED = false; loadPermissions(true)">🔄 重新检查</button>
             <span class="hosting-hint" id="permHint">授权后回到这里点「重新检查」即可，无需重启。</span>
           </div>
         </div>
@@ -3220,7 +3227,9 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
     function showPermModal() {
       document.getElementById("permOverlay").classList.add("visible");
     }
+    window.PERM_MODAL_DISMISSED = false; // 「稍后再说」后本轮会话不再自动弹窗（首页警示条仍保留；内联 onclick 需挂 window）
     function hidePermModal() {
+      PERM_MODAL_DISMISSED = true;
       document.getElementById("permOverlay").classList.remove("visible");
     }
 
@@ -3281,14 +3290,14 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
           const denied = data.items.filter((p) => !p.granted).map((p) => p.name).join(" / ");
           summary.textContent = "🔐 系统权限未就绪：缺 " + denied + " ——机器人会“睁眼瞎”";
           document.getElementById("permHint").textContent = "授权后点「重新检查」即可生效。";
-          showPermModal();
+          if (!window.PERM_MODAL_DISMISSED) showPermModal(); // 用户点过「稍后再说」则只保留首页警示条，不再自动弹
         }
         if (notify) showToast(data.allGranted ? "✅ 权限全部就绪，机器人功能全部可用" : "仍有权限未授权，按步骤操作后重新检查");
       } catch (err) {
         panel.classList.add("warn");
         panel.open = true;
         itemsEl.innerHTML = `<p class="hosting-empty">权限检查失败: ${err.message}</p>`;
-        showPermModal();
+        if (!window.PERM_MODAL_DISMISSED) showPermModal();
       }
     }
 
