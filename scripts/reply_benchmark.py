@@ -102,6 +102,12 @@ PERSONA_SPECIFIC = [
     "RPA和低代码什么关系", "按键精灵安全性如何", "rpa运维成本高吗",
     "RPA怎么处理异常", "自动化测试和RPA的区别",
 ]
+FOLLOWUP = [
+    "那怎么下载？", "怎么安装？", "去哪里下载？", "怎么开始用？", "怎么更新到新版？",
+    "那怎么收费", "支持什么系统？", "发我个链接", "怎么授权？", "要什么权限？",
+    "那语音呢？", "图片能识别吗？", "聊天记录能导入吗？", "怎么导出？", "那怎么备份？",
+    "怎么联系你们？", "有群吗？", "有教程吗？", "文档在哪？", "怎么卸载？",
+]
 
 CATEGORIES = [
     ("寒暄问候", GREETINGS, {}),
@@ -113,6 +119,7 @@ CATEGORIES = [
     ("噪声输入", NOISY, {"allowGeneric": True}),
     ("链接消息", LINKS, {}),
     ("图片消息", IMAGE_DESC, {}),
+    ("追问场景", FOLLOWUP, {"expectAnswered": True}),
     ("人设专属", PERSONA_SPECIFIC, {"persona": "rpa-tech-expert", "expectAnswered": True}),
 ]
 
@@ -182,11 +189,14 @@ def run_llm_branch_cases(engine) -> list:
     return cases
 
 
-def build_engine(tmp: Path) -> WeChatControlEngine:
+def build_engine(tmp: Path, live_llm: bool = False) -> WeChatControlEngine:
+    real_models_cfg = ROOT / "config" / "model_providers.json"
     engine = WeChatControlEngine(
         audit_log_path=tmp / "a.jsonl", auth_file_path=tmp / "auth.json",
-        bindings_file_path=tmp / "b.json", models_config_path=tmp / "m.json",
-        model_http_requester=lambda m, u, **k: (_ for _ in ()).throw(ConnectionRefusedError),
+        bindings_file_path=tmp / "b.json",
+        models_config_path=real_models_cfg if live_llm and real_models_cfg.is_file() else tmp / "m.json",
+        # live 模式用真实 HTTP 请求器（走 Magpie 网关）；离线模式拒连强制走模板分支
+        model_http_requester=None if live_llm else (lambda m, u, **k: (_ for _ in ()).throw(ConnectionRefusedError)),
         knowledge_db_path=tmp / "kb.sqlite", personas_file_path=tmp / "p.json",
         snapshots_dir=tmp / "snap", reports_dir=tmp / "reports",
         allowed_groups=["VIP客户群", "测试私域运营群"],
@@ -268,6 +278,19 @@ def run_benchmark(quick: bool = False) -> dict:
     llm_cases = run_llm_branch_cases(engine)
     llm_passed = sum(1 for c in llm_cases if c["passed"])
 
+    # 人设区分度维度：同一问题 3 个客户人设的回复应互不相同（防模板趋同回归）
+    persona_distinct_cases = []
+    for probe in ("多少钱？", "WaveBot 是什么产品？", "怎么开启自动回复？"):
+        replies = {}
+        for pid in ("wecom-kf-pro", "warm-friend", "concise-assistant"):
+            engine.persona_switch("基准用户", pid)
+            replies[pid] = str(engine.preview_smart_reply("基准用户", probe).get("replyText"))
+        distinct = len(set(replies.values()))
+        persona_distinct_cases.append({"incoming": probe, "distinct": distinct, "ok": distinct >= 3})
+    persona_distinct_rate = round(
+        sum(1 for c in persona_distinct_cases if c["ok"]) / len(persona_distinct_cases), 3
+    )
+
     # 频控评分：同 target 连发触发 AntiBanGuard 拦截
     guard = engine.antiban
     freq_ok, freq_blocked_at = True, None
@@ -312,6 +335,7 @@ def run_benchmark(quick: bool = False) -> dict:
         "answeredRate": answered_rate,
         "replyDiversity": diversity,
         "repeatVariation": {"rate": repeat_variation_rate, "cases": variation_cases},
+        "personaDistinct": {"rate": persona_distinct_rate, "cases": persona_distinct_cases},
         "llmBranch": {"passed": llm_passed, "total": len(llm_cases), "cases": llm_cases},
         "frequencyGuard": {"ok": freq_ok, "blockedAtSend": freq_blocked_at},
         "elapsedSeconds": round(elapsed, 2),
@@ -331,15 +355,59 @@ def run_benchmark(quick: bool = False) -> dict:
     return report
 
 
+LIVE_LLM_PROBES = [
+    "多少钱？", "WaveBot 是什么产品？", "怎么开启自动回复？", "支持 Mac 吗？", "数据安全吗？",
+    "语音消息能转文字吗？", "转人工", "你好", "RPA与按键精灵有什么区别", "怎么更新版本？",
+]
+
+
+def run_live_llm_eval(engine) -> dict:
+    """真实 Magpie 网关抽样评测：验证 sys_prompt + KB 注入的实际生产效果。"""
+    cases = []
+    t0 = time.time()
+    for probe in LIVE_LLM_PROBES:
+        engine.persona_switch("基准用户", "wecom-kf-pro")
+        prev = engine.personas.generate_smart_reply(
+            "基准用户", probe,
+            knowledge_store=engine.knowledge,
+            binding=engine.bindings.get_binding("基准用户"),
+            use_llm=True,
+        )
+        reply = str(prev.get("replyText") or "")
+        mode = str(prev.get("generationMode") or "")
+        llm_live = mode == "llm_magpie"
+        passed = bool(reply.strip()) and not JARGON_RE.search(reply) and len(reply) <= 200
+        cases.append({
+            "incoming": probe,
+            "mode": mode,
+            "llmLive": llm_live,
+            "latencyMs": prev.get("basis", {}).get("latencyMs"),
+            "passed": passed,
+            "reply": reply[:100],
+        })
+    live_count = sum(1 for c in cases if c["llmLive"])
+    passed_count = sum(1 for c in cases if c["passed"])
+    return {
+        "total": len(cases),
+        "passed": passed_count,
+        "llmLiveCount": live_count,
+        "avgLatencyMs": round(sum(c["latencyMs"] or 0 for c in cases) / max(len(cases), 1)),
+        "elapsedSeconds": round(time.time() - t0, 1),
+        "cases": cases,
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--quick", action="store_true", help="抽样模式（1 个人设 + 4 类）")
+    ap.add_argument("--live-llm", action="store_true", help="追加真实 Magpie 网关抽样评测")
     args = ap.parse_args()
     rep = run_benchmark(quick=args.quick)
     print(f"话术基准: {rep['passed']}/{rep['totalCases']} 通过 "
           f"(通过率 {rep['passRate']:.1%})，术语外泄 {rep['jargonLeaks']} 条，"
           f"答所问率 {rep['answeredRate'] if rep['answeredRate'] is not None else 'n/a'}，"
           f"重问变化率 {rep['repeatVariation']['rate']:.0%}，"
+          f"人设区分度 {rep['personaDistinct']['rate']:.0%}，"
           f"LLM 分支 {rep['llmBranch']['passed']}/{rep['llmBranch']['total']}，"
           f"频控 {'OK' if rep['frequencyGuard']['ok'] else 'FAIL'}，耗时 {rep['elapsedSeconds']}s")
     for c in rep["llmBranch"]["cases"]:
@@ -352,7 +420,24 @@ def main() -> int:
         print(f"  [外泄] {s['category']}/{s['persona']}「{s['incoming']}」→ {s['reply'][:60]}")
     for s in rep["failSamples"][:5]:
         print(f"  [失败] {s['category']}/{s['persona']}「{s['incoming']}」→ {s['reply'][:60]}")
-    return 0 if rep["passRate"] >= 0.95 and rep["jargonLeaks"] == 0 and rep["llmBranch"]["passed"] == rep["llmBranch"]["total"] else 1
+
+    live_ok = True
+    if args.live_llm:
+        tmp = Path(tempfile.mkdtemp(prefix="wavebot_live_"))
+        engine = build_engine(tmp, live_llm=True)
+        live = run_live_llm_eval(engine)
+        rep["liveLlm"] = live
+        out = ROOT / "logs" / "reply_benchmark_report.json"
+        out.write_text(json.dumps(rep, ensure_ascii=False, indent=2))
+        print(f"\n真实网关评测: {live['passed']}/{live['total']} 通过，"
+              f"LLM 实发 {live['llmLiveCount']}/{live['total']}，"
+              f"平均延迟 {live['avgLatencyMs']}ms，耗时 {live['elapsedSeconds']}s")
+        for c in live["cases"]:
+            mark = "✓" if c["passed"] else "✗"
+            flag = "LLM" if c["llmLive"] else "TPL"
+            print(f"  {mark} [{flag}] 「{c['incoming']}」→ {c['reply'][:58]}")
+        live_ok = live["passed"] == live["total"] and live["llmLiveCount"] >= len(LIVE_LLM_PROBES) // 2
+    return 0 if rep["passRate"] >= 0.95 and rep["jargonLeaks"] == 0 and rep["llmBranch"]["passed"] == rep["llmBranch"]["total"] and live_ok else 1
 
 
 if __name__ == "__main__":

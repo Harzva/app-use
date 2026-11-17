@@ -331,6 +331,18 @@ DEFAULT_SEED_ENTRIES: List[Dict[str, Any]] = [
         "status": "published",
     },
     {
+        "id": "seed-faq-community-support",
+        "library": "shared",
+        "kind": "faq",
+        "title": "教程文档与社区支持",
+        "body": "使用教程与完整文档在 GitHub 仓库 README（github.com/Harzva/wechat-bot），历史版本与更新说明见 Releases 页面；使用问题也可以直接在本对话咨询机器人，复杂问题可随时转人工。",
+        "keywords": ["有群", "群聊", "交流群", "教程", "文档", "说明书", "指南", "帮助文档", "wiki", "社区", "文档在哪", "怎么学"],
+        "synonyms": ["有教程吗", "哪里有文档", "用户群"],
+        "source": "openbot://faq/community-support",
+        "external": True,
+        "status": "published",
+    },
+    {
         "id": "seed-script-kf-takeover",
         "library": "shared",
         "kind": "script",
