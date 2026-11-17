@@ -409,6 +409,23 @@ class WeChatControlEngine:
             self.audit.log("auth_gate", "denied", {"capability": capability, "error": str(exc)})
             raise
 
+    def capture_wechat_ocr(self, out_path: Path, *, timeout: float = 30.0,
+                           window_title: str = "微信") -> Dict[str, Any]:
+        """只截微信窗口做 OCR（--window-title 定位），避免截到覆盖在上面的无关窗口。
+
+        原生层指定 window-title 时不会自动拉起微信，因此窗口不存在时退回不带 title 的
+        调用（保留 ensureWeChatMainWindow 的自动恢复能力），并在结果里标注 fallbackUsed。
+        """
+        res = self._run_native(["capture-ocr", "--window-title", window_title, "--out", str(out_path)], timeout)
+        if res.get("ok"):
+            return res
+        if res.get("error_code") in ("window_not_found", "no_window"):
+            fallback = self._run_native(["capture-ocr", "--out", str(out_path)], timeout)
+            fallback["fallbackUsed"] = True
+            fallback["fallbackReason"] = res.get("error_code")
+            return fallback
+        return res
+
     def _enhance_lowres_ocr(self, args: List[str], data: Dict[str, Any], *, timeout: float) -> Dict[str, Any]:
         """Re-run Vision OCR on a 2x upscaled image when 1x non-Retina captures (<900px) drop small chat text."""
         if not data.get("ok") or not args or args[0] not in ("capture-ocr", "ocr"):
