@@ -13,12 +13,12 @@ VISION_BIN="$ROOT_DIR/bin/wechat-vision-ax"
 BIN_OUT="$ROOT_DIR/bin/wechat-studio-app"
 mkdir -p "$ROOT_DIR/bin" "$ROOT_DIR/dist" "/Volumes/SanDisk/Builds"
 
-APP_VERSION="2.4.55"
+APP_VERSION="2.4.61"
 
 # 版本一致性自检：四处版本声明必须一致，漏改即中止构建（防 App/插件版本错位）
 for _vf in pyproject.toml plugin.manifest.json dsh.plugin.json; do
   case "$_vf" in
-    pyproject.toml) _pat='version = "2.4.55"' ;;
+    pyproject.toml) _pat='version = "2.4.61"' ;;
     *) _pat='"version": "2.4.49"' ;;
   esac
   if !grep -q "$_pat" "$_vf"; then
@@ -121,19 +121,6 @@ build_bundle() {
 </dict>
 </plist>
 PLIST
-  # 稳定签名：有「WeChat Bot Local Signing」证书则用它（TCC 授权跨更新保留）；
-  # 否则 ad-hoc（每次构建授权失效），提示一次性创建固定证书
-  SIGN_IDENTITY="$(security find-identity -p codesigning -v 2>/dev/null | grep 'WeChat Bot Local Signing' | awk '{print $2}' | head -1 || true)"
-  if [ -n "$SIGN_IDENTITY" ]; then
-    if codesign --force --deep --sign "$SIGN_IDENTITY" "$bundle_dir" >/dev/null 2>&1; then
-      echo "  SIGNED with stable identity (TCC grants persist across updates)"
-    else
-      echo "  WARN: stable signing failed, falling back ad-hoc" >&2
-    fi
-  else
-    codesign --force --deep --sign - "$bundle_dir" >/dev/null 2>&1 || true
-    echo "  WARN: no stable signing identity found - TCC grants will reset on each update. Run bin/create-signing-cert.sh once." >&2
-  fi
 
   python3 - "$ROOT_DIR" "$bundle_dir" "$display_name" "$bundle_id" "$APP_VERSION" "$APP_BUILD" << 'PY'
 import json, subprocess, sys

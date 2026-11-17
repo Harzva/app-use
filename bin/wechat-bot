@@ -18,4 +18,8 @@ else
   export PYTHONPATH="${PLUGIN_ROOT}"
 fi
 
+# 关键：cd 到 PLUGIN_ROOT 再 python -m——cwd 会成为 sys.path[0]，
+# 否则开发机上源码目录的代码会遮蔽 App 包内的版本（版本漂移诡异的总根因）
+cd "$PLUGIN_ROOT"
+
 exec python3 -m wechat_control.cli "$@"

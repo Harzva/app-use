@@ -192,7 +192,7 @@ private func ensureBackendRunning(repoRoot: URL, consoleUrl: String) {
     let proc = Process()
     proc.executableURL = launcher
     proc.arguments = ["console", "--host", "127.0.0.1", "--port", "18788"]
-    proc.currentDirectoryURL = repoRoot
+    proc.currentDirectoryURL = launcher.deletingLastPathComponent().deletingLastPathComponent() // App Resources（避免 cwd 源码遮蔽包内代码）
     proc.standardOutput = FileHandle.nullDevice
     proc.standardError = FileHandle.nullDevice
     try? proc.run()
