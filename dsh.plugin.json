@@ -1,0 +1,411 @@
+{
+  "schema": "openbot.dsh-plugin/1",
+  "id": "dsh-plugin-wechat-ecosystem",
+  "name": "dsh-plugin-wechat-ecosystem",
+  "packageName": "@dsh-market/wechat-ecosystem",
+  "version": "2.4.33",
+  "title": "微信全生态私域与内容工作台",
+  "domain": "ops",
+  "companionBotId": "bot_wechat_ecosystem",
+  "description": "独立运行或接入 Bot Studio 的 macOS 微信全生态工作台：覆盖聊天监控、特别关心、公众号与服务号全量文章导出、视频号导出、WeChatBridge 本我与好友灵魂记忆及三阶段防抢鼠标守卫。",
+  "standaloneApp": {
+    "appName": "WeChat Bot.app",
+    "bundlePath": "dist/WeChat Bot.app",
+    "executablePath": "bin/wechat-studio-app",
+    "webConsoleUrl": "http://127.0.0.1:18788/",
+    "cliPath": "bin/wechat-bot"
+  },
+  "authorization": {
+    "failClosed": true,
+    "authFile": "config/studio_auth.json"
+  },
+  "tools": [
+    {
+      "name": "wechat_salescrm_pipeline",
+      "description": "基于开源 Aurora-73/SalesCRM 管理营销漏斗、同步微信历史、录入/编辑客户跟进阶段与北京时间提醒",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "title": "操作类型",
+            "description": "overview / sync / reminders / enroll / update / complete_reminder / reschedule / merge_accounts / adopt_draft",
+            "default": "overview"
+          },
+          "target": {
+            "type": "string",
+            "title": "目标客户姓名或标识",
+            "default": ""
+          },
+          "stage": {
+            "type": "string",
+            "title": "营销漏斗阶段",
+            "default": "跟进中"
+          },
+          "follow_up": {
+            "type": "string",
+            "title": "北京时间跟进排期 (YYYY-MM-DDTHH:MM)",
+            "default": ""
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "wechat_salescrm_analyze",
+      "description": "运行开源 SalesCRM 15 维量化指标、事件里程碑识别、时间线与 Top 1-3 跟进草稿生成",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "title": "目标客户名称",
+            "default": "心安"
+          },
+          "incoming_text": {
+            "type": "string",
+            "title": "最新来信内容（可选）",
+            "default": ""
+          }
+        },
+        "required": ["target"]
+      }
+    },
+    {
+      "name": "wechat_salescrm_formulas",
+      "description": "计算开源 SalesCRM 核心数学公式 BQ / BSP / BWS / PV 与最佳营业推进动作",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "title": "目标客户名称",
+            "default": "心安"
+          }
+        },
+        "required": ["target"]
+      }
+    },
+    {
+      "name": "wechat_inspect_live",
+      "description": "只读盘点当前微信会话列表、未读红点与右侧聊天消息",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "targetChat": {
+            "type": "string",
+            "title": "目标联系人或群聊",
+            "description": "可选：指定要读取的会话名称，如 心安",
+            "default": ""
+          },
+          "includeContacts": {
+            "type": "boolean",
+            "title": "同时扫描通讯录好友列表",
+            "default": false
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "wechat_ui_navigate",
+      "description": "微信标准化 UI 语义导航（8 视图 / 10 分区 / 24 控件目标）与三阶段防抢鼠标检查",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "targetId": {
+            "type": "string",
+            "title": "标准界面控件目标 ID",
+            "description": "如 nav.chats / nav.contacts / menu.settings / chat.header_more_drawer",
+            "default": "nav.chats"
+          },
+          "dryRun": {
+            "type": "boolean",
+            "title": "仅解析坐标不点击 (Dry-Run)",
+            "default": true
+          }
+        },
+        "required": ["targetId"]
+      }
+    },
+    {
+      "name": "wechat_export_article",
+      "description": "导出当前打开的微信文章或公众号链接为 Markdown 与本地防盗链图片",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "articleUrl": {
+            "type": "string",
+            "title": "公众号文章链接",
+            "description": "https://mp.weixin.qq.com/s/...",
+            "default": ""
+          },
+          "fromWindow": {
+            "type": "boolean",
+            "title": "优先从已打开微信文章窗导出",
+            "default": true
+          },
+          "downloadImages": {
+            "type": "boolean",
+            "title": "下载图片到本地 assets 目录",
+            "default": true
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "wechat_export_account_articles",
+      "description": "批量导出服务号或公众号全部历史文章并生成 INDEX.md 目录",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "accountName": {
+            "type": "string",
+            "title": "公众号或服务号名称",
+            "description": "例如 OpenBot 服务号",
+            "default": ""
+          },
+          "albumUrl": {
+            "type": "string",
+            "title": "合集或历史消息页链接",
+            "description": "可选：appmsgalbum 链接",
+            "default": ""
+          },
+          "maxArticles": {
+            "type": "string",
+            "title": "最大导出篇数",
+            "description": "1-200",
+            "default": "30"
+          }
+        },
+        "required": ["accountName"]
+      }
+    },
+    {
+      "name": "wechat_export_channels_videos",
+      "description": "批量导出微信视频号作者全部视频（支持流清单、XOR 解码与本地缓存提取）",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "authorName": {
+            "type": "string",
+            "title": "视频号作者名称",
+            "description": "例如 极客频道",
+            "default": ""
+          },
+          "cacheDir": {
+            "type": "string",
+            "title": "本地视频号缓存目录路径",
+            "description": "可选：自动识别 ftyp/MP4/MOV 缓存视频",
+            "default": ""
+          },
+          "manifestPath": {
+            "type": "string",
+            "title": "视频流清单 JSON/JSONL 路径",
+            "description": "可选：含 URL 与可选 decode_key",
+            "default": ""
+          }
+        },
+        "required": ["authorName"]
+      }
+    },
+    {
+      "name": "wechat_soul_profile",
+      "description": "构建或查询 WeChatBridge 微信号主本我性格画像、好友长期记忆与数字分身",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "title": "联系人名称",
+            "description": "可选：过滤查看某个好友心智画像",
+            "default": ""
+          },
+          "rebuild": {
+            "type": "boolean",
+            "title": "立即重建本我与全部好友记忆图谱",
+            "default": false
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "wechat_smart_reply",
+      "description": "融合 FTS5 企业微信客服知识库、好友专属人格与 Magpie 多模型生成回复",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "title": "回复对象姓名或群名",
+            "description": "如 心安",
+            "default": "心安"
+          },
+          "incomingText": {
+            "type": "string",
+            "title": "对方最新消息内容",
+            "description": "输入模拟或实测对方消息",
+            "default": "你好，请问最新方案进展怎么样？"
+          },
+          "persona": {
+            "type": "string",
+            "title": "沟通人格模式",
+            "enum": ["owner-digital-twin", "warm-friend", "pro-kf", "humorous"],
+            "enumLabels": {
+              "owner-digital-twin": "号主本我数字分身 (owner-digital-twin)",
+              "warm-friend": "温暖挚友 (warm-friend)",
+              "pro-kf": "专业客服 (pro-kf)",
+              "humorous": "轻松幽默 (humorous)"
+            },
+            "default": "owner-digital-twin"
+          }
+        },
+        "required": ["target", "incomingText"]
+      }
+    },
+    {
+      "name": "wechat_run_benchmark",
+      "description": "运行 9 大模块全链路可复现 Benchmark 与 Kimi 验收核对",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "includeTests": {
+            "type": "boolean",
+            "title": "同时运行完整自动化单元测试套件",
+            "default": true
+          }
+        },
+        "required": []
+      }
+    }
+  ],
+  "workbench": {
+    "panels": [
+      {
+        "id": "wechat_live_rpa_panel",
+        "title": "实机巡检 · UI 语义导航 · 防抢鼠标守卫",
+        "description": "基于原生 Swift Vision OCR 与 AX 控件树，自动识别 8 类微信界面并严格执行三阶段防抢鼠标让路策略。",
+        "actions": [
+          {
+            "id": "inspect_live",
+            "title": "只读巡检微信会话与消息",
+            "tool": "wechat_inspect_live",
+            "requiresApproval": false
+          },
+          {
+            "id": "navigate_ui",
+            "title": "解析或导航标准 UI 控件坐标",
+            "tool": "wechat_ui_navigate",
+            "requiresApproval": false
+          }
+        ]
+      },
+      {
+        "id": "wechat_media_export_panel",
+        "title": "微信文章 · 服务号全量历史 · 视频号全部视频导出",
+        "description": "导出单篇公众号文章、批量归档服务号/公众号历史文章，以及下载提取微信视频号作者全部视频。",
+        "actions": [
+          {
+            "id": "export_article",
+            "title": "导出当前文章为 Markdown + 图片",
+            "tool": "wechat_export_article",
+            "requiresApproval": false
+          },
+          {
+            "id": "export_account",
+            "title": "批量导出服务号或公众号历史文章",
+            "tool": "wechat_export_account_articles",
+            "requiresApproval": false
+          },
+          {
+            "id": "export_channels",
+            "title": "批量导出微信视频号作者视频",
+            "tool": "wechat_export_channels_videos",
+            "requiresApproval": false
+          }
+        ]
+      },
+      {
+        "id": "wechat_soul_kf_panel",
+        "title": "本我灵魂与好友记忆 · FTS5 客服与多模型回复",
+        "description": "整合 WeChatBridge 本我/好友性格画像、企业微信客服 FTS5 术语库与 Magpie 多供应商大模型预览回复。",
+        "actions": [
+          {
+            "id": "soul_profile",
+            "title": "构建并查看本我与好友记忆画像",
+            "tool": "wechat_soul_profile",
+            "requiresApproval": false
+          },
+          {
+            "id": "smart_reply",
+            "title": "生成带记忆与知识库的智能回复",
+            "tool": "wechat_smart_reply",
+            "requiresApproval": false
+          },
+          {
+            "id": "run_benchmark",
+            "title": "执行全链路 9 模块 Benchmark 评测",
+            "tool": "wechat_run_benchmark",
+            "requiresApproval": false
+          }
+        ]
+      },
+      {
+        "id": "wechat_salescrm_panel",
+        "title": "📈 开源 SalesCRM 营销漏斗与 15 维客户跟进",
+        "description": "基于开源 Aurora-73/SalesCRM：15 维量化评分、BQ/BSP/BWS/PV 数学公式、北京时间跟进提醒与 Top 1-3 跟进草稿。",
+        "actions": [
+          {
+            "id": "crm_pipeline",
+            "title": "查看 SalesCRM 营销漏斗与到期提醒总览",
+            "tool": "wechat_salescrm_pipeline",
+            "requiresApproval": false
+          },
+          {
+            "id": "crm_analyze",
+            "title": "分析客户 15 维指标与 Top 3 草稿",
+            "tool": "wechat_salescrm_analyze",
+            "requiresApproval": false
+          },
+          {
+            "id": "crm_formulas",
+            "title": "计算 SalesCRM 数学公式 (BQ / BSP / BWS / PV)",
+            "tool": "wechat_salescrm_formulas",
+            "requiresApproval": false
+          }
+        ]
+      }
+    ]
+  },
+  "vertical": {
+    "specialization": {
+      "id": "wechat_ecosystem_delivery",
+      "title": "微信全生态 RPA 与 Benchmark 交付门禁 (Vertical)"
+    },
+    "tasks": [
+      {
+        "id": "wechat_full_acceptance",
+        "title": "执行微信全生态 9 模块 Benchmark 与安全门禁核验",
+        "instructions": "运行全量单元测试与 9 模块 Benchmark，核对三阶段防抢鼠标守卫、SSRF 防护与 Kimi 验收回执。",
+        "successCriteria": [
+          "9/9 Benchmark 模块全部 PASS",
+          "单元测试全部通过",
+          "Fail-Closed 门禁与防抢鼠标守卫正常"
+        ]
+      }
+    ]
+  }
+}

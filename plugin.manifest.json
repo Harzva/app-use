@@ -1,0 +1,135 @@
+{
+  "schema": "openbot.agent-plugin/1",
+  "id": "openbot.plugin.wechat-rpa-control",
+  "dshPluginId": "dsh-plugin-wechat-ecosystem",
+  "packageName": "@openbot/wechat-rpa-plugin",
+  "dshPackageName": "@dsh-market/wechat-ecosystem",
+  "version": "2.4.33",
+  "title": "WeChat Ecosystem Studio (macOS RPA + Vision OCR + Bridge + Exporter)",
+  "description": "Standalone software (.app + Web + CLI), DSH plugin (openbot.dsh-plugin/1), and Bot Studio 1.0.33 plugin for macOS WeChat desktop control, media export (articles/accounts/channels), and WeChatBridge Soul profiling under explicit Studio authorization.",
+  "platform": "darwin",
+  "authorization": {
+    "failClosed": true,
+    "authFile": "config/studio_auth.json",
+    "capabilities": [
+      {
+        "id": "status",
+        "title": "Read WeChat window status, UI protocol schema, human guard, and Bot Studio bridge state",
+        "risk": "read",
+        "tools": [
+          "wechat_status",
+          "wechat_doctor",
+          "wechat_ui_schema",
+          "wechat_ui_state",
+          "wechat_human_guard",
+          "wechat_list_models",
+          "wechat_list_exported_articles",
+          "wechat_soul_profile",
+          "wechat_run_benchmark",
+          "wechat_botstudio_bridge"
+        ]
+      },
+      {
+        "id": "ocr",
+        "title": "Capture WeChat window, extract Chinese Vision OCR, and export articles/accounts/channels",
+        "risk": "read",
+        "tools": [
+          "wechat_ocr",
+          "wechat_export_article",
+          "wechat_export_account_articles",
+          "wechat_export_channels_videos"
+        ]
+      },
+      {
+        "id": "read_sessions",
+        "title": "Inspect WeChat left-sidebar sessions, analytics, Special Care, and realtime monitor",
+        "risk": "read",
+        "tools": [
+          "wechat_list_sessions",
+          "wechat_inspect_live",
+          "wechat_bind_contact",
+          "wechat_special_care",
+          "wechat_contact_analytics",
+          "wechat_persona_switch",
+          "wechat_monitor_status",
+          "wechat_takeover_contact"
+        ]
+      },
+      {
+        "id": "read_contacts",
+        "title": "Inspect WeChat contacts, groups tab, and FTS5 KF knowledge store",
+        "risk": "read",
+        "tools": [
+          "wechat_inspect_live",
+          "wechat_kb_search",
+          "wechat_kb_upsert",
+          "wechat_kb_withdraw"
+        ]
+      },
+      {
+        "id": "read_messages",
+        "title": "Read visible messages and generate smart replies with Magpie multi-provider hub",
+        "risk": "read",
+        "tools": [
+          "wechat_read_messages",
+          "wechat_smart_reply",
+          "wechat_select_model",
+          "wechat_probe_model",
+          "wechat_configure_provider"
+        ]
+      },
+      {
+        "id": "import_chatlog",
+        "title": "Parse WeChatBridge .zip / 聊天记录.txt bundles and sync Soul/Memory profiles",
+        "risk": "read",
+        "tools": [
+          "wechat_import_chatlog",
+          "wechat_memory_add",
+          "wechat_import_bridge_soul"
+        ]
+      },
+      {
+        "id": "send_text_dry_run",
+        "title": "Dry-run UI navigation or verified send pipeline without pressing Return",
+        "risk": "confirm",
+        "tools": [
+          "wechat_send_text",
+          "wechat_navigate_ui",
+          "wechat_watch_once"
+        ]
+      },
+      {
+        "id": "send_text_live",
+        "title": "Dispatch live WeChat message after frontmost + HID guard + 3x readback verification",
+        "risk": "high",
+        "tools": [
+          "wechat_send_text",
+          "wechat_watch_once"
+        ]
+      }
+    ]
+  },
+  "entrypoints": {
+    "cli": "./bin/wechat-bot",
+    "standaloneMacApp": "dist/WeChat Bot.app",
+    "webConsole": {
+      "command": "./bin/wechat-bot",
+      "args": ["console", "--host", "127.0.0.1", "--port", "18788"],
+      "url": "http://127.0.0.1:18788/"
+    },
+    "dshPlugin": {
+      "manifest": "dsh.plugin.json",
+      "catalogEntry": "market/dsh-agent-plugin-catalog-entry.json",
+      "workbenchPreset": "market/wechat-rpa-control.preset.json",
+      "workbenchPlugin": "market/wechat-rpa-control.plugin.json"
+    },
+    "mcpStdio": {
+      "command": "python3",
+      "args": ["-m", "wechat_control.cli", "serve-mcp"]
+    },
+    "http": {
+      "command": "python3",
+      "args": ["-m", "wechat_control.cli", "serve-http", "--port", "18788"]
+    }
+  }
+}

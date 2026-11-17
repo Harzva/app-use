@@ -1,0 +1,741 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>WeChat Bot · 待办审阅台</title>
+<!-- workbench-session -->
+<!-- guided-mode -->
+<!-- integrated-mode -->
+<style>
+:root{color-scheme:light dark;--bg:#fff;--rail:#f6f7f6;--text:#202521;--muted:#59635d;--line:#dfe3df;--hover:#e9efea;--accent:#236040;--on:#fff;--warn:#874721;--focus:#267348}
+@media(prefers-color-scheme:dark){:root{--bg:#1b1e1c;--rail:#222623;--text:#eff1ef;--muted:#b4beb7;--line:#3d4740;--hover:#2d3a31;--accent:#a5ddb3;--on:#11251a;--warn:#f5ba88;--focus:#9ad8a8}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.55 -apple-system,BlinkMacSystemFont,system-ui,sans-serif}
+header,nav,.section-head,.actions,.dialog-buttons{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+header{justify-content:space-between;padding:12px 24px;border-bottom:1px solid var(--line)}
+header strong{font-size:16px}nav a{color:var(--muted);text-decoration:none;padding:4px 6px}nav a[aria-current]{color:var(--text);font-weight:650;text-decoration:underline;text-underline-offset:4px}
+main{display:grid;grid-template-columns:minmax(210px,1fr) minmax(0,2fr);min-height:calc(100vh - 56px)}
+aside{background:var(--rail);border-right:1px solid var(--line);min-width:0}section,article{padding:22px 24px;min-width:0}
+.section-head{justify-content:space-between}h1,h2,h3,p{margin:0}h1,h2{font-size:17px}h3{font-size:14px}
+p+*{margin-top:8px}.sub{color:var(--muted)}.actions{margin:12px 0}.warn{color:var(--warn)}
+button{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);padding:6px 11px;border-radius:5px;cursor:pointer}
+button:hover:enabled{background:var(--hover)}button:disabled{opacity:.55;cursor:default}
+.primary,.primary:hover:enabled{background:var(--accent);color:var(--on);border-color:var(--accent);font-weight:600}
+:where(button,a,summary,input,textarea,select):focus-visible{outline:2px solid var(--focus);outline-offset:3px}
+ol,ul{list-style:none;margin:0;padding:0}#tasks{max-height:calc(100vh - 188px);overflow:auto}
+#tasks button{background:transparent;width:100%;border:0;border-top:1px solid var(--line);text-align:left;border-radius:0;padding:9px 6px;display:grid;gap:2px}
+#tasks button[aria-current=true],#tasks button:hover{background:var(--hover)}.row-head{display:flex;justify-content:space-between;gap:8px}.row-head strong{overflow-wrap:anywhere}
+.preview{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.detail-block{margin-top:20px;border-top:1px solid var(--line);padding-top:14px}
+.message{background:var(--rail);padding:10px 12px;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:6px}
+[hidden]{display:none!important}
+.library-view{display:block}
+.library-view section{max-width:780px;margin-inline:auto}
+.library-view li{padding:12px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.library-view li p{white-space:pre-wrap}
+#knowledge-form{max-width:520px;display:grid;gap:8px;margin-block:18px}
+#knowledge-form :is(input,textarea){font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:7px 9px;max-width:100%}
+#knowledge-form button{justify-self:start}
+#profile-badge{margin-inline-start:6px;font-size:12px;font-weight:400;white-space:nowrap}
+#choices{border:0;margin:12px 0 0;padding:0;min-inline-size:0}
+#choices label{display:flex;gap:9px;align-items:baseline;padding:9px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+#choices input{flex:none} #choices legend{font-weight:600;padding:0} #recommend-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+#window-control{border-bottom:1px solid var(--line);padding-bottom:12px;margin:0 0 16px}
+#window-picker{max-width:100%;font:inherit;padding:6px 8px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:5px}
+#refs,#timeline{margin-top:6px}#refs li,#timeline li{overflow-wrap:anywhere;margin:4px 0}
+#notice{min-height:22px;margin:6px 0;color:var(--muted)}details{margin-top:18px;color:var(--muted)}
+dialog{border:1px solid var(--line);background:var(--bg);color:var(--text);border-radius:8px;width:min(470px,calc(100% - 32px));padding:20px}
+dialog:modal{overscroll-behavior:contain}dialog::backdrop{background:#0006;overflow:hidden;overscroll-behavior:contain}
+.dialog-buttons{justify-content:flex-end;margin-top:16px}
+@media(max-width:580px){header,section,article{padding:12px 14px}header{gap:5px}main{grid-template-columns:1fr}aside{border-right:none;border-bottom:1px solid var(--line)}#tasks{max-height:32vh}}
+/* Astryx × Uncodixfy Minimalist Workbench Theme (v2.4.0) */
+:root {
+  color-scheme: light dark;
+  --bg: #fafafa;
+  --rail: #f4f4f5;
+  --surface: #ffffff;
+  --text: #09090b;
+  --muted: #71717a;
+  --line: #e4e4e7;
+  --hover: #ececef;
+  --accent: #18181b;
+  --on: #ffffff;
+  --warn: #d97706;
+  --focus: #18181b;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #09090b;
+    --rail: #121215;
+    --surface: #121215;
+    --text: #fafafa;
+    --muted: #a1a1aa;
+    --line: #27272a;
+    --hover: #18181b;
+    --accent: #fafafa;
+    --on: #09090b;
+    --warn: #f59e0b;
+    --focus: #fafafa;
+  }
+}
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+}
+header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+header nav a {
+  padding: 5px 10px;
+  border-radius: 6px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 13px;
+}
+header nav a[aria-current="page"] {
+  background: var(--rail);
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+}
+aside { background: var(--surface); }
+article, section { background: var(--bg); }
+button {
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1), background-color 140ms ease;
+}
+button:active { transform: scale(0.97); }
+.primary, button#confirm, button#adopt, button#generate {
+  background: var(--accent) !important;
+  color: var(--on) !important;
+  border-color: var(--accent) !important;
+}
+textarea {
+  field-sizing: content;
+  width: 100%;
+  min-block-size: 2.5lh;
+  max-block-size: 8lh;
+}
+input, select, textarea {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+#saved-drafts {
+  padding: 14px 0; margin: 14px 0; border-block: 1px solid var(--line); background: transparent;
+}
+.saved-draft-intro { color: var(--muted); margin-top: 4px; }
+#savedDraftsStatus { margin: 8px 0; color: var(--muted); }
+#savedDraftsStatus:empty { margin-block: 0; }
+#saved-drafts .saved-draft-group + .saved-draft-group { margin-top: 18px; }
+.saved-draft-heading { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.saved-draft-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.saved-draft-empty { color: var(--muted); margin: 0; }
+.saved-draft-list { display: grid; }
+.saved-draft-list li {
+  min-width: 0; border-top: 1px solid var(--line); display: grid;
+  grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px;
+}
+.saved-draft-list .saved-draft-item {
+  min-width: 0; display: grid; gap: 2px; padding: 8px 3px;
+  color: var(--text); text-decoration: none; border-radius: 3px;
+}
+.saved-draft-list a.saved-draft-item { min-block-size: 46px; }
+.saved-draft-list a:hover, .saved-draft-list a:focus-visible { background: var(--hover); }
+.saved-draft-list .saved-draft-resume { color: var(--muted); font-size: 12px; }
+.saved-draft-list .saved-draft-item strong { overflow-wrap: anywhere; }
+.saved-draft-list .preview { margin: 0; }
+.saved-draft-state-action { min-block-size: 33px; white-space: nowrap; }
+.saved-draft-state-action[aria-disabled="true"] { opacity: .65; cursor: wait; }
+</style>
+</head>
+<body>
+<header>
+  <strong>微信工作台 <span id="profile-badge" class="sub" hidden>隔离演练</span></strong>
+  <nav id="navigation" aria-label="工作台导航">
+    <a href="/">← 返回主控台 (/)</a>
+    <a href="/workbench" aria-current="page">工作台</a>
+    <a href="/console#articles">内容归档</a>
+    <a href="/console#care">联系人</a>
+    <a href="/console#uiprotocol">设置</a>
+  </nav>
+  <nav id="studio-navigation" aria-label="工作台导航" hidden>
+    <a href="/">← 返回主控台 (/)</a>
+    <a href="#inbox" aria-current="page">工作台</a>
+    <a href="#contacts">联系人</a>
+    <a href="#knowledge">知识库</a>
+    <a href="#archive">内容归档</a>
+  </nav>
+</header>
+<main>
+  <section id="contacts" hidden>
+    <h1 tabindex="-1">联系人</h1>
+    <p class="sub">工作台内已绑定的会话。</p>
+    <p class="surface-status" role="status"></p>
+    <ul aria-label="联系人列表"></ul>
+  </section>
+  <section id="knowledge" hidden>
+    <h1 tabindex="-1">知识库</h1>
+    <p class="sub">这里保存的知识会用于生成新的回复草稿。</p>
+    <form id="knowledge-form">
+      <label for="fact-title">知识标题</label>
+      <input id="fact-title" required maxlength="100">
+      <label for="fact-text">可用于回复的内容</label>
+      <textarea id="fact-text" required rows="3" maxlength="2000"></textarea>
+      <button class="primary" type="submit">保存知识</button>
+    </form>
+    <p class="surface-status" role="status"></p>
+    <ul aria-label="知识条目"></ul>
+  </section>
+  <section id="archive" hidden>
+    <h1 tabindex="-1">内容归档</h1>
+    <p class="sub">查阅工作台里的微信文章归档。</p>
+    <p class="surface-status" role="status"></p>
+    <ul aria-label="内容归档列表"></ul>
+  </section>
+  <aside aria-labelledby="inbox-title"><section>
+    <div id="window-control" hidden>
+      <h2>监看范围</h2>
+      <p id="monitor-status" role="status" class="sub">正在检查窗口…</p>
+      <div class="actions">
+        <label for="window-picker">目标窗口</label>
+        <select id="window-picker"></select>
+        <button id="bind-window" type="button">确认此窗口</button>
+        <button id="toggle-monitor" type="button" class="primary" disabled>开始监看</button>
+      </div>
+    </div>
+    <div class="section-head"><h1 id="inbox-title" tabindex="-1">待办与回执</h1><span id="count" class="sub"></span></div>
+    <p id="preview-note" class="sub" hidden>隔离演练 · 不会发送微信消息</p>
+    <section id="saved-drafts" aria-labelledby="saved-drafts-title" hidden>
+      <div class="section-head">
+        <h2 id="saved-drafts-title" tabindex="-1">手动加入的草稿</h2>
+        <button id="refreshSavedDrafts" type="button">刷新草稿</button>
+      </div>
+      <p class="saved-draft-intro">完成和重新打开只更改待办状态，不会发送。</p>
+      <p id="savedDraftsStatus" role="status">正在读取已保存草稿…</p>
+      <div class="saved-draft-group">
+        <div class="saved-draft-heading">
+          <h3 id="pendingDraftsTitle" tabindex="-1">待处理</h3><span id="pendingDraftsCount" class="saved-draft-count" aria-hidden="true"></span>
+        </div>
+        <ul id="savedDraftsList" class="saved-draft-list" aria-labelledby="pendingDraftsTitle"></ul>
+        <p id="pendingDraftsEmpty" class="saved-draft-empty" hidden>没有待处理草稿。可在对话里加入待办。</p>
+      </div>
+      <div class="saved-draft-group">
+        <div class="saved-draft-heading">
+          <h3 id="completedDraftsTitle" tabindex="-1">已完成</h3><span id="completedDraftsCount" class="saved-draft-count" aria-hidden="true"></span>
+        </div>
+        <ul id="completedDraftsList" class="saved-draft-list" aria-labelledby="completedDraftsTitle"></ul>
+        <p id="completedDraftsEmpty" class="saved-draft-empty" hidden>还没有已完成的草稿。</p>
+      </div>
+    </section>
+    <h2 id="review-queue-title" hidden>会话审阅与回执</h2>
+    <p id="connection" class="sub">正在检查微信状态…</p>
+    <div class="actions">
+      <button id="capture" type="button" disabled>读取当前会话</button>
+      <label><input id="watch" type="checkbox" disabled> 自动读取</label>
+    </div>
+    <p id="notice" role="status"></p>
+    <p id="empty-list" class="sub" hidden>暂无待办。打开已绑定的微信会话，再读取最新来信。</p>
+    <ul id="tasks" aria-label="待办与回执列表"></ul>
+  </section></aside>
+  <article aria-label="待办详情">
+    <p id="empty-detail" class="sub">选择一条待办，查看来信、草稿和执行记录。</p>
+    <div id="detail" hidden>
+      <div class="section-head"><h2 id="target"></h2><span id="state" class="sub"></span></div>
+      <div class="detail-block"><h3>来信</h3><p id="incoming" class="message"></p></div>
+      <div class="detail-block">
+        <h3>回复草稿</h3><p id="draft-info" class="sub"></p>
+        <p id="draft" class="message" hidden></p>
+        <ul id="refs" aria-label="知识库依据"></ul>
+        <form id="recommend" hidden>
+          <fieldset id="choices"><legend>推荐回复</legend><div id="options"></div></fieldset>
+          <div id="recommend-actions">
+            <button id="adopt" class="primary" type="submit">采纳为草稿</button>
+            <button id="defer" type="button">暂不回应</button>
+          </div>
+        </form>
+        <p id="send-permission" class="sub" hidden>需要辅助功能和发送授权。<a href="/console#uiprotocol">查看连接与权限</a></p>
+        <div class="actions">
+          <button id="generate" type="button">查知识库并生成草稿</button>
+          <button id="review" type="button" class="primary" hidden>核对并发送</button>
+          <button id="refresh-detail" type="button">刷新回执</button>
+        </div>
+      </div>
+      <details open><summary>执行记录</summary><ol id="timeline"></ol></details>
+    </div>
+  </article>
+</main>
+<dialog id="confirm" aria-labelledby="confirm-title">
+  <h2 id="confirm-title">确认发送这条消息</h2>
+  <p id="to"></p><p id="content" class="message"></p>
+  <p id="confirm-tip" class="sub">工作台会等到微信可以安全操作，再核对会话并发送。请保留当前微信窗口和会话。</p>
+  <form method="dialog" class="dialog-buttons">
+    <button value="cancel" autofocus>取消</button><button id="confirm-send" value="send" class="primary">确认发送</button>
+  </form>
+</dialog>
+<script>
+"use strict";
+const el = id => document.getElementById(id);
+const previewSecret = document.querySelector('meta[name="workbench-session"]')?.content;
+const guided = !!document.querySelector('meta[name="guided-mode"]');
+const integrated = !!document.querySelector('meta[name="integrated-mode"]');
+if (previewSecret) {
+  el("navigation").hidden=true;
+  el("preview-note").hidden=false;
+  el("watch").parentElement.hidden=true;
+  el("capture").textContent="读取样本会话";
+  el("refresh-detail").hidden=true;
+}
+if (guided) {
+  el("window-control").hidden=false;
+  el("capture").hidden=true;
+  el("preview-note").hidden=true;
+  el("refresh-detail").hidden=false;
+}
+const lang = {
+  ready:"微信可读取", screen_permission:"需要屏幕录制权限", read_permission:"未授权读取微信",
+  send_permission:"需要辅助功能和发送授权", wechat_closed:"微信未打开", window_missing:"请打开微信主窗口",
+  driver_unavailable:"无法连接微信驱动", window_ambiguous:"请只保留一个可见微信窗口",
+  conversation_unbound:"当前会话未绑定，或无法确认标题", conversation_changed:"当前会话或来信已变化，请重新核对",
+  human_pause:"人工操作停避中；本次没有发送", capture_failed:"无法读取当前微信会话",
+  authorization_required:"当前授权不允许该操作", draft_changed:"草稿已变化，请刷新后重新确认",
+  isolated:"样本资料已连接", draft_adopted:"已采纳，仅保存在本地草稿",
+  deferred_by_user:"已暂缓，没有发送", preview_no_send:"隔离候选不支持发送",
+  select_window:"请选择并确认要监看的微信窗口", window_lost:"原窗口已不可用，请重新确认窗口",
+  monitor_stopped:"窗口已确认，尚未开始监看", monitor_paused:"监看已暂停",
+  monitor_watching:"正在监看", input_busy:"正在核对上一条操作，请稍后再试",
+  live_idle:"需确认微信窗口和权限",
+  draft_busy:"另一条草稿正在生成", task_not_found:"没有找到这条待办",
+  no_knowledge:"知识库没有找到可用依据，请转人工处理",
+  no_grounded_draft:"没有可核对的草稿，请转人工处理", draft_failed:"生成失败，请重试草稿或人工处理",
+  confirmed:"已人工确认", incoming_observed:"读取到最新来信", new_outbound_bubble:"同一会话读回新增出站消息",
+  no_delivery_evidence:"无法确认出站结果，请在微信核对；不要重发",
+  interrupted:"执行中断，请在微信核对；不要重发", review_input_busy:"微信输入框已有文字，未发送",
+  review_target_changed:"微信目标变化，未发送", review_no_input:"无法确认微信编辑框，未发送",
+  review_ax_denied:"缺少微信操作权限，未发送", blocked_whitelist:"会话不在允许范围，未发送",
+  blocked_duplicate:"已阻止重复发送", invalid_knowledge:"请核对知识标题与内容。", workbench_error:"工作台暂时无法完成请求"
+};
+const states = {adopted:"已采纳草稿",deferred:"已暂缓",new:"待生成草稿", drafting:"查知识库", ready:"待确认", manual:"待人工处理",
+ sending:"等待结果", verified:"本机已核验", failed:"未发送", unknown:"待核对", blocked:"未执行"};
+if (previewSecret) states.ready="待采纳";
+let selected = null, tasks = [], status = {}, busy = false, snapshot = null, observing = false;
+
+async function api(route, body) {
+  const response = await fetch("/api/workbench/" + route, {
+    method:body === undefined ? "GET" : "POST",
+    headers:{...(body === undefined ? {} : {"Content-Type":"application/json"}),
+      ...(previewSecret ? {"X-Workbench-Session":previewSecret} : {})},
+    ...(body === undefined ? {} : {body:JSON.stringify(body)}),
+    cache:"no-store"
+  });
+  const data = await response.json();
+  if (!response.ok || !data.ok) throw Error(data.error_code || "workbench_error");
+  return data;
+}
+if (integrated) {
+  el("profile-badge").hidden=false;
+  el("studio-navigation").hidden=false;
+  const main=document.querySelector("main");
+  const surfaces={
+    contacts:["contacts","还没有绑定的联系人。",r=>[r.alias || r.target,r.alias && r.alias!==r.target ? r.target : ""]],
+    knowledge:["entries","知识库暂无条目。",r=>[r.title,r.body]],
+    archive:["articles","暂无归档内容。",r=>[r.title,[r.account,String(r.exported_at || "").slice(0,10)].filter(Boolean).join(" · ")]]
+  };
+  async function loadSurface(name, saved=false) {
+    const [key, empty, row]=surfaces[name], panel=el(name);
+    const list=panel.querySelector("ul"), notice=panel.querySelector(".surface-status");
+    notice.textContent="正在读取…";
+    try {
+      const result=await api(name);
+      list.replaceChildren(...result[key].map(entry=>{
+        const [title,desc]=row(entry);
+        const item=make("li","");
+        item.append(make("strong",title || "未命名"));
+        if (desc) item.append(make("p",desc,"sub"));
+        return item;
+      }));
+      notice.textContent=saved ? "已保存。" : (result[key].length ? "" : empty);
+    } catch(e) { notice.textContent=errorText(e); }
+  }
+  function showSurface(moveFocus) {
+    const hash=location.hash.slice(1);
+    const name=Object.hasOwn(surfaces,hash) ? hash : "inbox";
+    const inbox=name==="inbox";
+    main.classList.toggle("library-view",!inbox);
+    for (const item of main.querySelectorAll(":scope > aside,:scope > article")) item.hidden=!inbox;
+    for (const nameOf of Object.keys(surfaces)) el(nameOf).hidden=nameOf!==name;
+    for (const link of el("studio-navigation").querySelectorAll("a")) {
+      if (link.getAttribute("href")==="#"+name) link.setAttribute("aria-current","page");
+      else link.removeAttribute("aria-current");
+    }
+    if (!inbox) void loadSurface(name);
+    if (moveFocus) (inbox ? el("inbox-title") : el(name).querySelector("h1")).focus();
+  }
+  el("studio-navigation").addEventListener("click",event=>{
+    const link=event.target.closest("a");
+    if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    if (location.hash!==link.hash) history.pushState(null,"",link.hash);
+    showSurface(true);
+  });
+  window.addEventListener("hashchange",()=>showSurface(true));
+  el("knowledge-form").addEventListener("submit",async event=>{
+    event.preventDefault();
+    const button=event.currentTarget.querySelector("button");
+    button.disabled=true;
+    try {
+      await api("knowledge",{title:el("fact-title").value,text:el("fact-text").value});
+      el("knowledge-form").reset();
+      await loadSurface("knowledge",true);
+    } catch(e) {el("knowledge").querySelector(".surface-status").textContent=errorText(e);}
+    finally {button.disabled=false;}
+  });
+  showSurface(false);
+}
+const say = text => { if (el("notice").textContent !== text) el("notice").textContent = text; };
+const errorText = err => lang[err.message] || "无法确认请求结果，请刷新回执。";
+function make(tag, text, className) {
+  const item = document.createElement(tag);
+  item.textContent = text;
+  if (className) item.className = className;
+  return item;
+}
+let savedDraftRows = [];
+let savedDraftLoaded = false, savedDraftBusy = false;
+
+function setSavedDraftBusy(busy) {
+  savedDraftBusy = busy;
+  el("refreshSavedDrafts").setAttribute("aria-disabled", String(busy));
+  for (const button of el("saved-drafts").querySelectorAll(".saved-draft-state-action"))
+    button.setAttribute("aria-disabled", String(busy));
+}
+
+function currentDraftFocus() {
+  const item = document.activeElement?.closest("[data-draft-id][data-draft-control]");
+  return item ? {id:item.dataset.draftId, kind:item.dataset.draftControl} : null;
+}
+
+function drawSavedDrafts(focus, fallback) {
+  const groups = [["pending","savedDraftsList","pendingDrafts"],["completed","completedDraftsList","completedDrafts"]];
+  for (const [state,listId,prefix] of groups) {
+    const isPending = state === "pending";
+    const rows = savedDraftRows.filter(row => row.state === state);
+    const list = el(listId);
+    list.replaceChildren(...rows.map(item => {
+      const li = make("li", "");
+      li.dataset.savedRowId = item.id;
+      const body = make(isPending ? "a" : "div", "", "saved-draft-item");
+      const title = make("strong", item.target);
+      title.id = "saved-row-title-" + item.id;
+      if (isPending) {
+        body.href = "/#saved-draft=" + item.id;
+        body.dataset.draftId = item.id;
+        body.dataset.draftControl = "edit";
+      }
+      body.append(title, make("span", item.preview, "preview sub"));
+      if (isPending) body.append(make("span", "继续编辑 →", "saved-draft-resume"));
+      const action = make("button", isPending ? "标记完成" : "重新打开", "saved-draft-state-action");
+      action.type = "button";
+      action.dataset.draftId = item.id;
+      action.dataset.draftControl = "state";
+      action.setAttribute("aria-describedby", title.id);
+      action.setAttribute("aria-disabled", String(savedDraftBusy));
+      action.addEventListener("click", () => changeSavedDraftState(item, isPending ? "completed" : "pending"));
+      li.append(body, action);
+      return li;
+    }));
+    el(prefix+"Count").textContent = savedDraftLoaded ? String(rows.length) : "";
+    el(prefix+"Empty").hidden = !savedDraftLoaded || rows.length !== 0;
+  }
+  if (focus) {
+    const matching = [...el("saved-drafts").querySelectorAll("[data-draft-id][data-draft-control]")]
+      .find(node => node.dataset.draftId === focus.id && node.dataset.draftControl === focus.kind);
+    (matching || el(fallback || "saved-drafts-title"))?.focus();
+  }
+}
+
+async function fetchSavedDraftRows() {
+  const data = await api("saved-drafts");
+  savedDraftRows = (data.drafts || []).filter(item => /^[0-9a-f]{32}$/.test(item.id) &&
+    Number.isInteger(item.version) && ["pending","completed"].includes(item.state));
+  savedDraftLoaded = true;
+}
+
+async function loadSavedDrafts() {
+  if (previewSecret || savedDraftBusy) return;
+  setSavedDraftBusy(true);
+  try {
+    await fetchSavedDraftRows();
+    el("savedDraftsStatus").textContent = "";
+  } catch (error) {
+    savedDraftRows = [];
+    savedDraftLoaded = false;
+    el("savedDraftsStatus").textContent = error.message === "authorization_required"
+      ? "未授权访问本机草稿待办。" : "读不到草稿待办。可刷新草稿后重试。";
+  } finally {
+    const focus = currentDraftFocus();
+    setSavedDraftBusy(false);
+    drawSavedDrafts(focus);
+  }
+}
+
+async function changeSavedDraftState(item, state) {
+  if (previewSecret || savedDraftBusy) return;
+  setSavedDraftBusy(true);
+  const notice = el("savedDraftsStatus");
+  notice.textContent = state === "completed" ? "正在标记完成…" : "正在重新打开…";
+  try {
+    const {draft} = await api("saved-drafts/"+item.id+"/state", {version:item.version,state});
+    if (draft?.id !== item.id || draft.state !== state || !Number.isInteger(draft.version)) throw Error("workbench_error");
+    const i = savedDraftRows.findIndex(row => row.id === item.id);
+    if (i < 0) throw Error("workbench_error");
+    const [previous] = savedDraftRows.splice(i, 1);
+    savedDraftRows.unshift({...previous, version:draft.version, state:draft.state, updated:draft.updated});
+    notice.textContent = state === "completed" ? "已标记完成，未发送消息。" : "已重新打开，可继续编辑。";
+  } catch (error) {
+    if (error.message === "saved_draft_changed" || error.message === "saved_draft_not_found") {
+      try { await fetchSavedDraftRows(); } catch { savedDraftRows=[]; savedDraftLoaded=false; }
+      notice.textContent = "待办已更新，未覆盖。请核对列表后重试。";
+    } else if (error.message === "authorization_required") {
+      savedDraftRows = [];
+      savedDraftLoaded = false;
+      notice.textContent = "未授权更改草稿待办。";
+    } else notice.textContent = "未能确认状态变更，请刷新草稿后再试。";
+  } finally {
+    const active = currentDraftFocus();
+    setSavedDraftBusy(false);
+    drawSavedDrafts(active, state === "completed" ? "completedDraftsTitle" : "pendingDraftsTitle");
+  }
+}
+
+function disabled() {
+  el("capture").disabled = busy || !status.canRead;
+  if (guided) {
+    el("bind-window").disabled=busy || !status.windows?.length;
+    el("toggle-monitor").disabled=busy || !status.canRead;
+  }
+  el("watch").disabled = !status.canRead;
+  el("generate").disabled = busy;
+  el("adopt").disabled = busy;
+  el("defer").disabled = busy;
+  el("review").disabled = busy || !status.canSend;
+  if (guided && selected) el("review").disabled ||= selected.window_token !== status.window?.id;
+  el("refresh-detail").disabled = busy;
+  if (selected) el("send-permission").hidden=!!previewSecret || selected.state !== "ready" || !!status.canSend;
+}
+function drawTasks() {
+  const nodes = new Map([...el("tasks").children].map(li => [li.dataset.id,li]));
+  if (!selected && tasks.length) {
+    el("count").textContent = String(tasks.length);
+  } else el("count").textContent = tasks.length ? String(tasks.length) : "";
+  for (const task of tasks) {
+    let li = nodes.get(task.id);
+    if (!li) {
+      li = document.createElement("li"); li.dataset.id = task.id;
+      const button = make("button",""); button.type = "button";
+      button.addEventListener("click", () => openTask(task.id).catch(e=>say(errorText(e))));
+      li.append(button);
+    }
+    nodes.delete(task.id);
+    const button = li.firstElementChild;
+    const row = make("span","","row-head");
+    row.append(make("strong",task.target),make("span",states[task.state] || task.state,"sub"));
+    button.replaceChildren(row,make("span",task.incoming,"preview sub"));
+    button.setAttribute("aria-current",String(selected?.id === task.id));
+    // Preserve focus on existing list rows during automatic refresh.
+    if (!li.isConnected) {
+      const next = tasks.slice(tasks.indexOf(task)+1).map(t=>nodes.get(t.id)).find(Boolean);
+      el("tasks").insertBefore(li,next || null);
+    }
+  }
+  for (const li of nodes.values()) li.remove();
+  el("empty-list").hidden = tasks.length > 0 || !status.canRead;
+}
+function drawDetails() {
+  el("empty-detail").hidden = !!selected;
+  el("detail").hidden = !selected;
+  if (!selected) return;
+  const t=selected;
+  el("target").textContent=t.target;
+  el("state").textContent=states[t.state] || t.state;
+  el("incoming").textContent=t.incoming;
+  el("draft").textContent=t.draft;
+  el("draft").hidden=!t.draft;
+  const stage = t.state === "ready" ? " · 请核对后发送" : "";
+  el("draft-info").textContent=previewSecret && t.state==="ready" ? "选择一条保存为草稿。" :
+    t.state === "adopted" || t.state === "deferred" ? lang[t.reason] : t.draft
+    ? (t.basis.generationMode === "llm_magpie" ? "模型草稿" : "知识库模板") + stage
+    : lang[t.reason] || "生成后可查看草稿和来源。";
+  el("refs").replaceChildren(...(t.basis.documentRefs || []).map(r=>make("li","依据："+r.title+(r.revision ? " · 版本 "+r.revision : ""),"sub")));
+  el("timeline").replaceChildren(...(t.events || []).map(e=>make("li",new Date(e.at).toLocaleTimeString()+" · "+
+    (states[e.stage] || e.stage)+(e.code ? " · "+(lang[e.code] || e.code) : ""))));
+  el("generate").hidden=previewSecret ? t.state !== "new" : !["new","ready","manual"].includes(t.state);
+  el("review").hidden=guided ? t.state !== "adopted" : !!previewSecret || t.state !== "ready";
+  el("send-permission").hidden=!!previewSecret || t.state !== "ready" || !!status.canSend;
+  if (previewSecret) drawRecommendations(t);
+  disabled();
+}
+function drawRecommendations(t) {
+  const choices = t.basis.options || [];
+  el("recommend").hidden = !["ready", "manual"].includes(t.state);
+  el("choices").hidden = !choices.length;
+  el("adopt").hidden = !choices.length;
+  el("options").replaceChildren(...choices.map((option, i)=>{
+    const label = document.createElement("label");
+    const radio = document.createElement("input");
+    radio.type="radio"; radio.name="choice"; radio.value=option.id; radio.checked=i===0;
+    const wording = document.createElement("span");
+    const title = make("strong", "Top "+(i+1)+" · "+option.label+(i===0 ? "（推荐）" : ""));
+    wording.append(title,document.createElement("br"),document.createTextNode(option.text));
+    label.append(radio,wording);
+    return label;
+  }));
+}
+async function selectRecommendation(choice) {
+  if (!selected || !choice) return;
+  const {id,version}=selected;
+  await action(async()=>{
+    const {task}=await api("adopt",{id,version,choice});
+    await refresh();
+    if (selected?.id===id) await openTask(id);
+    say(lang[task.reason]);
+  });
+}
+el("recommend").addEventListener("submit",event=>{
+  event.preventDefault();
+  selectRecommendation(new FormData(event.currentTarget).get("choice"));
+});
+el("defer").addEventListener("click",()=>selectRecommendation("defer"));
+async function openTask(id) {
+  selected = (await api("tasks/" + encodeURIComponent(id))).task;
+  drawTasks(); drawDetails();
+}
+async function refreshStatus() {
+  status = await api("status");
+  el("connection").textContent=lang[status.connection] || "微信状态未知";
+  if (guided) renderMonitor();
+  if (!status.canRead) el("watch").checked=false;
+  disabled();
+}
+function renderMonitor() {
+  const picker=el("window-picker"), entries=status.windows || [];
+  if (JSON.stringify(entries)!==picker.dataset.entries) {
+    const selectedId=picker.value || status.window?.id;
+    picker.replaceChildren(...entries.map(w=>{
+      const opt=make("option",w.label); opt.value=w.id; return opt;
+    }));
+    if(entries.some(w=>w.id===selectedId)) picker.value=selectedId;
+    picker.dataset.entries=JSON.stringify(entries);
+  }
+  const mode=status.demo ? "隔离演练 · 不连接真实微信" : "专用测试会话 · 人工确认后才发送";
+  const description=status.window
+    ? status.window.label+" · "+status.target+" · "+(!status.screenPermission ? lang.screen_permission : lang[status.monitorReason])
+    : (entries.length ? lang[status.monitorReason] : "没有可用微信窗口，请手动打开微信。");
+  if (el("monitor-status").textContent!==description) el("monitor-status").textContent=description;
+  el("connection").textContent=mode;
+  el("toggle-monitor").textContent=status.watching ? "暂停监看" : "开始监看";
+}
+el("bind-window").addEventListener("click",()=>action(async()=>{
+  await api("window",{window:el("window-picker").value});
+  await refresh();
+}));
+el("toggle-monitor").addEventListener("click",()=>action(async()=>{
+  await api("monitor",{action:status.watching?"pause":"start"});
+  await refresh();
+}));
+async function refresh() {
+  await refreshStatus();
+  if (status.canRead || guided) tasks=(await api("tasks")).tasks;
+  else {tasks=[];selected=null;drawDetails();}
+  drawTasks();
+  if (previewSecret && !selected && tasks.length) await openTask(tasks[0].id);
+  if (guided && selected && tasks.some(t=>t.id === selected.id &&
+      (t.state!==selected.state || t.version!==selected.version))) await openTask(selected.id);
+}
+async function action(fn) {
+  if (busy) return;
+  busy=true; disabled();
+  try {await fn();} catch(e){say(errorText(e));}
+  finally {busy=false; disabled();}
+}
+async function capture(manual) {
+  if (!status.canRead || observing || (!manual && (busy || document.hidden || el("confirm").open))) return;
+  observing=true;
+  const run = async () => {
+    const {task}=await api("capture",{});
+    tasks=(await api("tasks")).tasks; drawTasks();
+    if (task && (!selected || manual)) await openTask(task.id);
+    if (manual) say(task ? "来信已在待办中。" : "当前没有可识别的最新来信。");
+  };
+  try {
+    if (manual) await action(run);
+    else await run().catch(e=>{el("watch").checked=false;say(errorText(e));});
+  } finally {observing=false;}
+}
+el("capture").addEventListener("click",()=>capture(true));
+el("watch").addEventListener("change",()=>{if(el("watch").checked)capture(false);});
+el("generate").addEventListener("click",()=>action(async()=>{
+  const id=selected.id; say("正在检索知识库并准备草稿…");
+  await api("draft",{id});
+  await refresh();
+  if (selected?.id===id) await openTask(id);
+  say("草稿处理完成。");
+}));
+el("refresh-detail").addEventListener("click",()=>action(async()=>{const id=selected.id; await refresh();if(status.canRead)await openTask(id);say("已刷新回执。");}));
+el("review").addEventListener("click",()=>{
+  snapshot={id:selected.id,version:selected.version,text:selected.draft};
+  el("to").textContent="收件会话："+selected.target;
+  el("content").textContent=selected.draft;
+  if (guided && status.demo) {
+    el("confirm-title").textContent="确认演练发送";
+    el("confirm-tip").textContent="仅写入隔离演练，不会操作真实微信。";
+    el("confirm-send").textContent="确认演练发送";
+  }
+  el("confirm").showModal();
+});
+el("confirm").addEventListener("close",()=>{
+  const send=el("confirm").returnValue==="send", request=snapshot;
+  el("confirm").returnValue=""; snapshot=null;
+  if (!send || !request) return;
+  action(async()=>{
+    say("已确认。正在等待人工操作停避结束并核对微信会话。");
+    try {
+      const {task}=await api("confirm",request);
+      await refresh();
+      if (selected?.id===request.id) await openTask(request.id);
+      say(lang[task.reason] || states[task.state]);
+    } catch(e) {
+      try {if(selected?.id===request.id)await openTask(request.id);}catch{}
+      throw e;
+    }
+  });
+});
+if (!previewSecret) {
+  el("saved-drafts").hidden = false;
+  el("review-queue-title").hidden = false;
+  el("refreshSavedDrafts").addEventListener("click", loadSavedDrafts);
+  window.addEventListener("pageshow", event => { if (event.persisted) loadSavedDrafts(); });
+  loadSavedDrafts();
+}
+refresh().catch(e=>say(errorText(e)));
+document.addEventListener("visibilitychange",()=>{
+  if(guided&&!document.hidden&&!busy&&!el("confirm").open) refresh().catch(e=>say(errorText(e)));
+});
+setInterval(async()=>{
+  if (busy || observing || document.hidden || el("confirm").open) return;
+  if (guided) { try {await refresh();} catch(e){say(errorText(e));} return; }
+  try {await refreshStatus();if(el("watch").checked)await capture(false);}catch(e){say(errorText(e));}
+},guided ? 1500 : 12000);
+</script>
+</body>
+</html>

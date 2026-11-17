@@ -1,0 +1,34 @@
+{
+  "name": "Aurora-73/SalesCRM",
+  "repoUrl": "https://github.com/Aurora-73/SalesCRM",
+  "commit": "6bdf30046acaa21d7ba1af04a06c10e99e32f197",
+  "license": "MIT",
+  "philosophy": "代码负责数据，Agent 负责推理",
+  "vendoredAt": "2026-11-16T02:02:00+08:00",
+  "modules": [
+    "README.md",
+    "plan/crm_improvement_plan.md",
+    "engine/__init__.py",
+    "engine/config.py",
+    "engine/formulas.py",
+    "engine/formulas_sales.py",
+    "engine/formulas_love.py",
+    "engine/analyzers/metrics.py",
+    "engine/analyzers/events.py",
+    "engine/analyzers/ranker.py",
+    "engine/analyzers/stage_recognizer.py",
+    "engine/analyzers/exclude.py",
+    "engine/identity/__init__.py",
+    "engine/identity/directory.py",
+    "engine/models/base.py",
+    "engine/models/metrics.py",
+    "engine/models/stage.py",
+    "engine/models/event.py",
+    "engine/models/ranking.py"
+  ],
+  "adaptations": [
+    "Added `from __future__ import annotations` for Python 3.9 PEP 585 annotation compatibility",
+    "Made `yaml` import optional with empty fallback when PyYAML is not installed",
+    "Converted top-level `from engine...` imports inside vendored tree to package-relative imports under `vendor.salescrm.engine`"
+  ]
+}

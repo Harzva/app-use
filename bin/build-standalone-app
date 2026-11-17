@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+export PYTHONPATH="$ROOT_DIR${PYTHONPATH:+:$PYTHONPATH}"
+
+# Fail-fast verify local leaf-certificate keychain signing readiness before compiling
+python3 -m wechat_control.local_signing status >/dev/null
+
+VISION_BIN="$ROOT_DIR/bin/wechat-vision-ax"
+BIN_OUT="$ROOT_DIR/bin/wechat-studio-app"
+mkdir -p "$ROOT_DIR/bin" "$ROOT_DIR/dist" "/Volumes/SanDisk/Builds"
+
+APP_VERSION="2.4.33"
+APP_BUILD="2433"
+
+swiftc -O "$ROOT_DIR/native/wechat_vision_ax.swift" \
+  -framework AppKit \
+  -framework ApplicationServices \
+  -framework AVFoundation \
+  -framework CoreGraphics \
+  -framework Foundation \
+  -framework ImageIO \
+  -framework Vision \
+  -o "$VISION_BIN"
+chmod +x "$VISION_BIN"
+python3 -m wechat_control.local_signing sign --path "$VISION_BIN" --bundle-id "com.openbot.wechat-vision-ax" >/dev/null
+
+swiftc -O "$ROOT_DIR/native/wechat_studio_app.swift" \
+  -framework Cocoa \
+  -framework WebKit \
+  -o "$BIN_OUT"
+chmod +x "$BIN_OUT"
+python3 -m wechat_control.local_signing sign --path "$BIN_OUT" --bundle-id "com.openbot.wechat-studio-app" >/dev/null
+
+TMP_ICON_DIR="$(mktemp -d "/Volumes/SanDisk/Builds/wechat-bot-icon.XXXXXX")"
+trap 'rm -rf "$TMP_ICON_DIR"' EXIT
+ICONSET_DIR="$TMP_ICON_DIR/AppIcon.iconset"
+ICNS_OUT="$TMP_ICON_DIR/AppIcon.icns"
+"$BIN_OUT" --generate-iconset "$ICONSET_DIR" >/dev/null
+iconutil -c icns "$ICONSET_DIR" -o "$ICNS_OUT"
+
+build_bundle() {
+  local bundle_name="$1"
+  local display_name="$2"
+  local bundle_id="$3"
+  local bundle_dir="$ROOT_DIR/dist/$bundle_name"
+  local res_dir="$bundle_dir/Contents/Resources"
+
+  rm -rf "$bundle_dir"
+  mkdir -p "$bundle_dir/Contents/MacOS" \
+    "$res_dir/wechat_control" \
+    "$res_dir/vendor" \
+    "$res_dir/market" \
+    "$res_dir/schemas"
+
+  cp "$BIN_OUT" "$bundle_dir/Contents/MacOS/wechat-studio-app"
+  cp "$VISION_BIN" "$bundle_dir/Contents/MacOS/wechat-vision-ax"
+  cp "$VISION_BIN" "$res_dir/wechat-vision-ax"
+  chmod +x "$bundle_dir/Contents/MacOS/wechat-studio-app" \
+    "$bundle_dir/Contents/MacOS/wechat-vision-ax" \
+    "$res_dir/wechat-vision-ax"
+
+  cp "$ICNS_OUT" "$res_dir/AppIcon.icns"
+  printf '%s\n' "$ROOT_DIR" > "$res_dir/repo_root.txt"
+
+  # Self-contained runtime payload (R01/R02)
+  cp "$ROOT_DIR"/wechat_control/*.py "$ROOT_DIR/wechat_control/workbench.html" "$res_dir/wechat_control/"
+  rsync -a --exclude '__pycache__' --exclude '*.pyc' "$ROOT_DIR/vendor/salescrm/" "$res_dir/vendor/salescrm/"
+  cp "$ROOT_DIR/dsh.plugin.json" "$ROOT_DIR/plugin.manifest.json" "$ROOT_DIR/pyproject.toml" "$res_dir/"
+  cp "$ROOT_DIR"/market/*.json "$res_dir/market/"
+  cp "$ROOT_DIR"/schemas/*.json "$res_dir/schemas/"
+
+  cat > "$bundle_dir/Contents/Info.plist" << PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>zh_CN</string>
+  <key>CFBundleDisplayName</key>
+  <string>${display_name}</string>
+  <key>CFBundleExecutable</key>
+  <string>wechat-studio-app</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <key>CFBundleIdentifier</key>
+  <string>${bundle_id}</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>${display_name}</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>${APP_VERSION}</string>
+  <key>CFBundleVersion</key>
+  <string>${APP_BUILD}</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+</dict>
+</plist>
+PLIST
+
+  python3 - "$ROOT_DIR" "$bundle_dir" "$display_name" "$bundle_id" "$APP_VERSION" "$APP_BUILD" << 'PY'
+import json, subprocess, sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+root = Path(sys.argv[1])
+bundle = Path(sys.argv[2])
+display_name, bundle_id, version, build_num = sys.argv[3:7]
+git_head = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+manifest = {
+    "version": version,
+    "buildNumber": build_num,
+    "displayName": display_name,
+    "bundleId": bundle_id,
+    "gitHead": git_head,
+    "builtAt": datetime.now(timezone.utc).isoformat(),
+    "selfContained": True,
+    "bundledResources": [
+        "Contents/MacOS/wechat-studio-app",
+        "Contents/MacOS/wechat-vision-ax",
+        "Contents/Resources/wechat-vision-ax",
+        "Contents/Resources/wechat_control/*.py",
+        "Contents/Resources/wechat_control/workbench.html",
+        "Contents/Resources/vendor/salescrm/",
+        "Contents/Resources/dsh.plugin.json",
+        "Contents/Resources/plugin.manifest.json",
+        "Contents/Resources/market/*.json",
+        "Contents/Resources/schemas/*.json",
+    ],
+}
+(bundle / "Contents" / "Resources" / "build-manifest.json").write_text(
+    json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+)
+PY
+
+  python3 -m wechat_control.local_signing sign --path "$res_dir/wechat-vision-ax" --bundle-id "com.openbot.wechat-vision-ax" >/dev/null
+  python3 -m wechat_control.local_signing sign --path "$bundle_dir/Contents/MacOS/wechat-vision-ax" --bundle-id "com.openbot.wechat-vision-ax" >/dev/null
+  python3 -m wechat_control.local_signing sign --path "$bundle_dir/Contents/MacOS/wechat-studio-app" --bundle-id "com.openbot.wechat-studio-app" >/dev/null
+  python3 -m wechat_control.local_signing sign --path "$bundle_dir" --bundle-id "$bundle_id" >/dev/null
+  echo "Built standalone app (stable leaf-signed, self-contained v${APP_VERSION}): $bundle_dir"
+}
+
+build_bundle "WeChat Bot.app" "WeChat Bot" "com.openbot.wechat-bot"
+rm -rf "$ROOT_DIR/dist/WeChat Ecosystem Studio.app"
+
+LSREG="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+USER_APPS="/Users/mac/Applications"
+install_if_needed() {
+  local app_name="$1"
+  local bundle_id="$2"
+  local src="$ROOT_DIR/dist/$app_name"
+  local dst="$USER_APPS/$app_name"
+  rm -rf "$dst"
+  ditto "$src" "$dst"
+  python3 -m wechat_control.local_signing verify --path "$dst" --bundle-id "$bundle_id" >/dev/null
+  if [[ -x "$LSREG" ]]; then
+    "$LSREG" -f "$dst" >/dev/null 2>&1 || true
+  fi
+  echo "Installed app (verified stable leaf signature): $dst"
+}
+
+if [[ "${WECHAT_SKIP_HOST_APP_INSTALL:-0}" != "1" && -d "$USER_APPS" ]]; then
+  if [[ -e "$USER_APPS/WeChat Ecosystem Studio.app" ]]; then
+    if [[ -x "$LSREG" ]]; then
+      "$LSREG" -u "$USER_APPS/WeChat Ecosystem Studio.app" >/dev/null 2>&1 || true
+    fi
+    rm -rf "$USER_APPS/WeChat Ecosystem Studio.app"
+  fi
+  install_if_needed "WeChat Bot.app" "com.openbot.wechat-bot"
+fi
+
+"$BIN_OUT" --verify-headless

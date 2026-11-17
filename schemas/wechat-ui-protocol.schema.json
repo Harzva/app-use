@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openbot.local/schemas/wechat-ui-protocol.schema.json",
+  "title": "OpenBot macOS WeChat UI Protocol & Human Activity Guard Schema",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["schemaVersion", "protocolName", "views", "regions", "targets", "humanGuardPolicy"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "protocolName": {
+      "type": "string",
+      "const": "openbot-wechat-ui-protocol"
+    },
+    "views": {
+      "type": "array",
+      "description": "Standardized WeChat macOS UI view identifiers and OCR landmarks.",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "regions", "landmarks"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "main_chat_split",
+              "main_chat_with_article_reader",
+              "contacts_directory",
+              "favorites_panel",
+              "more_menu_popup",
+              "settings_window",
+              "chat_info_drawer",
+              "standalone_article_window"
+            ]
+          },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "regions": { "type": "array", "items": { "type": "string" } },
+          "landmarks": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "regions": {
+      "type": "array",
+      "description": "Logical rectangular anatomy of the WeChat main chat & built-in reader window.",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "purpose", "anchorSpec"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "purpose": { "type": "string" },
+          "anchorSpec": { "type": "object" }
+        }
+      }
+    },
+    "targets": {
+      "type": "array",
+      "description": "Actionable semantic UI targets addressable by human operators and autonomous agents.",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "view", "region", "category", "anchor"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "view": { "type": "string" },
+          "region": { "type": "string" },
+          "category": { "type": "string", "enum": ["navigation", "settings", "chat_window", "article_reader"] },
+          "description": { "type": "string" },
+          "anchor": { "type": "object" },
+          "expectedView": { "type": "string" },
+          "expectedAfter": { "type": "string" }
+        }
+      }
+    },
+    "humanGuardPolicy": {
+      "type": "object",
+      "required": ["enabled", "idleResumeSeconds", "cooldownSeconds", "cursorDriftTolerancePx"],
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "idleResumeSeconds": { "type": "number", "minimum": 3, "maximum": 600, "default": 45 },
+        "cooldownSeconds": { "type": "number", "minimum": 3, "maximum": 600, "default": 45 },
+        "cursorDriftTolerancePx": { "type": "number", "default": 18 }
+      }
+    }
+  }
+}

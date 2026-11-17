@@ -1,0 +1,851 @@
+{
+  "schema": "openbot.codex-workbench-plugin/1",
+  "pluginId": "dsh2codex:dsh-plugin-wechat-ecosystem",
+  "packageName": "@dsh-market/wechat-ecosystem",
+  "version": "2.4.32",
+  "origin": "dsh2codex-adapter",
+  "sourceOrigin": "local-dsh-plugin",
+  "adapter": {
+    "engine": "dsh2codex",
+    "mode": "auto",
+    "eliminatesCustomAdapter": true,
+    "sourcePlugin": "@dsh-market/wechat-ecosystem"
+  },
+  "title": "微信全生态私域与内容工作台 · Codex 工作台",
+  "description": "独立运行或接入 Bot Studio 的 macOS 微信全生态工作台：覆盖聊天监控、特别关心、公众号与服务号全量文章导出、视频号导出、WeChatBridge 本我与好友灵魂记忆及三阶段防抢鼠标守卫。",
+  "domain": "ops",
+  "presetId": "dsh2codex__dsh-market_wechat-ecosystem",
+  "pageSlug": "dsh--dsh-market-wechat-ecosystem",
+  "pageUrl": "pages/dsh--dsh-market-wechat-ecosystem/index.html",
+  "pages": [
+    {
+      "id": "overview",
+      "slug": "overview",
+      "title": "概览与入口页",
+      "kind": "entrance",
+      "summary": "独立运行或接入 Bot Studio 的 macOS 微信全生态工作台：覆盖聊天监控、特别关心、公众号与服务号全量文章导出、视频号导出、WeChatBridge 本我与好友灵魂记忆及三阶段防抢鼠标守卫。",
+      "domain": "ops",
+      "source": "imported",
+      "panelIds": [
+        "wechat_live_rpa_panel",
+        "wechat_media_export_panel",
+        "wechat_soul_kf_panel",
+        "wechat_salescrm_panel",
+        "wechat_ecosystem_delivery"
+      ],
+      "stats": {
+        "panelCount": 5,
+        "actionCount": 12,
+        "zeroLlmCount": 1,
+        "turnTemplateCount": 1,
+        "dshDelegateCount": 10
+      },
+      "quickPrompts": [
+        {
+          "panelId": "wechat_ecosystem_delivery",
+          "actionId": "wechat_full_acceptance",
+          "title": "执行微信全生态 9 模块 Benchmark 与安全门禁核验",
+          "promptPreview": "[从 DSH 转译到 Codex AppServer 执行 · wechat_full_acceptance] 任务指引：运行全量单元测试与 9 模块 Benchmark，核对三阶段防抢鼠标守卫、SSRF 防护与 Kimi 验收回执。。验收标准：9/9 Benchmark 模块全部 PASS；单元测试全部通过；Fail-Closed 门禁与防抢鼠标守卫正常。 结构化输入参数：输入={{input}}。请直接在当前工作区完成分析或产出可验证结果。"
+        }
+      ]
+    },
+    {
+      "id": "console",
+      "slug": "console",
+      "title": "0-LLM 管控页",
+      "kind": "zero_llm_console",
+      "summary": "直连 Codex AppServer 只读 RPC 与 DeepSeek L2 感知工具，零模型 Token 消耗。",
+      "panelIds": [
+        "wechat_live_rpa_panel"
+      ],
+      "actions": [
+        {
+          "panelId": "wechat_live_rpa_panel",
+          "panelTitle": "实机巡检 · UI 语义导航 · 防抢鼠标守卫",
+          "actionId": "inspect_live",
+          "title": "只读巡检微信会话与消息 (0-LLM)",
+          "mode": "appserver_rpc",
+          "zeroLLM": true,
+          "rpcMethod": "thread/list",
+          "requiresApproval": false
+        }
+      ]
+    },
+    {
+      "id": "workflows",
+      "slug": "workflows",
+      "title": "工作流与 DSH 桥接",
+      "kind": "workflows_and_adapter",
+      "summary": "结构化 1-Turn 提示词模板与 dsh2codex 跨 Bot TaskReceipt 协同动作。",
+      "panelIds": [
+        "wechat_live_rpa_panel",
+        "wechat_media_export_panel",
+        "wechat_soul_kf_panel",
+        "wechat_salescrm_panel",
+        "wechat_ecosystem_delivery"
+      ],
+      "actions": [
+        {
+          "panelId": "wechat_live_rpa_panel",
+          "panelTitle": "实机巡检 · UI 语义导航 · 防抢鼠标守卫",
+          "actionId": "navigate_ui",
+          "title": "解析或导航标准 UI 控件坐标 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_ui_navigate」：微信标准化 UI 语义导航（8 视图 / 10 分区 / 24 控件目标）与三阶段防抢鼠标检查",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "wechat_media_export_panel",
+          "panelTitle": "微信文章 · 服务号全量历史 · 视频号全部视频导出",
+          "actionId": "export_article",
+          "title": "导出当前文章为 Markdown + 图片 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_export_article」：导出当前打开的微信文章或公众号链接为 Markdown 与本地防盗链图片",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "wechat_media_export_panel",
+          "panelTitle": "微信文章 · 服务号全量历史 · 视频号全部视频导出",
+          "actionId": "export_account",
+          "title": "批量导出服务号或公众号历史文章 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_export_account_articles」：批量导出服务号或公众号全部历史文章并生成 INDEX.md 目录",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "wechat_media_export_panel",
+          "panelTitle": "微信文章 · 服务号全量历史 · 视频号全部视频导出",
+          "actionId": "export_channels",
+          "title": "批量导出微信视频号作者视频 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_export_channels_videos」：批量导出微信视频号作者全部视频（支持流清单、XOR 解码与本地缓存提取）",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "wechat_soul_kf_panel",
+          "panelTitle": "本我灵魂与好友记忆 · FTS5 客服与多模型回复",
+          "actionId": "soul_profile",
+          "title": "构建并查看本我与好友记忆画像 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_soul_profile」：构建或查询 WeChatBridge 微信号主本我性格画像、好友长期记忆与数字分身",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "wechat_soul_kf_panel",
+          "panelTitle": "本我灵魂与好友记忆 · FTS5 客服与多模型回复",
+          "actionId": "smart_reply",
+          "title": "生成带记忆与知识库的智能回复 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_smart_reply」：融合 FTS5 企业微信客服知识库、好友专属人格与 Magpie 多模型生成回复",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "wechat_soul_kf_panel",
+          "panelTitle": "本我灵魂与好友记忆 · FTS5 客服与多模型回复",
+          "actionId": "run_benchmark",
+          "title": "执行全链路 9 模块 Benchmark 评测 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_run_benchmark」：运行 9 大模块全链路可复现 Benchmark 与 Kimi 验收核对",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "wechat_salescrm_panel",
+          "panelTitle": "📈 开源 SalesCRM 营销漏斗与 15 维客户跟进",
+          "actionId": "crm_pipeline",
+          "title": "查看 SalesCRM 营销漏斗与到期提醒总览 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_salescrm_pipeline」：基于开源 Aurora-73/SalesCRM 管理营销漏斗、同步微信历史、录入/编辑客户跟进阶段与北京时间提醒",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "wechat_salescrm_panel",
+          "panelTitle": "📈 开源 SalesCRM 营销漏斗与 15 维客户跟进",
+          "actionId": "crm_analyze",
+          "title": "分析客户 15 维指标与 Top 3 草稿 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_salescrm_analyze」：运行开源 SalesCRM 15 维量化指标、事件里程碑识别、时间线与 Top 1-3 跟进草稿生成",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "wechat_salescrm_panel",
+          "panelTitle": "📈 开源 SalesCRM 营销漏斗与 15 维客户跟进",
+          "actionId": "crm_formulas",
+          "title": "计算 SalesCRM 数学公式 (BQ / BSP / BWS / PV) (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_salescrm_formulas」：计算开源 SalesCRM 核心数学公式 BQ / BSP / BWS / PV 与最佳营业推进动作",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "wechat_ecosystem_delivery",
+          "panelTitle": "微信全生态 RPA 与 Benchmark 交付门禁 (Vertical)",
+          "actionId": "wechat_full_acceptance",
+          "title": "执行微信全生态 9 模块 Benchmark 与安全门禁核验",
+          "mode": "turn_template",
+          "zeroLLM": false,
+          "requiresApproval": false
+        }
+      ]
+    },
+    {
+      "id": "page_spec",
+      "slug": "page-spec",
+      "title": "独立 Page 与插件契约",
+      "kind": "standalone_page",
+      "summary": "对应 GrokBot 风格独立静态 Web Page、Agent Markdown 卡、llms.txt 与标准化插件包。",
+      "pageSlug": "dsh--dsh-market-wechat-ecosystem",
+      "pageUrl": "pages/dsh--dsh-market-wechat-ecosystem/index.html",
+      "agentMarkdownUrl": "agents/dsh--dsh-market-wechat-ecosystem.md",
+      "agentJsonUrl": "agents/dsh--dsh-market-wechat-ecosystem.json",
+      "pluginManifestUrl": "plugins/dsh--dsh-market-wechat-ecosystem.plugin.json",
+      "schema": "openbot.codex-workbench-preset/1"
+    }
+  ],
+  "panelCount": 5,
+  "actionCount": 12,
+  "preset": {
+    "schema": "openbot.codex-workbench-preset/1",
+    "id": "dsh2codex__dsh-market_wechat-ecosystem",
+    "domain": "ops",
+    "title": "微信全生态私域与内容工作台 · Codex 工作台",
+    "description": "独立运行或接入 Bot Studio 的 macOS 微信全生态工作台：覆盖聊天监控、特别关心、公众号与服务号全量文章导出、视频号导出、WeChatBridge 本我与好友灵魂记忆及三阶段防抢鼠标守卫。",
+    "source": "imported",
+    "pageSlug": "dsh--dsh-market-wechat-ecosystem",
+    "pageUrl": "pages/dsh--dsh-market-wechat-ecosystem/index.html",
+    "pages": [
+      {
+        "id": "overview",
+        "slug": "overview",
+        "title": "概览与入口页",
+        "kind": "entrance",
+        "summary": "独立运行或接入 Bot Studio 的 macOS 微信全生态工作台：覆盖聊天监控、特别关心、公众号与服务号全量文章导出、视频号导出、WeChatBridge 本我与好友灵魂记忆及三阶段防抢鼠标守卫。",
+        "domain": "ops",
+        "source": "imported",
+        "panelIds": [
+          "wechat_live_rpa_panel",
+          "wechat_media_export_panel",
+          "wechat_soul_kf_panel",
+          "wechat_salescrm_panel",
+          "wechat_ecosystem_delivery"
+        ],
+        "stats": {
+          "panelCount": 5,
+          "actionCount": 12,
+          "zeroLlmCount": 1,
+          "turnTemplateCount": 1,
+          "dshDelegateCount": 10
+        },
+        "quickPrompts": [
+          {
+            "panelId": "wechat_ecosystem_delivery",
+            "actionId": "wechat_full_acceptance",
+            "title": "执行微信全生态 9 模块 Benchmark 与安全门禁核验",
+            "promptPreview": "[从 DSH 转译到 Codex AppServer 执行 · wechat_full_acceptance] 任务指引：运行全量单元测试与 9 模块 Benchmark，核对三阶段防抢鼠标守卫、SSRF 防护与 Kimi 验收回执。。验收标准：9/9 Benchmark 模块全部 PASS；单元测试全部通过；Fail-Closed 门禁与防抢鼠标守卫正常。 结构化输入参数：输入={{input}}。请直接在当前工作区完成分析或产出可验证结果。"
+          }
+        ]
+      },
+      {
+        "id": "console",
+        "slug": "console",
+        "title": "0-LLM 管控页",
+        "kind": "zero_llm_console",
+        "summary": "直连 Codex AppServer 只读 RPC 与 DeepSeek L2 感知工具，零模型 Token 消耗。",
+        "panelIds": [
+          "wechat_live_rpa_panel"
+        ],
+        "actions": [
+          {
+            "panelId": "wechat_live_rpa_panel",
+            "panelTitle": "实机巡检 · UI 语义导航 · 防抢鼠标守卫",
+            "actionId": "inspect_live",
+            "title": "只读巡检微信会话与消息 (0-LLM)",
+            "mode": "appserver_rpc",
+            "zeroLLM": true,
+            "rpcMethod": "thread/list",
+            "requiresApproval": false
+          }
+        ]
+      },
+      {
+        "id": "workflows",
+        "slug": "workflows",
+        "title": "工作流与 DSH 桥接",
+        "kind": "workflows_and_adapter",
+        "summary": "结构化 1-Turn 提示词模板与 dsh2codex 跨 Bot TaskReceipt 协同动作。",
+        "panelIds": [
+          "wechat_live_rpa_panel",
+          "wechat_media_export_panel",
+          "wechat_soul_kf_panel",
+          "wechat_salescrm_panel",
+          "wechat_ecosystem_delivery"
+        ],
+        "actions": [
+          {
+            "panelId": "wechat_live_rpa_panel",
+            "panelTitle": "实机巡检 · UI 语义导航 · 防抢鼠标守卫",
+            "actionId": "navigate_ui",
+            "title": "解析或导航标准 UI 控件坐标 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「wechat_ui_navigate」：微信标准化 UI 语义导航（8 视图 / 10 分区 / 24 控件目标）与三阶段防抢鼠标检查",
+            "requiresApproval": false
+          },
+          {
+            "panelId": "wechat_media_export_panel",
+            "panelTitle": "微信文章 · 服务号全量历史 · 视频号全部视频导出",
+            "actionId": "export_article",
+            "title": "导出当前文章为 Markdown + 图片 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「wechat_export_article」：导出当前打开的微信文章或公众号链接为 Markdown 与本地防盗链图片",
+            "requiresApproval": false
+          },
+          {
+            "panelId": "wechat_media_export_panel",
+            "panelTitle": "微信文章 · 服务号全量历史 · 视频号全部视频导出",
+            "actionId": "export_account",
+            "title": "批量导出服务号或公众号历史文章 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「wechat_export_account_articles」：批量导出服务号或公众号全部历史文章并生成 INDEX.md 目录",
+            "requiresApproval": false
+          },
+          {
+            "panelId": "wechat_media_export_panel",
+            "panelTitle": "微信文章 · 服务号全量历史 · 视频号全部视频导出",
+            "actionId": "export_channels",
+            "title": "批量导出微信视频号作者视频 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「wechat_export_channels_videos」：批量导出微信视频号作者全部视频（支持流清单、XOR 解码与本地缓存提取）",
+            "requiresApproval": false
+          },
+          {
+            "panelId": "wechat_soul_kf_panel",
+            "panelTitle": "本我灵魂与好友记忆 · FTS5 客服与多模型回复",
+            "actionId": "soul_profile",
+            "title": "构建并查看本我与好友记忆画像 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「wechat_soul_profile」：构建或查询 WeChatBridge 微信号主本我性格画像、好友长期记忆与数字分身",
+            "requiresApproval": false
+          },
+          {
+            "panelId": "wechat_soul_kf_panel",
+            "panelTitle": "本我灵魂与好友记忆 · FTS5 客服与多模型回复",
+            "actionId": "smart_reply",
+            "title": "生成带记忆与知识库的智能回复 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「wechat_smart_reply」：融合 FTS5 企业微信客服知识库、好友专属人格与 Magpie 多模型生成回复",
+            "requiresApproval": false
+          },
+          {
+            "panelId": "wechat_soul_kf_panel",
+            "panelTitle": "本我灵魂与好友记忆 · FTS5 客服与多模型回复",
+            "actionId": "run_benchmark",
+            "title": "执行全链路 9 模块 Benchmark 评测 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「wechat_run_benchmark」：运行 9 大模块全链路可复现 Benchmark 与 Kimi 验收核对",
+            "requiresApproval": false
+          },
+          {
+            "panelId": "wechat_salescrm_panel",
+            "panelTitle": "📈 开源 SalesCRM 营销漏斗与 15 维客户跟进",
+            "actionId": "crm_pipeline",
+            "title": "查看 SalesCRM 营销漏斗与到期提醒总览 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「wechat_salescrm_pipeline」：基于开源 Aurora-73/SalesCRM 管理营销漏斗、同步微信历史、录入/编辑客户跟进阶段与北京时间提醒",
+            "requiresApproval": false
+          },
+          {
+            "panelId": "wechat_salescrm_panel",
+            "panelTitle": "📈 开源 SalesCRM 营销漏斗与 15 维客户跟进",
+            "actionId": "crm_analyze",
+            "title": "分析客户 15 维指标与 Top 3 草稿 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「wechat_salescrm_analyze」：运行开源 SalesCRM 15 维量化指标、事件里程碑识别、时间线与 Top 1-3 跟进草稿生成",
+            "requiresApproval": false
+          },
+          {
+            "panelId": "wechat_salescrm_panel",
+            "panelTitle": "📈 开源 SalesCRM 营销漏斗与 15 维客户跟进",
+            "actionId": "crm_formulas",
+            "title": "计算 SalesCRM 数学公式 (BQ / BSP / BWS / PV) (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「wechat_salescrm_formulas」：计算开源 SalesCRM 核心数学公式 BQ / BSP / BWS / PV 与最佳营业推进动作",
+            "requiresApproval": false
+          },
+          {
+            "panelId": "wechat_ecosystem_delivery",
+            "panelTitle": "微信全生态 RPA 与 Benchmark 交付门禁 (Vertical)",
+            "actionId": "wechat_full_acceptance",
+            "title": "执行微信全生态 9 模块 Benchmark 与安全门禁核验",
+            "mode": "turn_template",
+            "zeroLLM": false,
+            "requiresApproval": false
+          }
+        ]
+      },
+      {
+        "id": "page_spec",
+        "slug": "page-spec",
+        "title": "独立 Page 与插件契约",
+        "kind": "standalone_page",
+        "summary": "对应 GrokBot 风格独立静态 Web Page、Agent Markdown 卡、llms.txt 与标准化插件包。",
+        "pageSlug": "dsh--dsh-market-wechat-ecosystem",
+        "pageUrl": "pages/dsh--dsh-market-wechat-ecosystem/index.html",
+        "agentMarkdownUrl": "agents/dsh--dsh-market-wechat-ecosystem.md",
+        "agentJsonUrl": "agents/dsh--dsh-market-wechat-ecosystem.json",
+        "pluginManifestUrl": "plugins/dsh--dsh-market-wechat-ecosystem.plugin.json",
+        "schema": "openbot.codex-workbench-preset/1"
+      }
+    ],
+    "panels": [
+      {
+        "id": "wechat_live_rpa_panel",
+        "title": "实机巡检 · UI 语义导航 · 防抢鼠标守卫",
+        "kind": "codex-panel",
+        "description": "基于原生 Swift Vision OCR 与 AX 控件树，自动识别 8 类微信界面并严格执行三阶段防抢鼠标让路策略。",
+        "fields": [
+          {
+            "id": "targetChat",
+            "label": "目标联系人或群聊",
+            "type": "text",
+            "placeholder": "可选：指定要读取的会话名称，如 心安",
+            "defaultValue": "",
+            "required": false
+          },
+          {
+            "id": "includeContacts",
+            "label": "同时扫描通讯录好友列表",
+            "type": "toggle",
+            "defaultValue": false,
+            "required": false
+          },
+          {
+            "id": "targetId",
+            "label": "标准界面控件目标 ID",
+            "type": "text",
+            "placeholder": "如 nav.chats / nav.contacts / menu.settings / chat.header_more_drawer",
+            "defaultValue": "nav.chats",
+            "required": true
+          },
+          {
+            "id": "dryRun",
+            "label": "仅解析坐标不点击 (Dry-Run)",
+            "type": "toggle",
+            "defaultValue": true,
+            "required": false
+          },
+          {
+            "id": "targetBotId",
+            "label": "目标 DSH Bot ID",
+            "type": "text",
+            "placeholder": "bot_wechat_ecosystem",
+            "defaultValue": "bot_wechat_ecosystem",
+            "required": false
+          },
+          {
+            "id": "task",
+            "label": "委派子任务说明",
+            "type": "text",
+            "placeholder": "输入交由 DSH Bot 执行的子任务详情",
+            "defaultValue": "",
+            "required": false
+          }
+        ],
+        "actions": [
+          {
+            "id": "inspect_live",
+            "title": "只读巡检微信会话与消息 (0-LLM)",
+            "mode": "appserver_rpc",
+            "zeroLLM": true,
+            "requiresApproval": false,
+            "rpcMethod": "thread/list"
+          },
+          {
+            "id": "navigate_ui",
+            "title": "解析或导航标准 UI 控件坐标 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "requiresApproval": false,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「wechat_ui_navigate」：微信标准化 UI 语义导航（8 视图 / 10 分区 / 24 控件目标）与三阶段防抢鼠标检查"
+          }
+        ]
+      },
+      {
+        "id": "wechat_media_export_panel",
+        "title": "微信文章 · 服务号全量历史 · 视频号全部视频导出",
+        "kind": "codex-panel",
+        "description": "导出单篇公众号文章、批量归档服务号/公众号历史文章，以及下载提取微信视频号作者全部视频。",
+        "fields": [
+          {
+            "id": "articleUrl",
+            "label": "公众号文章链接",
+            "type": "text",
+            "placeholder": "https://mp.weixin.qq.com/s/...",
+            "defaultValue": "",
+            "required": false
+          },
+          {
+            "id": "fromWindow",
+            "label": "优先从已打开微信文章窗导出",
+            "type": "toggle",
+            "defaultValue": true,
+            "required": false
+          },
+          {
+            "id": "downloadImages",
+            "label": "下载图片到本地 assets 目录",
+            "type": "toggle",
+            "defaultValue": true,
+            "required": false
+          },
+          {
+            "id": "accountName",
+            "label": "公众号或服务号名称",
+            "type": "text",
+            "placeholder": "例如 OpenBot 服务号",
+            "defaultValue": "",
+            "required": true
+          },
+          {
+            "id": "albumUrl",
+            "label": "合集或历史消息页链接",
+            "type": "text",
+            "placeholder": "可选：appmsgalbum 链接",
+            "defaultValue": "",
+            "required": false
+          },
+          {
+            "id": "maxArticles",
+            "label": "最大导出篇数",
+            "type": "text",
+            "placeholder": "1-200",
+            "defaultValue": "30",
+            "required": false
+          },
+          {
+            "id": "authorName",
+            "label": "视频号作者名称",
+            "type": "text",
+            "placeholder": "例如 极客频道",
+            "defaultValue": "",
+            "required": true
+          },
+          {
+            "id": "cacheDir",
+            "label": "本地视频号缓存目录路径",
+            "type": "text",
+            "placeholder": "可选：自动识别 ftyp/MP4/MOV 缓存视频",
+            "defaultValue": "",
+            "required": false
+          },
+          {
+            "id": "manifestPath",
+            "label": "视频流清单 JSON/JSONL 路径",
+            "type": "text",
+            "placeholder": "可选：含 URL 与可选 decode_key",
+            "defaultValue": "",
+            "required": false
+          },
+          {
+            "id": "targetBotId",
+            "label": "目标 DSH Bot ID",
+            "type": "text",
+            "placeholder": "bot_wechat_ecosystem",
+            "defaultValue": "bot_wechat_ecosystem",
+            "required": false
+          },
+          {
+            "id": "task",
+            "label": "委派子任务说明",
+            "type": "text",
+            "placeholder": "输入交由 DSH Bot 执行的子任务详情",
+            "defaultValue": "",
+            "required": false
+          }
+        ],
+        "actions": [
+          {
+            "id": "export_article",
+            "title": "导出当前文章为 Markdown + 图片 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "requiresApproval": false,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「wechat_export_article」：导出当前打开的微信文章或公众号链接为 Markdown 与本地防盗链图片"
+          },
+          {
+            "id": "export_account",
+            "title": "批量导出服务号或公众号历史文章 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "requiresApproval": false,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「wechat_export_account_articles」：批量导出服务号或公众号全部历史文章并生成 INDEX.md 目录"
+          },
+          {
+            "id": "export_channels",
+            "title": "批量导出微信视频号作者视频 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "requiresApproval": false,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「wechat_export_channels_videos」：批量导出微信视频号作者全部视频（支持流清单、XOR 解码与本地缓存提取）"
+          }
+        ]
+      },
+      {
+        "id": "wechat_soul_kf_panel",
+        "title": "本我灵魂与好友记忆 · FTS5 客服与多模型回复",
+        "kind": "codex-panel",
+        "description": "整合 WeChatBridge 本我/好友性格画像、企业微信客服 FTS5 术语库与 Magpie 多供应商大模型预览回复。",
+        "fields": [
+          {
+            "id": "target",
+            "label": "联系人名称",
+            "type": "text",
+            "placeholder": "可选：过滤查看某个好友心智画像",
+            "defaultValue": "",
+            "required": false
+          },
+          {
+            "id": "rebuild",
+            "label": "立即重建本我与全部好友记忆图谱",
+            "type": "toggle",
+            "defaultValue": false,
+            "required": false
+          },
+          {
+            "id": "incomingText",
+            "label": "对方最新消息内容",
+            "type": "text",
+            "placeholder": "输入模拟或实测对方消息",
+            "defaultValue": "你好，请问最新方案进展怎么样？",
+            "required": true
+          },
+          {
+            "id": "persona",
+            "label": "沟通人格模式",
+            "type": "select",
+            "options": [
+              {
+                "value": "owner-digital-twin",
+                "label": "号主本我数字分身 (owner-digital-twin)"
+              },
+              {
+                "value": "warm-friend",
+                "label": "温暖挚友 (warm-friend)"
+              },
+              {
+                "value": "pro-kf",
+                "label": "专业客服 (pro-kf)"
+              },
+              {
+                "value": "humorous",
+                "label": "轻松幽默 (humorous)"
+              }
+            ],
+            "defaultValue": "owner-digital-twin",
+            "required": false
+          },
+          {
+            "id": "includeTests",
+            "label": "同时运行完整自动化单元测试套件",
+            "type": "toggle",
+            "defaultValue": true,
+            "required": false
+          },
+          {
+            "id": "targetBotId",
+            "label": "目标 DSH Bot ID",
+            "type": "text",
+            "placeholder": "bot_wechat_ecosystem",
+            "defaultValue": "bot_wechat_ecosystem",
+            "required": false
+          },
+          {
+            "id": "task",
+            "label": "委派子任务说明",
+            "type": "text",
+            "placeholder": "输入交由 DSH Bot 执行的子任务详情",
+            "defaultValue": "",
+            "required": false
+          }
+        ],
+        "actions": [
+          {
+            "id": "soul_profile",
+            "title": "构建并查看本我与好友记忆画像 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "requiresApproval": false,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「wechat_soul_profile」：构建或查询 WeChatBridge 微信号主本我性格画像、好友长期记忆与数字分身"
+          },
+          {
+            "id": "smart_reply",
+            "title": "生成带记忆与知识库的智能回复 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "requiresApproval": false,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「wechat_smart_reply」：融合 FTS5 企业微信客服知识库、好友专属人格与 Magpie 多模型生成回复"
+          },
+          {
+            "id": "run_benchmark",
+            "title": "执行全链路 9 模块 Benchmark 评测 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "requiresApproval": false,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「wechat_run_benchmark」：运行 9 大模块全链路可复现 Benchmark 与 Kimi 验收核对"
+          }
+        ]
+      },
+      {
+        "id": "wechat_salescrm_panel",
+        "title": "📈 开源 SalesCRM 营销漏斗与 15 维客户跟进",
+        "kind": "codex-panel",
+        "description": "基于开源 Aurora-73/SalesCRM：15 维量化评分、BQ/BSP/BWS/PV 数学公式、北京时间跟进提醒与 Top 1-3 跟进草稿。",
+        "fields": [
+          {
+            "id": "action",
+            "label": "操作类型",
+            "type": "text",
+            "placeholder": "overview / sync / reminders / enroll / update / complete_reminder / reschedule / merge_accounts / adopt_draft",
+            "defaultValue": "overview",
+            "required": false
+          },
+          {
+            "id": "target",
+            "label": "目标客户姓名或标识",
+            "type": "text",
+            "defaultValue": "",
+            "required": false
+          },
+          {
+            "id": "stage",
+            "label": "营销漏斗阶段",
+            "type": "text",
+            "defaultValue": "跟进中",
+            "required": false
+          },
+          {
+            "id": "follow_up",
+            "label": "北京时间跟进排期 (YYYY-MM-DDTHH:MM)",
+            "type": "text",
+            "defaultValue": "",
+            "required": false
+          },
+          {
+            "id": "incoming_text",
+            "label": "最新来信内容（可选）",
+            "type": "text",
+            "defaultValue": "",
+            "required": false
+          },
+          {
+            "id": "targetBotId",
+            "label": "目标 DSH Bot ID",
+            "type": "text",
+            "placeholder": "bot_wechat_ecosystem",
+            "defaultValue": "bot_wechat_ecosystem",
+            "required": false
+          },
+          {
+            "id": "task",
+            "label": "委派子任务说明",
+            "type": "text",
+            "placeholder": "输入交由 DSH Bot 执行的子任务详情",
+            "defaultValue": "",
+            "required": false
+          }
+        ],
+        "actions": [
+          {
+            "id": "crm_pipeline",
+            "title": "查看 SalesCRM 营销漏斗与到期提醒总览 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "requiresApproval": false,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「wechat_salescrm_pipeline」：基于开源 Aurora-73/SalesCRM 管理营销漏斗、同步微信历史、录入/编辑客户跟进阶段与北京时间提醒"
+          },
+          {
+            "id": "crm_analyze",
+            "title": "分析客户 15 维指标与 Top 3 草稿 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "requiresApproval": false,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「wechat_salescrm_analyze」：运行开源 SalesCRM 15 维量化指标、事件里程碑识别、时间线与 Top 1-3 跟进草稿生成"
+          },
+          {
+            "id": "crm_formulas",
+            "title": "计算 SalesCRM 数学公式 (BQ / BSP / BWS / PV) (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "requiresApproval": false,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「wechat_salescrm_formulas」：计算开源 SalesCRM 核心数学公式 BQ / BSP / BWS / PV 与最佳营业推进动作"
+          }
+        ]
+      },
+      {
+        "id": "wechat_ecosystem_delivery",
+        "title": "微信全生态 RPA 与 Benchmark 交付门禁 (Vertical)",
+        "kind": "codex-panel",
+        "description": "由 DSH Vertical 契约与验收标准自动编译为 Codex 结构化执行卡。",
+        "fields": [],
+        "actions": [
+          {
+            "id": "wechat_full_acceptance",
+            "title": "执行微信全生态 9 模块 Benchmark 与安全门禁核验",
+            "mode": "turn_template",
+            "zeroLLM": false,
+            "requiresApproval": false,
+            "promptTemplate": "[从 DSH 转译到 Codex AppServer 执行 · wechat_full_acceptance] 任务指引：运行全量单元测试与 9 模块 Benchmark，核对三阶段防抢鼠标守卫、SSRF 防护与 Kimi 验收回执。。验收标准：9/9 Benchmark 模块全部 PASS；单元测试全部通过；Fail-Closed 门禁与防抢鼠标守卫正常。 结构化输入参数：输入={{input}}。请直接在当前工作区完成分析或产出可验证结果。"
+          }
+        ]
+      }
+    ]
+  },
+  "sha256": "44113f3517646da7cea7ec242a236366feb5f43511cb79ae9f186a134d77a3a3"
+}

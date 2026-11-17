@@ -1,0 +1,60 @@
+#!/bin/bash
+set -euo pipefail
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+vol=/Volumes/SanDisk
+guided=0
+if [[ "${1:-}" == --guided ]]; then guided=1; shift; fi
+[[ $# == 1 && -d "$1" ]] || exit 2
+out="$(cd "$1" && pwd -P)"
+[[ "$out" == "$vol/Builds/wechat-studio/"?* && -w "$out" ]] || exit 2
+info="$(diskutil info -plist "$vol")"
+for pair in 'MountPoint /Volumes/SanDisk' 'FilesystemType apfs' 'VolumeUUID D7B5671D-0661-4446-8AEF-08F7345F662B' 'WritableVolume true'; do
+  [[ "$(printf '%s' "$info" | plutil -extract "${pair%% *}" raw -)" == "${pair#* }" ]] || exit 2
+done
+[[ "$(df -Pk "$vol" | awk 'NR==2 {print $4}')" -ge 10485760 ]] || exit 2
+appName='WeChat Reply Preview.app'
+identity=com.openbot.wechat-bot.recommendation-preview
+label='WeChat Reply Preview'
+build=22003
+if [[ $guided == 1 ]]; then
+  appName='WeChat Guided Preview.app'
+  identity=com.openbot.wechat-bot.guided-preview
+  label='WeChat Guided Preview'
+  build=22004
+fi
+[[ ! -e "$out/$appName" && ! -L "$out/$appName" ]] || exit 2
+stage="$(mktemp -d "$out/.preview.XXXXXX")"
+trap 'rm -rf -- "$stage"' EXIT
+mkdir -p "$stage/tmp" "$stage/cache"
+export TMPDIR="$stage/tmp" CLANG_MODULE_CACHE_PATH="$stage/cache"
+app="$stage/$appName"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/wechat_control"
+swiftc -O -module-cache-path "$stage/cache" "$root/native/wechat_recommend_preview.swift"     -framework AppKit -framework WebKit -o "$app/Contents/MacOS/workbench-preview"
+cp "$root"/wechat_control/*.py "$root/wechat_control/workbench.html" "$app/Contents/Resources/wechat_control/"
+if [[ $guided == 1 ]]; then
+  swiftc -O -module-cache-path "$stage/cache" "$root/native/wechat_vision_ax.swift" -o "$app/Contents/Resources/wechat-vision-ax"
+  codesign --force --sign - "$app/Contents/Resources/wechat-vision-ax"
+fi
+cat > "$app/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>$identity</string>
+<key>CFBundleName</key><string>$label</string>
+<key>CFBundleExecutable</key><string>workbench-preview</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>2.2.0</string>
+<key>CFBundleVersion</key><string>$build</string>
+<key>LSMinimumSystemVersion</key><string>13.0</string>
+<key>NSHighResolutionCapable</key><true/>
+</dict></plist>
+PLIST
+plutil -lint "$app/Contents/Info.plist"
+codesign --force --sign - "$app"
+codesign --verify --deep --strict "$app"
+"$app/Contents/MacOS/workbench-preview" --verify-headless
+(cd "$app" && find . -type f -print0 | xargs -0 shasum -a 256 | LC_ALL=C sort -k2) > "$out/preview.sha256"
+mv -n "$app" "$out/$appName"
+test ! -e "$app"
+printf '%s\n' "$out/$appName"

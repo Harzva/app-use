@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Ergonomic standalone CLI entrypoint for OpenBot WeChat RPA Plugin.
+# Sets PYTHONPATH to plugin root so it runs cleanly from any working directory.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+BIN_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+PLUGIN_ROOT="$(cd -P "$BIN_DIR/.." && pwd)"
+
+if [ -n "${PYTHONPATH:-}" ]; then
+  export PYTHONPATH="${PLUGIN_ROOT}:${PYTHONPATH}"
+else
+  export PYTHONPATH="${PLUGIN_ROOT}"
+fi
+
+exec python3 -m wechat_control.cli "$@"

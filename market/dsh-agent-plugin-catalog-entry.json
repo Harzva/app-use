@@ -1,0 +1,133 @@
+{
+  "schema": "openbot.agent-plugin-catalog/1",
+  "id": "openbot.plugin.wechat-rpa-control",
+  "version": "2.4.0",
+  "title": "微信全生态私域与内容工作台 (@dsh-market/wechat-ecosystem)",
+  "description": "同时支持独立桌面应用/网页端、标准 DSH 插件及 Bot Studio 1.0.33 (MCP + dsh2codex) 接入的 macOS 微信全生态工作台。",
+  "source": {
+    "kind": "local_plugin_repo",
+    "packageName": "@dsh-market/wechat-ecosystem",
+    "legacyPackageName": "@openbot/wechat-rpa-plugin",
+    "repoPath": "/Volumes/SanDisk/WeChatBot",
+    "dshManifest": "dsh.plugin.json",
+    "standaloneAppBundle": "dist/WeChat Bot.app"
+  },
+  "capabilities": [
+    {
+      "id": "status",
+      "title": "只读状态巡检、UI 协议定位与人工防抢守卫",
+      "risk": "read",
+      "tools": ["wechat_status", "wechat_ui_schema", "wechat_ui_state", "wechat_human_guard"]
+    },
+    {
+      "id": "ocr",
+      "title": "macOS Vision 中文 OCR、文章/服务号/视频号导出",
+      "risk": "read",
+      "tools": ["wechat_ocr", "wechat_export_article", "wechat_export_account_articles", "wechat_export_channels_videos"]
+    },
+    {
+      "id": "read_sessions",
+      "title": "微信会话盘点、特别关心统计与实时监控",
+      "risk": "read",
+      "tools": ["wechat_list_sessions", "wechat_inspect_live", "wechat_contact_analytics", "wechat_monitor_status"]
+    },
+    {
+      "id": "read_messages",
+      "title": "消息气泡聚类识别、客服知识库检索与回复预览",
+      "risk": "read",
+      "tools": ["wechat_read_messages", "wechat_kb_search", "wechat_smart_reply"]
+    },
+    {
+      "id": "import_chatlog",
+      "title": "WeChatBridge 聊天记录导入、本我与好友记忆画像",
+      "risk": "read",
+      "tools": ["wechat_import_chatlog", "wechat_soul_profile", "wechat_memory_add", "wechat_import_bridge_soul"]
+    },
+    {
+      "id": "sales_crm",
+      "title": "开源 Aurora-73/SalesCRM 营销漏斗、15维评分、公式决策与跟进提醒",
+      "risk": "write",
+      "tools": ["wechat_salescrm_pipeline", "wechat_salescrm_analyze", "wechat_salescrm_formulas"]
+    }
+  ],
+  "toolSchemas": [
+    {
+      "name": "wechat_inspect_live",
+      "description": "只读盘点当前微信会话列表、未读红点与右侧聊天消息",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "targetChat": {"type": "string", "title": "目标联系人或群聊", "default": ""},
+          "includeContacts": {"type": "boolean", "title": "扫描通讯录好友", "default": false}
+        }
+      }
+    },
+    {
+      "name": "wechat_export_account_articles",
+      "description": "批量导出服务号或公众号全部历史文章为 Markdown 与本地原图",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "accountName": {"type": "string", "title": "公众号或服务号名称", "default": ""},
+          "albumUrl": {"type": "string", "title": "合集或历史页链接", "default": ""}
+        }
+      }
+    },
+    {
+      "name": "wechat_export_channels_videos",
+      "description": "批量导出微信视频号作者全部视频（支持流清单与缓存提取）",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "authorName": {"type": "string", "title": "视频号作者名称", "default": ""},
+          "cacheDir": {"type": "string", "title": "本地视频号缓存目录", "default": ""}
+        }
+      }
+    },
+    {
+      "name": "wechat_soul_profile",
+      "description": "查询或重建 WeChatBridge 号主本我画像、好友长期记忆与数字分身",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "target": {"type": "string", "title": "目标好友名称", "default": ""},
+          "rebuild": {"type": "boolean", "title": "重建全量记忆画像", "default": false}
+        }
+      }
+    },
+    {
+      "name": "wechat_salescrm_pipeline",
+      "description": "管理开源 SalesCRM 营销漏斗、同步微信联系人与聊天记录、处理北京时间跟进提醒",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {"type": "string", "title": "操作类型", "default": "overview"},
+          "target": {"type": "string", "title": "客户名称", "default": ""},
+          "stage": {"type": "string", "title": "阶段", "default": "跟进中"},
+          "follow_up": {"type": "string", "title": "跟进时间(北京时间)", "default": ""}
+        }
+      }
+    },
+    {
+      "name": "wechat_salescrm_analyze",
+      "description": "计算客户 15 维 SalesCRM 指标、活动时间线与 Top 1-3 跟进草稿",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "target": {"type": "string", "title": "客户名称", "default": "心安"},
+          "incoming_text": {"type": "string", "title": "最新来信", "default": ""}
+        }
+      }
+    },
+    {
+      "name": "wechat_salescrm_formulas",
+      "description": "评估客户 BQ / BSP / BWS / PV 与建议动作",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "target": {"type": "string", "title": "客户名称", "default": "心安"}
+        }
+      }
+    }
+  ]
+}

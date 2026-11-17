@@ -1,0 +1,23 @@
+{
+  "name": "@openbot/wechat-rpa-plugin",
+  "version": "2.0.0",
+  "description": "Standalone WeChat Ecosystem Software (.app + Web + CLI), native DSH plugin (@dsh-market/wechat-ecosystem), and Bot Studio 1.0.33 integration.",
+  "license": "MIT",
+  "private": true,
+  "bin": {
+    "wechat-rpa-plugin": "./bin/wechat-vision-ax",
+    "wechat-bot": "./bin/wechat-bot",
+    "wechat-studio-app": "./bin/wechat-studio-app"
+  },
+  "scripts": {
+    "build:app": "./bin/build-standalone-app",
+    "doctor": "python3 -m wechat_control.cli doctor",
+    "inspect-live": "python3 -m wechat_control.cli inspect-live",
+    "bridge:export": "python3 -m wechat_control.cli botstudio-bridge --compile-dsh --export-bundle",
+    "serve:console": "./bin/wechat-bot console --host 127.0.0.1 --port 18788",
+    "serve:mcp": "python3 -m wechat_control.cli serve-mcp",
+    "serve:http": "python3 -m wechat_control.cli serve-http --port 18788",
+    "benchmark": "./bin/wechat-bot benchmark --run --with-tests",
+    "test": "python3 -m unittest discover -s tests -v"
+  }
+}

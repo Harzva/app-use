@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+logs/
+exports/
+config/*.json
+config/*.sqlite*
+.DS_Store
