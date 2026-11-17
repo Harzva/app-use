@@ -470,6 +470,23 @@ class WeChatArticleExporter:
         self.export_root = Path(export_root)
         self.allow_loopback_urls = bool(allow_loopback_urls)
 
+    def _capture_wechat_ocr(self, out_path: Path, *, timeout: float = 30.0,
+                            window_title: str = "微信") -> Dict[str, Any]:
+        """只截微信窗口做 OCR（--window-title 定位），避免导出时截到覆盖在上面的无关窗口。
+
+        窗口不存在时退回不带 title 的调用（保留自动拉起能力）。
+        """
+        res = self.inspector._run_native(
+            ["capture-ocr", "--window-title", window_title, "--out", str(out_path)], timeout)
+        if res.get("ok"):
+            return res
+        if res.get("error_code") in ("window_not_found", "no_window"):
+            fallback = self.inspector._run_native(["capture-ocr", "--out", str(out_path)], timeout)
+            fallback["fallbackUsed"] = True
+            fallback["fallbackReason"] = res.get("error_code")
+            return fallback
+        return res
+
     @staticmethod
     def _read_clipboard() -> str:
         try:
@@ -538,7 +555,7 @@ class WeChatArticleExporter:
         win_w = float(bounds.get("width", 1029))
 
         snap1 = staging_dir / "copy_link_probe_1.png"
-        ocr1 = self.inspector._run_native(["capture-ocr", "--out", str(snap1)], 15.0)
+        ocr1 = self._capture_wechat_ocr(snap1)
         elements = ocr1.get("elements") or []
 
         split_x = max(460.0, win_w * 0.50)
@@ -567,7 +584,7 @@ class WeChatArticleExporter:
         time.sleep(0.45)
 
         snap2 = staging_dir / "copy_link_menu_2.png"
-        ocr2 = self.inspector._run_native(["capture-ocr", "--out", str(snap2)], 15.0)
+        ocr2 = self._capture_wechat_ocr(snap2)
         menu_items = ocr2.get("elements") or []
         copy_item = None
         for el in menu_items:
@@ -940,7 +957,7 @@ class WeChatArticleExporter:
         staging_dir = self.export_root / ".staging"
         staging_dir.mkdir(parents=True, exist_ok=True)
         initial_full = staging_dir / "initial_window.png"
-        ocr0 = self.inspector._run_native(["capture-ocr", "--out", str(initial_full)], 15.0)
+        ocr0 = self._capture_wechat_ocr(initial_full)
         els0 = ocr0.get("elements") or []
         img_w = int(ocr0.get("imageWidth") or win_w)
         img_h = int(ocr0.get("imageHeight") or win_h)
@@ -1019,7 +1036,7 @@ class WeChatArticleExporter:
                 )
                 time.sleep(0.42)
                 full_shot = temp_pages_dir / f"raw_page_{page_idx:02d}.png"
-                ocr_res = self.inspector._run_native(["capture-ocr", "--out", str(full_shot)], 15.0)
+                ocr_res = self._capture_wechat_ocr(full_shot)
 
             els = ocr_res.get("elements") or []
             p_img_w = int(ocr_res.get("imageWidth") or win_w)
@@ -1465,7 +1482,7 @@ class WeChatArticleExporter:
                     )
                     time.sleep(0.4)
                 shot = staging_dir / f"feed_page_{page_idx:02d}.png"
-                ocr = self.inspector._run_native(["capture-ocr", "--out", str(shot)], 15.0)
+                ocr = self._capture_wechat_ocr(shot)
                 lines = self._group_ocr_lines(
                     ocr.get("elements") or [],
                     x_min=max(220.0, win_w * 0.24),
@@ -1905,7 +1922,7 @@ class WeChatArticleExporter:
                     )
                     time.sleep(0.45)
                 cover_shot = covers_dir / f"channels_page_{page_idx:02d}.png"
-                ocr = self.inspector._run_native(["capture-ocr", "--out", str(cover_shot)], 15.0)
+                ocr = self._capture_wechat_ocr(cover_shot)
                 lines = self._group_ocr_lines(
                     ocr.get("elements") or [],
                     x_min=20.0,
