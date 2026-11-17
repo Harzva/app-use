@@ -104,6 +104,14 @@ def _is_wechat_green_rgb(rgb: Optional[Tuple[int, int, int]]) -> bool:
     return (g - r) >= 22 and (g - b) >= 18 and g >= 95
 
 
+def _is_wechat_badge_red_rgb(rgb: Optional[Tuple[int, int, int]]) -> bool:
+    """Detect WeChat unread red badge dot/pill pixels."""
+    if not rgb:
+        return False
+    r, g, b = rgb
+    return r >= 205 and g <= 105 and b <= 105 and (r - max(g, b)) >= 110
+
+
 def _load_bmp_pixel_sampler(image_path: Optional[Path]) -> Optional[Callable[[float, float], Optional[Tuple[int, int, int]]]]:
     """Decode PNG via macOS `sips` to BMP (~30ms) and return an `(x, y) -> (r, g, b)` sampler."""
     if not image_path:
@@ -225,8 +233,14 @@ class WeChatLiveInspector:
         return base
 
     @staticmethod
-    def _cluster_session_rows(elements: List[Dict[str, Any]], split_x: float, win_h: float) -> List[Dict[str, Any]]:
+    def _cluster_session_rows(
+        elements: List[Dict[str, Any]],
+        split_x: float,
+        win_h: float,
+        image_path: Optional[Path] = None,
+    ) -> List[Dict[str, Any]]:
         """Group OCR fragments in the middle session column (64 <= x <= split_x) into chat rows."""
+        sampler = _load_bmp_pixel_sampler(image_path) if image_path else None
         mid_els: List[Dict[str, Any]] = []
         badge_els: List[Dict[str, Any]] = []
         for el in elements:
@@ -286,6 +300,10 @@ class WeChatLiveInspector:
             ys = [g["center"]["y"] for g in top_pool]
             avg_y = sum(ys) / len(ys)
 
+            title_x = float((title_el.get("bbox") or {}).get("x") or 118.0)
+            avatar_x = round(max(64.0, min(80.0, title_x - 48.0)), 1)
+            avatar_y = round(avg_y - 20.0, 1)
+
             matching_badges = [
                 b for b in badge_els
                 if abs(b["center"]["y"] - avg_y) <= 24.0
@@ -294,9 +312,14 @@ class WeChatLiveInspector:
                 key=lambda b: (b["center"]["x"] > 95.0, abs(b["center"]["y"] - avg_y))
             )
             unread_badge = matching_badges[0]["text"].strip() if matching_badges else ""
-
-            title_x = float((title_el.get("bbox") or {}).get("x") or 118.0)
-            avatar_x = round(max(64.0, min(80.0, title_x - 48.0)), 1)
+            if not unread_badge and sampler is not None:
+                red_hits = 0
+                for dx in (30, 34, 38):
+                    for dy in (2, 5, 8):
+                        if _is_wechat_badge_red_rgb(sampler(avatar_x + dx, avatar_y + dy)):
+                            red_hits += 1
+                if red_hits >= 2:
+                    unread_badge = "dot"
 
             summarized.append({
                 "rowIndex": idx,
@@ -310,7 +333,7 @@ class WeChatLiveInspector:
                 # 头像裁剪区：会话列标题左侧 48px（跳过 60px 左导航栏）、文本行中心 ±20px 的 40×40 正方形
                 "avatarRel": {
                     "x": avatar_x,
-                    "y": round(avg_y - 20.0, 1),
+                    "y": avatar_y,
                     "width": 40.0,
                     "height": 40.0,
                 },
@@ -572,7 +595,7 @@ class WeChatLiveInspector:
             overview_ocr = self._capture_wechat_ocr(overview_path)
             elements = overview_ocr.get("elements") or []
             split_x = self._infer_split_x(elements, win_w)
-            rows = self._cluster_session_rows(elements, split_x, win_h)
+            rows = self._cluster_session_rows(elements, split_x, win_h, image_path=overview_path)
             right_info = self._parse_right_pane(elements, split_x, win_h)
 
             sessions_summary = [
@@ -658,7 +681,7 @@ class WeChatLiveInspector:
                 break
             overview_els = overview_ocr.get("elements") or []
             split_x = self._infer_split_x(overview_els, win_w)
-            rows = self._cluster_session_rows(overview_els, split_x, win_h)
+            rows = self._cluster_session_rows(overview_els, split_x, win_h, image_path=overview_path)
             if not rows:
                 break
 
@@ -890,7 +913,7 @@ class WeChatLiveInspector:
             }
 
         # Check current viewport rows before scrolling
-        rows = self._cluster_session_rows(elements, split_x, win_h)
+        rows = self._cluster_session_rows(elements, split_x, win_h, image_path=cur_snap)
         for row in rows:
             if _matches_target(target, row["titleSnippet"]):
                 self._click_rel(bounds, row["clickRelX"], row["clickRelY"])
@@ -925,7 +948,7 @@ class WeChatLiveInspector:
             cap = self._capture_wechat_ocr(page_snap)
             page_els = cap.get("elements") or []
             page_split_x = self._infer_split_x(page_els, win_w)
-            page_rows = self._cluster_session_rows(page_els, page_split_x, win_h)
+            page_rows = self._cluster_session_rows(page_els, page_split_x, win_h, image_path=page_snap)
             digest = "|".join(f"{r['titleSnippet']}::{r['previewSnippet']}" for r in page_rows)
             if page > 0 and digest in seen_pages:
                 break

@@ -320,6 +320,127 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertIn("又一个神级开源神器", bubbles[0]["text"])
         self.assertIn("菜鸟学Python", bubbles[0]["text"])
 
+    def test_contact_gap_defers_and_replies_after_cooldown(self):
+        from wechat_control.safety import AntiBanGuard
+
+        clock = {"t": 1000.0}
+        self.engine.antiban = AntiBanGuard(
+            state_path=self.data / "antiban_gap.json",
+            per_contact_hourly=10,
+            global_hourly=20,
+            global_daily=50,
+            min_reply_gap_seconds=90,
+            now_fn=lambda: clock["t"],
+        )
+        self.engine.bind_contact("心安", role="friend", auto_reply_enabled=True)
+        stage = {"msg": 1, "active": "其他会话"}
+        sent_texts = []
+
+        def fake_native(args, timeout=15.0):
+            cmd = args[0] if args else ""
+            if cmd == "status":
+                return {
+                    "ok": True,
+                    "wechatRunning": True,
+                    "accessibilityTrusted": True,
+                    "postEventTrusted": True,
+                    "screenCaptureTrusted": True,
+                    "windows": [{"windowID": 1, "bounds": {"x": 0, "y": 0, "width": 585, "height": 640}}],
+                }
+            if cmd == "hid-idle":
+                return {"ok": True, "anyInputIdleSeconds": 90.0, "mouseIdleSeconds": 90.0, "keyboardIdleSeconds": 90.0}
+            if cmd == "click":
+                if "--x" in args and float(args[args.index("--x") + 1]) > 60:
+                    stage["active"] = "心安"
+                return {"ok": True}
+            if cmd == "capture-ocr":
+                if "--out" in args:
+                    p = Path(args[args.index("--out") + 1])
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    p.write_bytes(b"")
+                if stage["active"] != "心安":
+                    preview = "第一条测试问题" if stage["msg"] == 1 else "第二条追问消息"
+                    return {
+                        "ok": True,
+                        "elements": [
+                            {"text": "其他会话", "center": {"x": 300, "y": 28}, "bbox": {"x": 265, "y": 20, "width": 70, "height": 16}},
+                            {"text": "心安", "center": {"x": 115, "y": 66}, "bbox": {"x": 96, "y": 58, "width": 36, "height": 16}},
+                            {"text": "12:04" if stage["msg"] == 1 else "12:05", "center": {"x": 202, "y": 66}, "bbox": {"x": 182, "y": 58, "width": 38, "height": 16}},
+                            {"text": preview, "center": {"x": 140, "y": 86}, "bbox": {"x": 96, "y": 78, "width": 90, "height": 16}},
+                        ],
+                    }
+                msg_txt = "第一条测试问题" if stage["msg"] == 1 else "第二条追问消息"
+                return {
+                    "ok": True,
+                    "elements": [
+                        {"text": "心安", "center": {"x": 255, "y": 28}, "bbox": {"x": 236, "y": 20, "width": 38, "height": 16}},
+                        {"text": "12:04" if stage["msg"] == 1 else "12:05", "center": {"x": 400, "y": 200}, "bbox": {"x": 380, "y": 192, "width": 40, "height": 14}},
+                        {"text": msg_txt, "center": {"x": 340, "y": 250}, "bbox": {"x": 295, "y": 242, "width": 100, "height": 16}},
+                    ],
+                }
+            if cmd == "paste-and-verify":
+                txt = args[args.index("--text") + 1]
+                sent_texts.append(txt)
+                return {"ok": True, "sent": ("--send" in args), "readback": txt}
+            return {"ok": True}
+
+        self.engine._run_native = fake_native  # type: ignore[method-assign]
+        self.engine.inspector._sleep = lambda _s: None  # type: ignore[method-assign]
+
+        r1 = self.engine.monitor_once(auto_reply=True, confirm_send=True)
+        self.assertEqual(r1["repliesDispatched"], 1)
+
+        # 40s 后（< 90s 冷却）新追问触发 contact_gap，不能吞掉消息签名
+        clock["t"] = 1040.0
+        stage["msg"] = 2
+        stage["active"] = "其他会话"
+        r2 = self.engine.monitor_once(auto_reply=True, confirm_send=True)
+        self.assertEqual(r2["repliesDispatched"], 0)
+        self.assertEqual(r2["actions"][0]["status"], "rate_limited")
+        st2 = self.engine.monitor.state_summary()["contacts"]["心安"]
+        self.assertTrue(st2.get("pendingGapRetry"))
+
+        # 冷却结束后（1000 -> 1140 > 90s）即使无未读角标也应自动重检并回复
+        clock["t"] = 1140.0
+        stage["active"] = "其他会话"
+        r3 = self.engine.monitor_once(auto_reply=True, confirm_send=True)
+        self.assertEqual(r3["repliesDispatched"], 1)
+        self.assertEqual(len(sent_texts), 2)
+        st3 = self.engine.monitor.state_summary()["contacts"]["心安"]
+        self.assertFalse(st3.get("pendingGapRetry", False))
+        self.assertNotIn("lastRateLimitReason", st3)
+
+    def test_unread_badge_red_pixel_fallback(self):
+        import struct
+        import zlib
+        from wechat_control.live_inspector import WeChatLiveInspector
+
+        badge_png = self.data / "unread_badge.png"
+        w, h = 320, 160
+        rows_raw = bytearray()
+        # avatar_x = 118 - 48 = 70, avatar_y = 86 - 20 = 66; 红点区 x in [100..110], y in [67..77]
+        for y in range(h):
+            rows_raw.append(0)
+            for x in range(w):
+                if 100 <= x <= 110 and 67 <= y <= 77:
+                    rows_raw.extend((250, 81, 81))
+                else:
+                    rows_raw.extend((245, 245, 245))
+
+        def _chunk(tag: bytes, data: bytes) -> bytes:
+            return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+        ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+        badge_png.write_bytes(b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", zlib.compress(bytes(rows_raw))) + _chunk(b"IEND", b""))
+
+        elements = [
+            {"text": "openbot", "bbox": {"x": 118, "y": 70, "width": 58, "height": 12}, "center": {"x": 147, "y": 76}},
+            {"text": "最新一条测试消息", "bbox": {"x": 118, "y": 90, "width": 90, "height": 12}, "center": {"x": 163, "y": 96}},
+        ]
+        rows = WeChatLiveInspector._cluster_session_rows(elements, 310.0, 640.0, image_path=badge_png)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["unreadBadge"], "dot")
+
 
 if __name__ == "__main__":
     unittest.main()

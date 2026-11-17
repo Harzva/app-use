@@ -350,8 +350,10 @@ class WeChatRealtimeMonitor:
         if contact_state.get("lastOutboundText"):
             recent_outbound.append(str(contact_state["lastOutboundText"]))
 
-        should_open = force_open or bool(unread_badge)
-        trigger_reason = "unread_badge" if unread_badge else ("target_filter" if force_open else "")
+        should_open = force_open or bool(unread_badge) or bool(contact_state.get("pendingGapRetry"))
+        trigger_reason = (
+            "unread_badge" if unread_badge else ("gap_retry" if contact_state.get("pendingGapRetry") else ("target_filter" if force_open else ""))
+        )
 
         if not should_open and in_row is not None and row_preview:
             if _preview_matches_outbound(row_preview, recent_outbound):
@@ -564,7 +566,9 @@ class WeChatRealtimeMonitor:
         elements = cap["ocrPayload"].get("elements") or []
         split_x = float(cap["ocrPayload"].get("splitX") or self.engine.inspector._infer_split_x(elements, win_w))
 
-        rows = self.engine.inspector._cluster_session_rows(elements, split_x, win_h)
+        rows = self.engine.inspector._cluster_session_rows(
+            elements, split_x, win_h, image_path=cap["snapshotPath"],
+        )
         active_structured = self.engine.inspector.extract_structured_bubbles(
             cap["ocrPayload"],
             snapshot_path=cap["snapshotPath"],
@@ -647,8 +651,7 @@ class WeChatRealtimeMonitor:
                 })
                 continue
 
-            if matched_row and matched_row.get("previewSnippet"):
-                c_state["lastSeenPreview"] = str(matched_row["previewSnippet"])
+            new_row_preview = str(matched_row["previewSnippet"]) if (matched_row and matched_row.get("previewSnippet")) else ""
 
             structured = inspected["structured"]
             bubbles: List[Dict[str, Any]] = list(structured.get("bubbles") or [])
@@ -662,6 +665,10 @@ class WeChatRealtimeMonitor:
             active_structured = structured
 
             if last_bubble.get("direction") != "peer":
+                if new_row_preview:
+                    c_state["lastSeenPreview"] = new_row_preview
+                c_state.pop("pendingGapRetry", None)
+                c_state.pop("lastRateLimitReason", None)
                 actions.append({
                     "target": target,
                     "status": "skipped_last_is_self",
@@ -679,6 +686,10 @@ class WeChatRealtimeMonitor:
             msg_sig = _bubble_signature(target, last_bubble, preceding_self)
 
             if msg_sig == c_state.get("lastProcessedPeerSig"):
+                if new_row_preview:
+                    c_state["lastSeenPreview"] = new_row_preview
+                c_state.pop("pendingGapRetry", None)
+                c_state.pop("lastRateLimitReason", None)
                 actions.append({
                     "target": target,
                     "status": "skipped_already_replied",
@@ -718,6 +729,10 @@ class WeChatRealtimeMonitor:
                     send_res = {"ok": False}
                 c_state["lastProcessedPeerSig"] = msg_sig
                 c_state["pendingDraft"] = None
+                if new_row_preview:
+                    c_state["lastSeenPreview"] = new_row_preview
+                c_state.pop("pendingGapRetry", None)
+                c_state.pop("lastRateLimitReason", None)
                 actions.append({
                     "target": target,
                     "status": "handoff_taken_over",
@@ -729,6 +744,10 @@ class WeChatRealtimeMonitor:
             if c_state.get("lastOutboundText"):
                 recent_out.append(str(c_state["lastOutboundText"]))
             if any(normalize_chat_name(incoming_text) == normalize_chat_name(o) for o in recent_out if o):
+                if new_row_preview:
+                    c_state["lastSeenPreview"] = new_row_preview
+                c_state.pop("pendingGapRetry", None)
+                c_state.pop("lastRateLimitReason", None)
                 actions.append({
                     "target": target,
                     "status": "skipped_matches_outbound",
@@ -766,6 +785,8 @@ class WeChatRealtimeMonitor:
 
             if c_state.get("takenOver"):
                 c_state["pendingDraft"] = draft_record
+                if new_row_preview:
+                    c_state["lastSeenPreview"] = new_row_preview
                 self._append_event(
                     "takeover_draft_only",
                     {"target": target, "careLevel": care_level, "specialCare": is_special_care, "draft": draft_record},
@@ -792,6 +813,8 @@ class WeChatRealtimeMonitor:
             if not auto_reply or not confirm_send:
                 c_state["lastPreviewedPeerSig"] = msg_sig
                 c_state["pendingDraft"] = draft_record
+                if new_row_preview:
+                    c_state["lastSeenPreview"] = new_row_preview
                 send_res = self.engine.send_text(
                     target,
                     reply_text,
@@ -826,11 +849,18 @@ class WeChatRealtimeMonitor:
                 continue
 
             # AntiBan 频控闸门：真发送前四道检查（联系人/小时、回复间隔、全局小时/日）。
-            # 超额即跳过这条自动回复（更新签名防重复扫描）并记录事件——宁可不回，不可轰炸。
+            # contact_gap 属于短暂冷却（默认 90s）：只延后重检、不吞消息签名；
+            # 小时/日硬配额超限时记录签名避免重复扫描——宁可不回，不可轰炸。
             can_send, limit_reason = self.engine.antiban.check_can_send(target)
             if not can_send:
-                c_state["lastProcessedPeerSig"] = msg_sig
                 c_state["lastRateLimitReason"] = limit_reason
+                if str(limit_reason).startswith("contact_gap"):
+                    c_state["pendingGapRetry"] = True
+                else:
+                    c_state["lastProcessedPeerSig"] = msg_sig
+                    if new_row_preview:
+                        c_state["lastSeenPreview"] = new_row_preview
+                    c_state.pop("pendingGapRetry", None)
                 self._append_event(
                     "auto_reply_rate_limited",
                     {"target": target, "reason": limit_reason},
@@ -856,6 +886,10 @@ class WeChatRealtimeMonitor:
                 c_state["lastProcessedPeerSig"] = msg_sig
                 c_state["lastProcessedPeerText"] = incoming_text
                 c_state["lastOutboundText"] = reply_text
+                if new_row_preview:
+                    c_state["lastSeenPreview"] = new_row_preview
+                c_state.pop("pendingGapRetry", None)
+                c_state.pop("lastRateLimitReason", None)
                 updated_recent = [t for t in recent_out if t and t != reply_text]
                 updated_recent.append(reply_text)
                 c_state["recentOutboundTexts"] = updated_recent[-10:]
