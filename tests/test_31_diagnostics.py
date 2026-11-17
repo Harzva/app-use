@@ -63,6 +63,18 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertTrue(rep["hosting"].get("enabled"))
         self.assertIn("诊断好友", rep["hosting"].get("targets") or [])
 
+    def test_web_console_perm_wizard(self):
+        from wechat_control.web_console import render_web_console_html
+        html = render_web_console_html()
+        for marker in ("renderPermWizard", "startWizardPolling", "stopWizardPolling", "去授权", "自动检测并进入下一步", "permWizard"):
+            self.assertIn(marker, html, f"分步授权向导缺少标记: {marker}")
+
+    def test_web_console_perm_modal_dismissable(self):
+        from wechat_control.web_console import render_web_console_html
+        html = render_web_console_html()
+        for marker in ("PERM_MODAL_DISMISSED", "为什么之前授权过", "旧 WeChat Bot 条目"):
+            self.assertIn(marker, html, f"权限弹窗缺少 dismissable/文案标记: {marker}")
+
     def test_web_console_has_diagnostics_ui(self):
         from wechat_control.web_console import render_web_console_html
         html = render_web_console_html()

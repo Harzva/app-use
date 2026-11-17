@@ -63,6 +63,74 @@ private func resolveVisionAxBinary(repoRoot: URL) -> URL? {
     return nil
 }
 
+private func consoleVersion(_ baseUrl: String) -> String? {
+    guard let url = URL(string: "\(baseUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/health") else {
+        return nil
+    }
+    let sem = DispatchSemaphore(value: 0)
+    var version: String?
+    var req = URLRequest(url: url)
+    req.timeoutInterval = 1.2
+    URLSession.shared.dataTask(with: req) { data, resp, _ in
+        if let http = resp as? HTTPURLResponse, http.statusCode == 200,
+           let d = data,
+           let obj = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] {
+            version = obj["version"] as? String
+        }
+        sem.signal()
+    }.resume()
+    _ = sem.wait(timeout: .now() + 2.0)
+    return version
+}
+
+private func stopStaleConsole(repoRoot: URL) {
+    // 版本感知升级：App 更新后，旧版本 console 可能仍占着 18788——按 pidfile 停掉旧进程
+    var pidfileCandidates: [URL] = []
+    // bundle 外稳定位置（与 mcp_server.serve_http 一致）
+    pidfileCandidates.append(URL(fileURLWithPath: NSHomeDirectory() + "/Library/Application Support/WeChatBot/console.pid"))
+    if let resUrl = Bundle.main.resourceURL {
+        pidfileCandidates.append(resUrl.appendingPathComponent("logs/console.pid")) // 兼容旧位置
+    }
+    pidfileCandidates.append(repoRoot.appendingPathComponent("logs/console.pid"))
+    var killed = 0
+    for candidate in pidfileCandidates {
+        if let raw = try? String(contentsOf: candidate, encoding: .utf8),
+           let pid = Int(raw.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 1 {
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/kill")
+            proc.arguments = [String(pid)]
+            try? proc.run()
+            proc.waitUntilExit()
+            killed += 1
+            backendFailureLog("stopStaleConsole: killed stale console pid \(pid) (version mismatch)")
+        }
+    }
+    if killed == 0 {
+        // 兜底：更老的 console 没写 pidfile——按端口找到占用进程再停
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        proc.arguments = ["-ti", "tcp:18788"]
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = FileHandle.nullDevice
+        try? proc.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        proc.waitUntilExit()
+        let text = String(data: data, encoding: .utf8) ?? ""
+        for pidText in text.split(separator: "\n") {
+            if let pid = Int(pidText.trimmingCharacters(in: .whitespaces)), pid > 1, pid != ProcessInfo.processInfo.processIdentifier {
+                let kill = Process()
+                kill.executableURL = URL(fileURLWithPath: "/usr/bin/kill")
+                kill.arguments = [String(pid)]
+                try? kill.run()
+                kill.waitUntilExit()
+                killed += 1
+                backendFailureLog("stopStaleConsole: killed stale console pid \(pid) via lsof fallback")
+            }
+        }
+    }
+}
+
 private func isConsoleHealthy(_ baseUrl: String) -> Bool {
     guard let url = URL(string: "\(baseUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/health") else {
         return false
@@ -82,16 +150,47 @@ private func isConsoleHealthy(_ baseUrl: String) -> Bool {
     return ok
 }
 
+private func backendFailureLog(_ message: String) {
+    // 静默失败可见化：排障时有迹可循（~/Library/Logs/wechat-bot-backend.log）
+    let logPath = NSHomeDirectory() + "/Library/Logs/wechat-bot-backend.log"
+    let line = "\(Date()) \(message)\n"
+    if let handle = FileHandle(forWritingAtPath: logPath) {
+        handle.seekToEndOfFile()
+        handle.write(line.data(using: .utf8)!)
+        try? handle.close()
+    } else {
+        try? line.write(toFile: logPath, atomically: true, encoding: .utf8)
+    }
+}
+
 private func ensureBackendRunning(repoRoot: URL, consoleUrl: String) {
     if isConsoleHealthy(consoleUrl) {
-        return
+        // 版本感知：旧 console 还在跑旧代码（App 更新后常见占坑），停旧起新
+        let running = consoleVersion(consoleUrl)
+        let expected = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+        if running == expected || running == nil || expected.isEmpty {
+            return
+        }
+        backendFailureLog("ensureBackendRunning: console version \(running ?? "?") != app \(expected), restarting backend")
+        stopStaleConsole(repoRoot: repoRoot)
+        for _ in 0..<25 { // 等端口释放
+            if !isConsoleHealthy(consoleUrl) { break }
+            Thread.sleep(forTimeInterval: 0.2)
+        }
     }
-    let botBin = repoRoot.appendingPathComponent("bin/wechat-bot")
-    guard FileManager.default.isExecutableFile(atPath: botBin.path) else {
+    // App 内 bin 优先（安装版自足，不依赖 repo_root 指向的源码目录），开发环境回退 repoRoot
+    var candidates: [URL] = []
+    if let resUrl = Bundle.main.resourceURL {
+        candidates.append(resUrl.appendingPathComponent("bin/wechat-bot"))
+    }
+    candidates.append(repoRoot.appendingPathComponent("bin/wechat-bot"))
+    let botBin = candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }
+    guard let launcher = botBin else {
+        backendFailureLog("ensureBackendRunning: 未找到可执行的 wechat-bot 启动器（已尝试 App 内 Resources/bin 与 repoRoot/bin）")
         return
     }
     let proc = Process()
-    proc.executableURL = botBin
+    proc.executableURL = launcher
     proc.arguments = ["console", "--host", "127.0.0.1", "--port", "18788"]
     proc.currentDirectoryURL = repoRoot
     proc.standardOutput = FileHandle.nullDevice
