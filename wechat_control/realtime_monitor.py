@@ -309,7 +309,8 @@ class WeChatRealtimeMonitor:
         bounds = win["bounds"]
         self.engine.inspector.snapshots_dir.mkdir(parents=True, exist_ok=True)
         snap_path = self.engine.inspector.snapshots_dir / "monitor_poll_cur.png"
-        ocr_payload = self.engine._run_native(["capture-ocr", "--out", str(snap_path)], 15.0)
+        # 统一走 capture_wechat_ocr 封装：窗口定向 + 遮挡重试（裸调用曾占 poll_error 的 71%）
+        ocr_payload = self.engine.capture_wechat_ocr(snap_path, timeout=30.0)
         if not ocr_payload.get("ok"):
             return {
                 "ok": False,
@@ -383,7 +384,8 @@ class WeChatRealtimeMonitor:
         )
         ocr_payload = nav.get("ocrPayload")
         if not isinstance(ocr_payload, dict) or not ocr_payload.get("elements"):
-            ocr_payload = self.engine._run_native(["capture-ocr", "--out", str(snap_path)], 15.0)
+            # 同上：统一封装（窗口定向 + 遮挡重试），避免 OCR 出空后误判为噪声输入
+            ocr_payload = self.engine.capture_wechat_ocr(snap_path, timeout=30.0)
         structured = self.engine.inspector.extract_structured_bubbles(
             ocr_payload,
             snapshot_path=snap_path,
