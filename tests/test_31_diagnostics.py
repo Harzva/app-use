@@ -37,7 +37,11 @@ class DiagnosticsTests(unittest.TestCase):
         rep = self.engine.diagnostics()
         self.assertTrue(rep["ok"])
         self.assertIn("generatedAt", rep)
-        self.assertEqual(rep["version"], "2.4.49")
+        # 版本应与 plugin.manifest.json 动态一致（而非硬编码，避免每次 bump 挂测试）
+        manifest_ver = json.loads(
+            (Path(__file__).resolve().parent.parent / "plugin.manifest.json").read_text()
+        ).get("version")
+        self.assertEqual(rep["version"], manifest_ver)
         for key in ("auth", "hosting", "antiban", "knowledgeEntries", "monitorState", "recentEvents"):
             self.assertIn(key, rep, f"缺少 {key}")
             self.assertNotIn("error", rep[key] if isinstance(rep[key], dict) else {}, f"{key} 报错")

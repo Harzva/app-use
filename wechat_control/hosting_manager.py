@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .io_utils import atomic_write_json
+from .resource_governor import govern as _govern_logs
 
 
 def _utc_now() -> str:
@@ -44,6 +45,8 @@ class HostingManager:
         self._started_at: Optional[str] = None
         self._last_round: Dict[str, Any] = {}
         self._history_appended_total = 0
+        self._last_govern_at = 0.0
+        self._govern_interval = 3600.0  # 资源治理（日志轮转/孤儿快照清理）每小时一次
 
     def start(self, targets: List[str]) -> Dict[str, Any]:
         clean = [str(t).strip() for t in (targets or []) if str(t).strip()]
@@ -109,6 +112,22 @@ class HostingManager:
                 "historyAppendedTotal": self._history_appended_total,
             }
 
+    def _maybe_govern(self) -> None:
+        """低频资源治理：日志轮转与孤儿快照清理（每小时一次，失败不影响托管）。"""
+        import time as _time
+        now = _time.time()
+        if now - self._last_govern_at < self._govern_interval:
+            return
+        self._last_govern_at = now
+        try:
+            rep = _govern_logs(Path(__file__).resolve().parent.parent)
+            if rep.get("snapshots", {}).get("removed") or any(
+                (rep.get(k) or {}).get("rotated") for k in ("rotate_audit.jsonl", "rotate_monitor_events.jsonl")
+            ):
+                self._engine.audit.log("resource_governor", "ok", {"freedTotalBytes": rep.get("freedTotalBytes", 0)})
+        except Exception:
+            pass  # 治理失败不影响托管主循环
+
     def _run(self) -> None:
         while not self._stop.is_set():
             try:
@@ -135,6 +154,7 @@ class HostingManager:
                 except Exception:
                     pass
             self._persist()
+            self._maybe_govern()
             # 轮询间隔抖动 ±15%：固定周期是「固定模式操作序列」特征（反自动化对抗）
             self._stop.wait(self._interval * random.uniform(0.85, 1.15))
 

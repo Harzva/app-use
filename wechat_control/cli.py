@@ -29,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("doctor", help="Diagnose permissions, WeChat state, Studio authorization, and safety locks.")
+    sub.add_parser("govern", help="Rotate oversized jsonl logs and prune orphan snapshots (safe to run anytime).")
     req_perm = sub.add_parser(
         "request-permissions",
         help="Trigger official macOS Accessibility/PostEvent permission prompts and open Privacy & Security settings.",
@@ -897,7 +898,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"OpenBot WeChat Web Control Console -> http://{args.host}:{args.port}/", flush=True)
             serve_http(engine, host=args.host, port=args.port)
             return 0
-
+        if args.command == "govern":
+            from .resource_governor import govern as _govern
+            print(json.dumps(_govern(Path(__file__).resolve().parent.parent), ensure_ascii=False, indent=2))
+            return 0
         parser.print_help()
         return 2
     except StudioPluginUnauthorizedError as exc:
