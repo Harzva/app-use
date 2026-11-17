@@ -2039,53 +2039,88 @@ class WeChatControlEngine:
         })
         return {"ok": True, "imported": imported, "profilesTouched": touched}
 
+    def _load_merged_history(self, target: str) -> Tuple[Optional[Dict[str, Any]], List[Dict[str, Any]]]:
+        """合并某联系人的全部历史文件（AX 巡检 / 导入 / chatlog / 实时回写可能各成一个文件），
+        按记录原始顺序拼接（同文件内顺序保留，跨文件按文件 mtime 排列）。"""
+        clean = str(target or "").strip()
+        contacts_dir = self.inspector.reports_dir / "contacts"
+        if not clean or not contacts_dir.exists():
+            return None, []
+        seen_paths: List[Path] = []
+        for pat in (f"{normalize_chat_name(clean)}_*_history.json", f"{clean}_*_history.json"):
+            for p in contacts_dir.glob(pat):
+                if p not in seen_paths:
+                    seen_paths.append(p)
+        matches = sorted(seen_paths, key=lambda p: p.stat().st_mtime)
+        # 去重（两个 glob 可能重叠）
+        seen_paths: List[Path] = []
+        merged: List[Dict[str, Any]] = []
+        doc_meta: Optional[Dict[str, Any]] = None
+        for p in matches:
+            if p in seen_paths:
+                continue
+            seen_paths.append(p)
+            try:
+                doc = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if not isinstance(doc, dict) or not doc.get("target"):
+                continue
+            if doc_meta is None:
+                doc_meta = doc
+            merged.extend(doc.get("records") or [])
+        return doc_meta, merged
+
     def _latest_inbound_by_target(self) -> Dict[str, Dict[str, str]]:
-        """从联系人历史文件提取每位联系人的最近一条客户来信（含导入历史与托管实时回写）。"""
+        """从合并后的历史记录提取每位联系人的最近一条客户来信。"""
         out: Dict[str, Dict[str, str]] = {}
         contacts_dir = self.inspector.reports_dir / "contacts"
         if not contacts_dir.exists():
             return out
+        targets_seen: Dict[str, str] = {}
         for f in sorted(contacts_dir.glob("*_history.json")):
             try:
                 doc = json.loads(f.read_text(encoding="utf-8"))
             except Exception:
                 continue
-            target = str(doc.get("target") or "").strip()
-            if not target:
-                continue
+            t = str(doc.get("target") or "").strip()
+            if t:
+                targets_seen[normalize_chat_name(t).casefold()] = t
+        for _, target in targets_seen.items():
+            _, merged = self._load_merged_history(target)
             latest = None
-            for r in doc.get("records", []):
+            for r in merged:
                 if r.get("direction") == "peer" and str(r.get("text") or "").strip():
-                    latest = r  # 顺序遍历，保留最后一条 peer 记录
+                    latest = r
             if not latest:
                 continue
-            key = normalize_chat_name(target).casefold()
-            # 排序键：实时回写记录带 ISO ts；导入旧历史只有 timeMarker 时退回文件级 observedAt
-            sort_at = str(latest.get("ts") or doc.get("observedAt") or "")
-            out[key] = {
+            out[normalize_chat_name(target).casefold()] = {
                 "target": target,
                 "text": str(latest.get("text")).strip()[:120],
                 "at": str(latest.get("timeMarker") or latest.get("ts") or ""),
-                "sortAt": sort_at,
+                "sortAt": str(latest.get("ts") or ""),
             }
         return out
 
     def _recent_threads_by_target(self, limit: int = 8) -> Dict[str, Dict[str, Any]]:
-        """每位联系人最近 limit 条往来消息（peer/self，时间正序），供首页点会话行带入上下文。"""
+        """每位联系人最近 limit 条往来消息（合并全部历史文件，peer/self，时间正序）。"""
         out: Dict[str, Dict[str, Any]] = {}
         contacts_dir = self.inspector.reports_dir / "contacts"
         if not contacts_dir.exists():
             return out
+        seen_targets: Dict[str, str] = {}
         for f in sorted(contacts_dir.glob("*_history.json")):
             try:
                 doc = json.loads(f.read_text(encoding="utf-8"))
             except Exception:
                 continue
-            target = str(doc.get("target") or "").strip()
-            if not target:
-                continue
+            t = str(doc.get("target") or "").strip()
+            if t:
+                seen_targets[normalize_chat_name(t).casefold()] = t
+        for _, target in seen_targets.items():
+            _, merged = self._load_merged_history(target)
             messages = []
-            for r in doc.get("records", []):
+            for r in merged:
                 if r.get("kind") not in ("message", "media_note"):
                     continue
                 text = str(r.get("text") or "").strip()
