@@ -539,6 +539,171 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertTrue(bubbles[0]["text"].startswith("心安: "))
         self.assertIn("高老师的分享局", bubbles[0]["text"])
 
+    def test_wechat_ai_assistant_yuanbao_and_xiaowei_integration(self):
+        import threading
+        import urllib.request
+        from wechat_control.media_link_analyzer import (
+            extract_assistant_insights_from_bubbles,
+            is_explicit_wechat_ai_mention,
+            is_wechat_ai_assistant_name,
+        )
+
+        # 1) 原生微信 AI 助手名识别与 @元宝 显式提及判定
+        self.assertTrue(is_wechat_ai_assistant_name("元宝"))
+        self.assertTrue(is_wechat_ai_assistant_name("腾讯元宝"))
+        self.assertTrue(is_wechat_ai_assistant_name("小微"))
+        self.assertFalse(is_wechat_ai_assistant_name("安晓心"))
+        self.assertFalse(is_wechat_ai_assistant_name("心安"))
+        self.assertFalse(is_wechat_ai_assistant_name("https"))
+        self.assertTrue(is_explicit_wechat_ai_mention("@元宝 请总结这篇文章"))
+        self.assertTrue(is_explicit_wechat_ai_mention("@小微 看看这段视频"))
+        self.assertFalse(is_explicit_wechat_ai_mention("你觉得 @元宝 怎么样？"))
+
+        # 2) 从聊天记录气泡收割 元宝 / 小微 解析结论，并注入 LLM 深读上下文
+        sample_bubbles = [
+            {"direction": "peer", "sender": "元宝", "text": "元宝: 视频核心要点：Fable 5.2 用代码直接驱动分镜与三维运镜。"},
+            {"direction": "peer", "sender": "小微", "text": "小微: 文章核心结论：智能体落地需要先做权限沙箱隔离。"},
+        ]
+        insights = extract_assistant_insights_from_bubbles(sample_bubbles)
+        self.assertEqual(len(insights), 2)
+        self.assertTrue(any(it.startswith("[元宝深读:元宝]") for it in insights))
+        self.assertTrue(any(it.startswith("[小微深读:小微]") for it in insights))
+
+        recorded_prompts = []
+
+        class _FakeHub:
+            def is_llm_enabled(self):
+                return True
+
+            def generate_chat_reply(self, messages, *, model_id=None, contact_name=None):
+                recorded_prompts.append(messages)
+                return {
+                    "ok": True,
+                    "replyText": "结合元宝解析，Fable 5.2 主打纯代码驱动分镜与运镜。",
+                    "modelId": "mock-pro",
+                    "providerId": "mock",
+                    "latencyMs": 8,
+                }
+
+        self.engine.bind_contact("openbot", role="group", auto_reply_enabled=True)
+        smart = self.engine.personas.generate_smart_reply(
+            "openbot",
+            "这个视频主要讲了什么？",
+            knowledge_store=self.engine.knowledge,
+            binding=self.engine.bindings.get_binding("openbot"),
+            recent_messages=insights,
+            model_hub=_FakeHub(),
+            use_llm=True,
+        )
+        self.assertIn("Fable 5.2", smart["replyText"])
+        self.assertIn("深读解析上下文", recorded_prompts[0][0]["content"])
+        self.assertIn("[元宝深读:元宝]", recorded_prompts[0][0]["content"])
+
+        # 3) realtime_monitor：人类 @元宝 礼让等待；元宝回复自动收割且防机器人互回死循环；随后追问自动注入历史媒体备注
+        import struct
+        import zlib
+        cw, ch = 853, 600
+        raw_rows = b"".join(b"\x00" + (b"\xf5\xf5\xf5" * cw) for _ in range(ch))
+        def _ck2(tag, data):
+            return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        ihdr2 = struct.pack(">IIBBBBB", cw, ch, 8, 2, 0, 0, 0)
+        grey_png_bytes = b"\x89PNG\r\n\x1a\n" + _ck2(b"IHDR", ihdr2) + _ck2(b"IDAT", zlib.compress(raw_rows)) + _ck2(b"IEND", b"")
+
+        stage = {"step": 1}
+
+        def fake_native(args, timeout=15.0):
+            cmd = args[0] if args else ""
+            if cmd == "status":
+                return {
+                    "ok": True,
+                    "wechatRunning": True,
+                    "accessibilityTrusted": True,
+                    "postEventTrusted": True,
+                    "screenCaptureTrusted": True,
+                    "windows": [{"windowID": 1, "bounds": {"x": 0, "y": 0, "width": 853, "height": 600}}],
+                }
+            if cmd == "hid-idle":
+                return {"ok": True, "anyInputIdleSeconds": 90.0, "mouseIdleSeconds": 90.0, "keyboardIdleSeconds": 90.0}
+            if cmd == "capture-ocr":
+                if "--out" in args:
+                    p = Path(args[args.index("--out") + 1])
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    p.write_bytes(grey_png_bytes)
+                base_els = [
+                    {"text": "Q 搜索", "center": {"x": 101, "y": 28}, "bbox": {"x": 80, "y": 22, "width": 42, "height": 12}},
+                    {"text": "openbot", "center": {"x": 545, "y": 29}, "bbox": {"x": 505, "y": 22, "width": 80, "height": 14}},
+                ]
+                if stage["step"] == 1:
+                    els = base_els + [
+                        {"text": "12:01", "center": {"x": 669, "y": 175}, "bbox": {"x": 651, "y": 170, "width": 36, "height": 10}},
+                        {"text": "心安", "center": {"x": 570, "y": 208}, "bbox": {"x": 557, "y": 200, "width": 26, "height": 16}},
+                        {"text": "@元宝 请总结这条视频", "center": {"x": 650, "y": 240}, "bbox": {"x": 565, "y": 232, "width": 170, "height": 18}},
+                    ]
+                elif stage["step"] == 2:
+                    els = base_els + [
+                        {"text": "12:02", "center": {"x": 669, "y": 175}, "bbox": {"x": 651, "y": 170, "width": 36, "height": 10}},
+                        {"text": "元宝", "center": {"x": 570, "y": 280}, "bbox": {"x": 557, "y": 272, "width": 26, "height": 16}},
+                        {"text": "视频核心要点：纯代码生成三维动态分镜与自动化运镜。", "center": {"x": 680, "y": 312}, "bbox": {"x": 565, "y": 304, "width": 230, "height": 18}},
+                    ]
+                else:
+                    els = base_els + [
+                        {"text": "12:03", "center": {"x": 669, "y": 175}, "bbox": {"x": 651, "y": 170, "width": 36, "height": 10}},
+                        {"text": "心安", "center": {"x": 570, "y": 360}, "bbox": {"x": 557, "y": 352, "width": 26, "height": 16}},
+                        {"text": "这条视频核心讲了什么？", "center": {"x": 655, "y": 392}, "bbox": {"x": 565, "y": 384, "width": 180, "height": 18}},
+                    ]
+                return {"ok": True, "elements": els}
+            if cmd == "paste-and-verify":
+                txt = args[args.index("--text") + 1]
+                return {"ok": True, "sent": ("--send" in args), "readback": txt}
+            return {"ok": True}
+
+        self.engine._run_native = fake_native  # type: ignore[method-assign]
+
+        r_a = self.engine.monitor_once(target="openbot", auto_reply=True, confirm_send=True)
+        self.assertEqual(r_a["repliesDispatched"], 0)
+        self.assertEqual(r_a["actions"][0]["status"], "deferred_for_wechat_ai_assistant")
+
+        stage["step"] = 2
+        r_b = self.engine.monitor_once(target="openbot", auto_reply=True, confirm_send=True)
+        self.assertEqual(r_b["repliesDispatched"], 0)
+        self.assertEqual(r_b["actions"][0]["status"], "skipped_ai_assistant_bubble")
+        persisted_notes = self.engine.recent_media_notes("openbot")
+        self.assertTrue(any("纯代码生成三维动态分镜" in n for n in persisted_notes))
+
+        stage["step"] = 3
+        r_c = self.engine.monitor_once(target="openbot", auto_reply=True, confirm_send=True)
+        self.assertEqual(r_c["repliesDispatched"], 1)
+        self.assertIn("纯代码生成三维动态分镜", r_c["actions"][0]["replyText"])
+
+        # 4) HTTP POST /api/wechat-ai-assist 双模式（@元宝 / 转发小微）
+        srv = create_http_server(self.engine, "127.0.0.1", 0)
+        port = srv.server_address[1]
+        thread = threading.Thread(target=srv.serve_forever, daemon=True)
+        thread.start()
+        try:
+            for mode in ("at_yuanbao", "relay_xiaowei"):
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/api/wechat-ai-assist",
+                    data=json.dumps({
+                        "target": "openbot",
+                        "contentHint": "心安: 看看这条视频号教程",
+                        "mode": mode,
+                        "bubbles": sample_bubbles,
+                        "dryRun": True,
+                    }).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    self.assertEqual(resp.status, 200)
+                    body = json.loads(resp.read().decode("utf-8"))
+                    self.assertTrue(body["ok"])
+                    self.assertEqual(body["mode"], mode)
+                    self.assertTrue(body["persistedToHistory"])
+                    self.assertTrue(body["note"].startswith("["))
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
 
 if __name__ == "__main__":
     unittest.main()

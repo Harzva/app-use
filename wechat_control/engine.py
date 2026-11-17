@@ -1188,6 +1188,44 @@ class WeChatControlEngine:
         )
         return res
 
+    def consult_wechat_assistant(
+        self,
+        target: str = "",
+        content_hint: str = "",
+        *,
+        assistant: str = "auto",
+        mode: str = "auto",
+        bubbles: Optional[List[Dict[str, Any]]] = None,
+        wait_seconds: float = 5.5,
+        dry_run: bool = False,
+        model_id: str = "auto/deepseek-v4.1-flash",
+    ) -> Dict[str, Any]:
+        """Consult WeChat native AI assistants (`@元宝` or `小微` session relay) to understand links/videos/articles."""
+        self._require("status")
+        res = self.media_analyzer.consult_wechat_assistant(
+            target=target,
+            content_hint=content_hint,
+            assistant=assistant,
+            mode=mode,
+            bubbles=bubbles,
+            wait_seconds=wait_seconds,
+            dry_run=dry_run,
+            model_id=model_id,
+        )
+        self.audit.log(
+            "wechat_ai_assist",
+            "ok" if res.get("ok") else "error",
+            {
+                "target": target,
+                "mode": res.get("mode"),
+                "assistant": res.get("assistant"),
+                "assistantSessionFound": res.get("assistantSessionFound"),
+                "analysisId": res.get("analysisId"),
+                "dryRun": dry_run,
+            },
+        )
+        return res
+
     def dispatch_friend_instructions(
         self,
         contact: str,
@@ -2467,7 +2505,7 @@ class WeChatControlEngine:
         if note_key in existing_keys:
             return {"ok": True, "deduped": True, "target": clean}
         doc["records"].append({
-            "text": note_text[:200],
+            "text": note_text[:360],
             "kind": "media_note",
             "direction": "system",
             "ts": now_iso,
@@ -2483,6 +2521,53 @@ class WeChatControlEngine:
             return True
         except OSError:
             return False
+
+    def recent_media_notes(
+        self,
+        target: str,
+        *,
+        limit: int = 2,
+        max_age_seconds: int = 1800,
+    ) -> List[str]:
+        """读取联系人近期（默认 30 分钟内）的 media_note 摘要，用于小微/元宝深读结果的跨轮引用。"""
+        clean = str(target or "").strip()
+        if not clean:
+            return []
+        contacts_dir = self.inspector.reports_dir / "contacts"
+        if not contacts_dir.exists():
+            return []
+        matches = sorted(
+            contacts_dir.glob(f"{clean}_*_history.json"),
+            key=lambda p: p.stat().st_mtime,
+        )
+        if not matches:
+            return []
+        try:
+            doc = json.loads(matches[-1].read_text(encoding="utf-8"))
+        except Exception:
+            return []
+        cutoff = datetime.now(timezone.utc).timestamp() - max(0, int(max_age_seconds))
+        found: List[str] = []
+        for r in reversed(doc.get("records", [])):
+            if r.get("kind") != "media_note":
+                continue
+            txt = str(r.get("text") or "").strip()
+            if not txt:
+                continue
+            ts_str = str(r.get("ts") or "").strip()
+            if ts_str and max_age_seconds > 0:
+                try:
+                    dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                    if dt.timestamp() < cutoff:
+                        continue
+                except Exception:
+                    pass
+            if txt not in found:
+                found.append(txt)
+            if len(found) >= max(1, int(limit)):
+                break
+        found.reverse()
+        return found
 
     def voice_to_text_via_menu(self, bubble_x: float, bubble_y: float, menu_item: str = "转文字") -> Dict[str, Any]:
         """利用微信生态自带的语音转文字：右键语音气泡 → 点菜单「转文字」→ 前后帧 diff 读结果。

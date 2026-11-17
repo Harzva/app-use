@@ -1953,6 +1953,8 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
                   <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
                     <button type="button" class="primary sm" onclick="runMediaDeepRead(false)">执行深读分析</button>
                     <button type="button" class="sm" onclick="runMediaDeepRead(true)">读取当前媒体窗</button>
+                    <button type="button" class="sm" onclick="runWeChatAiAssist('at_yuanbao')" title="在当前会话发送 @元宝 总结视频号/公众号文章并写入客服记忆">@元宝 辅助解析</button>
+                    <button type="button" class="sm" onclick="runWeChatAiAssist('relay_xiaowei')" title="转发给微信小微/腾讯元宝会话解析链接、视频与文章并写回记忆">转发小微解析</button>
                   </div>
                   <div id="mediaAnalysisPreviewBox" style="font-size:12px; color:var(--text-secondary);"></div>
                 </div>
@@ -5923,6 +5925,38 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         await loadOverview();
       } catch (err) {
         showToast("多模态深读失败: " + err.message);
+      }
+    }
+
+    async function runWeChatAiAssist(mode) {
+      const target = (
+        document.getElementById("mediaContactInput")?.value ||
+        document.getElementById("previewTarget")?.value ||
+        ""
+      ).trim();
+      const rawUrl = (document.getElementById("mediaUrlOrPathInput")?.value || "").trim();
+      const ctx = (document.getElementById("mediaContextInput")?.value || "").trim();
+      const previewInc = typeof extractLatestPeerMessage === "function"
+        ? extractLatestPeerMessage((document.getElementById("previewIncoming")?.value || "").trim())
+        : (document.getElementById("previewIncoming")?.value || "").trim();
+      const contentHint = [rawUrl, ctx].filter(Boolean).join(" ").trim() || previewInc;
+      const modelId = (document.getElementById("agentBindVisionModel")?.value || "auto/deepseek-v4.1-flash").trim();
+      const dryRun = !target;
+      showToast(mode === "relay_xiaowei" ? "正在转发给微信小微/元宝解析链接与视频..." : "正在在会话中调用 @元宝 解析文章/视频...");
+      try {
+        const { data } = await apiJson("/api/wechat-ai-assist", {
+          method: "POST",
+          body: JSON.stringify({ target, contentHint, mode, modelId, dryRun }),
+        });
+        const box = document.getElementById("mediaAnalysisPreviewBox");
+        if (box) {
+          const badge = data.mode === "relay_xiaowei" ? "小微/元宝转发现场解析" : "@元宝 群内协同解析";
+          box.innerHTML = `<div class="field-box" style="margin-top:6px;"><strong>${escapeHtml(badge)} · ${escapeHtml(data.assistant || "元宝")}</strong><div style="font-size:11.5px; color:var(--text-muted); margin:3px 0;">指令：${escapeHtml(data.promptText || "")}</div><div>${escapeHtml(data.summary || data.note || "")}</div>${data.recommendedReply ? `<div style="margin-top:4px; color:var(--primary);">建议回复：${escapeHtml(data.recommendedReply)}</div>` : ""}</div>`;
+        }
+        showToast(data.ok ? `${data.assistant || "微信助手"} 解析已写入记忆` : ("解析提示: " + (data.error || "部分完成")));
+        await loadOverview();
+      } catch (err) {
+        showToast("微信助手协同解析失败: " + err.message);
       }
     }
 

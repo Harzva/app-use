@@ -583,6 +583,23 @@ MCP_TOOLS: List[Dict[str, Any]] = [
         "inputSchema": {"type": "object", "properties": {}, "required": []},
     },
     {
+        "name": "wechat_consult_ai_assistant",
+        "description": "Consult WeChat native AI assistants (@元宝 in chat or forward/relay to 小微/元宝 session) to summarize shared links, Channels videos, and Official Account articles.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "target": {"type": "string", "default": ""},
+                "content_hint": {"type": "string", "default": ""},
+                "assistant": {"type": "string", "enum": ["auto", "yuanbao", "xiaowei"], "default": "auto"},
+                "mode": {"type": "string", "enum": ["auto", "at_yuanbao", "relay_xiaowei"], "default": "auto"},
+                "wait_seconds": {"type": "number", "default": 5.5},
+                "dry_run": {"type": "boolean", "default": False},
+                "model_id": {"type": "string", "default": "auto/deepseek-v4.1-flash"},
+            },
+            "required": [],
+        },
+    },
+    {
         "name": "wechat_dock_sidebar",
         "description": "Verify, dock, or side-by-side tile WeChat Bot.app pinned as a magnetic sidebar alongside the WeChat window.",
         "inputSchema": {
@@ -961,6 +978,17 @@ class WeChatMCPServer:
             )
         if name == "wechat_vision_stack":
             return self.engine.get_vision_stack_info()
+        if name == "wechat_consult_ai_assistant":
+            return self.engine.consult_wechat_assistant(
+                target=str(args.get("target") or args.get("contact") or ""),
+                content_hint=str(args.get("content_hint") or args.get("text") or args.get("url") or ""),
+                assistant=str(args.get("assistant") or "auto"),
+                mode=str(args.get("mode") or "auto"),
+                bubbles=args.get("bubbles"),
+                wait_seconds=float(args.get("wait_seconds", 5.5)),
+                dry_run=bool(args.get("dry_run", False)),
+                model_id=str(args.get("model_id") or "auto/deepseek-v4.1-flash"),
+            )
         if name == "wechat_dock_sidebar":
             return self.engine.dock_app_to_wechat(mode=str(arguments.get("mode", "verify")))
         if name == "wechat_botstudio_bridge":
@@ -1788,6 +1816,18 @@ def create_http_server(
                         model_id=str(body.get("modelId") or body.get("model_id") or "auto/deepseek-v4.1-flash"),
                         allow_loopback=bool(body.get("allowLoopback", body.get("allow_loopback", False))),
                         html_override=body.get("htmlOverride") or body.get("html_override"),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/wechat-ai-assist":
+                    res = engine.consult_wechat_assistant(
+                        target=str(body.get("target") or body.get("contact") or ""),
+                        content_hint=str(body.get("contentHint") or body.get("content_hint") or body.get("text") or body.get("url") or ""),
+                        assistant=str(body.get("assistant") or "auto"),
+                        mode=str(body.get("mode") or "auto"),
+                        bubbles=body.get("bubbles"),
+                        wait_seconds=float(body.get("waitSeconds", body.get("wait_seconds", 5.5))),
+                        dry_run=bool(body.get("dryRun", body.get("dry_run", False))),
+                        model_id=str(body.get("modelId") or body.get("model_id") or "auto/deepseek-v4.1-flash"),
                     )
                     self._send_json(200 if res.get("ok") else 400, res)
                 elif path == "/api/agent-dispatch":

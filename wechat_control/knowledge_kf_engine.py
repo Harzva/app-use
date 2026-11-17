@@ -1240,13 +1240,22 @@ class PersonaSwitchEngine:
             k in in_cf for k in ("wavebot", "harzva/wechat-bot", "yobot", "微信客服", "自动回复", "托管")
         )
         is_external_link = has_url and not mentions_self_product
+        ai_media_insight = next(
+            (str(m).strip() for m in reversed(recent_messages or []) if str(m or "").strip().startswith(("[元宝深读:", "[小微深读:"))),
+            "",
+        )
+        is_media_followup = (
+            bool(ai_media_insight)
+            and any(kw in in_cf for kw in ("视频", "文章", "链接", "卡片", "讲了", "总结", "要点", "分享", "内容"))
+            and not any(kw in in_cf for kw in ("wavebot", "openbot", "定价", "多少钱", "退款", "部署", "安装", "托管", "微信客服"))
+        )
         entries = (
             [
                 e
                 for e in raw_entries
                 if not str(e.get("id") or "").startswith("seed-") and float(e.get("score") or 0.0) >= 8.0
             ]
-            if is_external_link
+            if (is_external_link or is_media_followup)
             else raw_entries
         )
         terms_hit = [e for e in entries if e["kind"] == "terminology"]
@@ -1356,7 +1365,15 @@ class PersonaSwitchEngine:
                 reply = f"嘿～简单来说区别在这：{core_fact} 是不是比纯靠死坐标靠谱多啦 😄"
         elif is_card_source_only:
             card_name = (card_m.group(1) or card_m.group(3) or norm_in).strip()
-            reply = f"您好，看到您分享了「{card_name}」的内容卡片；目前仅能看到来源标题，方便贴一下具体链接或想交流的问题，我帮您进一步梳理分析。"
+            ai_insight = next(
+                (str(m).strip() for m in reversed(recent_messages or []) if str(m or "").strip().startswith(("[元宝深读:", "[小微深读:"))),
+                "",
+            )
+            if ai_insight:
+                ai_body = ai_insight.split("]", 1)[-1].strip()
+                reply = f"您好，关于「{card_name}」的内容卡片，已结合助手解析为您梳理要点：{ai_body[:105]}"
+            else:
+                reply = f"您好，看到您分享了「{card_name}」的内容卡片；目前仅能看到来源标题，方便贴一下具体链接或想交流的问题，我帮您进一步梳理分析。"
         elif is_explicit_handoff:
             # 显式转人工意图优先于 KB 命中（包括英文 transfer to human）
             if pid == "wecom-kf-pro":
@@ -1403,7 +1420,15 @@ class PersonaSwitchEngine:
                 else:
                     reply = "收到！马上帮你转人工，专员看到消息就会回复你哒～稍等一下哈 🙂"
             elif pid == "wecom-kf-pro":
-                reply = f"您好，我已实时收到您的消息「{clean_in}」。当前知识库暂未收录该细分条款，我已为您记录并可转人工客服核对确认。"
+                ai_insight = next(
+                    (str(m).strip() for m in reversed(recent_messages or []) if str(m or "").strip().startswith(("[元宝深读:", "[小微深读:"))),
+                    "",
+                )
+                if ai_insight and any(kw in norm_in for kw in ("视频", "文章", "链接", "卡片", "讲了", "什么", "总结", "要点", "分享")):
+                    ai_body = ai_insight.split("]", 1)[-1].strip()
+                    reply = f"结合已解析的内容要点，为您说明：{ai_body[:120]}"
+                else:
+                    reply = f"您好，我已实时收到您的消息「{clean_in}」。当前知识库暂未收录该细分条款，我已为您记录并可转人工客服核对确认。"
             elif pid == "rpa-tech-expert":
                 reply = f"关于「{clean_in}」{recent_hint}，我已记录要点；如有具体文档、链接或报错细节可继续发我，也可以为您转交人工跟进。"
             elif pid == "concise-assistant":
@@ -1435,7 +1460,7 @@ class PersonaSwitchEngine:
                 s_m = str(m or "").strip()
                 if not s_m:
                     continue
-                if s_m.startswith(("[链接深读:", "[图片识别:", "[视频识别:", "[识别指令:")):
+                if s_m.startswith(("[元宝深读:", "[小微深读:", "[链接深读:", "[图片识别:", "[视频识别:", "[识别指令:")):
                     media_notes.append(f"- {s_m[:420]}")
                 else:
                     chat_lines.append(f"- {s_m[:160]}")

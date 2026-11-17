@@ -18,10 +18,15 @@ import time
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from .contact_profiler import CARE_LEVEL_ORDER, normalize_care_level
 from .live_inspector import _matches_target, _slugify_target
+from .media_link_analyzer import (
+    extract_assistant_insights_from_bubbles,
+    is_explicit_wechat_ai_mention,
+    is_wechat_ai_assistant_name,
+)
 from .safety import normalize_chat_name
 
 if TYPE_CHECKING:
@@ -416,6 +421,20 @@ class WeChatRealtimeMonitor:
         """
         extra_notes: List[str] = []
         dispatched_receipt: Optional[Dict[str, Any]] = None
+        try:
+            for ai_note in extract_assistant_insights_from_bubbles(bubbles[-8:]):
+                if ai_note not in extra_notes:
+                    extra_notes.append(ai_note)
+                    try:
+                        self.engine.append_media_note(target, ai_note)
+                    except Exception:
+                        pass
+            if hasattr(self.engine, "recent_media_notes"):
+                for persisted_note in self.engine.recent_media_notes(target, limit=2):
+                    if persisted_note not in extra_notes:
+                        extra_notes.append(persisted_note)
+        except Exception:
+            pass
         if not (hasattr(self.engine, "agent_dispatcher") and (
             binding.get("boundAgentId") or binding.get("autoAnalyzeLinksAndMedia", True)
         )):
@@ -436,6 +455,7 @@ class WeChatRealtimeMonitor:
                 or binding.get("autoDispatchInstructions", True)
             ):
                 vision_model = str(binding.get("visionModelId") or "auto/deepseek-v4.1-flash")
+                has_ai_insight = any(n.startswith(("[元宝深读:", "[小微深读:")) for n in extra_notes)
                 for it in interesting[:2]:
                     if it.get("kind") == "link_deep_read" and it.get("url") and hasattr(self.engine, "media_analyzer"):
                         lres = self.engine.media_analyzer.analyze_link(
@@ -475,6 +495,17 @@ class WeChatRealtimeMonitor:
                         )
                         if vres.get("summary"):
                             extra_notes.append(f"[视频识别:{vres.get('title','') or '视频'}] {vres.get('summary')}")
+                        elif not has_ai_insight and binding.get("autoConsultWeChatAi", False):
+                            ares = self.engine.media_analyzer.consult_wechat_assistant(
+                                target,
+                                incoming_text,
+                                bubbles=bubbles,
+                                dry_run=False,
+                                model_id=vision_model,
+                            )
+                            if ares.get("note"):
+                                extra_notes.append(str(ares["note"]))
+                                has_ai_insight = True
                     else:
                         extra_notes.append(f"[识别指令:{it.get('category')}] {it.get('rawText','')}")
                 if extra_notes:
@@ -760,6 +791,63 @@ class WeChatRealtimeMonitor:
             query_incoming = incoming_text
             if sender_name and incoming_text.startswith(f"{sender_name}: "):
                 query_incoming = incoming_text[len(sender_name) + 2 :].strip() or incoming_text
+
+            # 微信原生 AI 助手（元宝 / 腾讯元宝 / 小微）气泡自动收割并防机器人互回死循环
+            harvested_ai_notes = extract_assistant_insights_from_bubbles(bubbles[-8:])
+            for ai_note in harvested_ai_notes:
+                try:
+                    self.engine.append_media_note(target, ai_note)
+                except Exception:
+                    pass
+            inline_speaker = (
+                re.split(r"[:：]", incoming_text, maxsplit=1)[0].strip()
+                if (":" in incoming_text or "：" in incoming_text)
+                else ""
+            )
+            if is_wechat_ai_assistant_name(sender_name) or is_wechat_ai_assistant_name(inline_speaker):
+                c_state["lastProcessedPeerSig"] = msg_sig
+                if new_row_preview:
+                    c_state["lastSeenPreview"] = new_row_preview
+                c_state.pop("pendingGapRetry", None)
+                c_state.pop("lastRateLimitReason", None)
+                self._append_event(
+                    "ai_assistant_insight_harvested",
+                    {
+                        "target": target,
+                        "sender": sender_name or inline_speaker,
+                        "incomingText": incoming_text[:240],
+                        "harvestedNotes": harvested_ai_notes,
+                    },
+                )
+                actions.append({
+                    "target": target,
+                    "careLevel": care_level,
+                    "specialCare": is_special_care,
+                    "status": "skipped_ai_assistant_bubble",
+                    "incomingText": incoming_text,
+                    "harvestedNotes": harvested_ai_notes,
+                })
+                continue
+
+            if is_explicit_wechat_ai_mention(query_incoming):
+                c_state["lastProcessedPeerSig"] = msg_sig
+                if new_row_preview:
+                    c_state["lastSeenPreview"] = new_row_preview
+                c_state.pop("pendingGapRetry", None)
+                c_state.pop("lastRateLimitReason", None)
+                self._append_event(
+                    "deferred_for_wechat_ai_assistant",
+                    {"target": target, "incomingText": incoming_text[:240]},
+                )
+                actions.append({
+                    "target": target,
+                    "careLevel": care_level,
+                    "specialCare": is_special_care,
+                    "status": "deferred_for_wechat_ai_assistant",
+                    "incomingText": incoming_text,
+                })
+                continue
+
             extra_notes, dispatched_receipt = self._agent_dispatch_notes(
                 binding, target, bubbles, query_incoming, inspected,
             )

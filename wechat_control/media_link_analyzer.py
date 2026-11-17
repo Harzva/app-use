@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -26,10 +27,109 @@ if TYPE_CHECKING:
 
 DEFAULT_VISION_MODEL_ID = "auto/deepseek-v4.1-flash"
 MAX_WEB_BYTES = 8 * 1024 * 1024
+WECHAT_AI_ASSISTANT_NAMES = ("小微", "微信小微", "元宝", "腾讯元宝", "混元元宝")
+_AT_WECHAT_AI_PREFIX_RE = re.compile(
+    r"^\s*@(?:腾讯元宝|混元元宝|元宝|微信小微|小微)(?:\s|[，,。!?？！:：]|$|(?=[\u4e00-\u9fffA-Za-z0-9]))",
+    re.IGNORECASE,
+)
+_ASSISTANT_PREFIX_COLON_RE = re.compile(
+    r"^(腾讯元宝|混元元宝|元宝|微信小微|小微)\s*[:：]\s*(.+)$",
+    re.S,
+)
 
 
 def _utc_iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _normalize_assistant_label(name: str) -> str:
+    raw = unicodedata.normalize("NFKC", str(name or "")).strip()
+    raw = re.sub(r"\s*[\(（]\d+[\)）]\s*$", "", raw).strip()
+    return raw.rstrip(":： ").strip()
+
+
+def is_wechat_ai_assistant_name(name: str) -> bool:
+    """Return True when `name` identifies a native WeChat AI assistant (小微 / 元宝 / 腾讯元宝)."""
+    clean = _normalize_assistant_label(name)
+    if not clean:
+        return False
+    cf = clean.casefold()
+    if cf in {"小微", "微信小微", "元宝", "腾讯元宝", "混元元宝"}:
+        return True
+    return any(
+        cf.startswith(prefix) and len(cf) <= len(prefix) + 4
+        for prefix in ("腾讯元宝", "微信小微", "混元元宝", "元宝", "小微")
+    )
+
+
+def is_explicit_wechat_ai_mention(text: str) -> bool:
+    """Return True when a message explicitly addresses @元宝 / @小微 at the start."""
+    norm = unicodedata.normalize("NFKC", str(text or "")).strip()
+    if not norm:
+        return False
+    return bool(_AT_WECHAT_AI_PREFIX_RE.match(norm))
+
+
+def extract_assistant_insights_from_bubbles(
+    bubbles: List[Dict[str, Any]],
+    *,
+    max_notes: int = 3,
+) -> List[str]:
+    """Harvest structured summaries posted by native WeChat AI bots (`元宝` / `小微`) from chat bubbles."""
+    insights: List[str] = []
+    seen: set[str] = set()
+    items = list(bubbles or [])
+
+    for idx, b in enumerate(items):
+        if not isinstance(b, dict):
+            continue
+        if b.get("direction") == "self" or b.get("kind") == "timestamp":
+            continue
+        raw_text = str(b.get("text") or "").strip()
+        if not raw_text:
+            continue
+        sender = _normalize_assistant_label(str(b.get("sender") or ""))
+        assistant_label = ""
+        body = raw_text
+
+        if is_wechat_ai_assistant_name(sender):
+            assistant_label = sender
+            prefix_colon = f"{sender}:"
+            if raw_text.startswith(prefix_colon):
+                body = raw_text[len(prefix_colon):].strip()
+            elif raw_text.startswith(f"{sender}："):
+                body = raw_text[len(sender) + 1:].strip()
+        else:
+            m_prefix = _ASSISTANT_PREFIX_COLON_RE.match(raw_text)
+            if m_prefix:
+                assistant_label = m_prefix.group(1).strip()
+                body = m_prefix.group(2).strip()
+            elif idx > 0 and is_explicit_wechat_ai_mention(str(items[idx - 1].get("text") or "")):
+                # Follow-up structured summary bubble immediately after an @元宝 / @小微 ask
+                if len(raw_text) >= 28 and any(
+                    kw in raw_text for kw in ("总结", "要点", "主要内容", "核心", "文章", "视频", "介绍", "亮点", "结论")
+                ):
+                    prev_t = str(items[idx - 1].get("text") or "")
+                    assistant_label = "小微" if "@小微" in prev_t or "@微信小微" in prev_t else "元宝"
+
+        if not assistant_label:
+            continue
+        if is_explicit_wechat_ai_mention(body):
+            continue
+        clean_body = re.sub(r"\s+", " ", body).strip()
+        if len(clean_body) < 8:
+            continue
+        if clean_body in ("对方正在输入...", "正在思考...", "思考中..."):
+            continue
+
+        tag = "小微深读" if "小微" in assistant_label else "元宝深读"
+        formatted = f"[{tag}:{assistant_label}] {clean_body[:340]}"
+        dedup_key = f"{tag}|{clean_body[:140]}"
+        if dedup_key not in seen:
+            seen.add(dedup_key)
+            insights.append(formatted)
+
+    return insights[-max(1, int(max_notes)):]
 
 
 class _GenericPageHTMLParser(HTMLParser):
@@ -807,6 +907,215 @@ class WeChatMediaLinkAnalyzer:
             "ocrCount": len(all_ocr_lines),
             "ocrText": ocr_combined,
             **llm,
+        }
+        art_path = self.analysis_dir / f"{analysis_id}.json"
+        atomic_write_json(art_path, result, newline=False)
+        result["artifactPath"] = str(art_path)
+        return self._record_analysis(result)
+
+    def consult_wechat_assistant(
+        self,
+        target: str = "",
+        content_hint: str = "",
+        *,
+        assistant: str = "auto",
+        mode: str = "auto",
+        bubbles: Optional[List[Dict[str, Any]]] = None,
+        wait_seconds: float = 5.5,
+        dry_run: bool = False,
+        model_id: str = DEFAULT_VISION_MODEL_ID,
+    ) -> Dict[str, Any]:
+        """Consult WeChat native AI assistants (`@元宝` in chat or relay to `小微`/`元宝` session) to understand links/videos/articles."""
+        clean_target = str(target or "").strip()
+        clean_hint = re.sub(r"\s+", " ", str(content_hint or "").strip())
+        # Strip leading `speaker: ` prefix if coming straight from group bubble text (never strip https://)
+        clean_hint = re.sub(r"^(?!https?:)[^:\s/\n]{1,24}:\s+", "", clean_hint).strip()
+        clean_mode = str(mode or "auto").strip().lower()
+        clean_assistant = str(assistant or "auto").strip().lower()
+        analysis_id = f"wxai_{int(time.time() * 1000)}"
+
+        harvested = extract_assistant_insights_from_bubbles(list(bubbles or []))
+        if clean_mode in ("at_yuanbao", "yuanbao", "mention"):
+            effective_mode = "at_yuanbao"
+        elif clean_mode in ("relay_xiaowei", "xiaowei", "relay", "forward"):
+            effective_mode = "relay_xiaowei"
+        else:
+            effective_mode = (
+                "relay_xiaowei"
+                if ("小微" in clean_assistant or "xiaowei" in clean_assistant)
+                else "at_yuanbao"
+            )
+
+        if clean_hint:
+            prompt_at = f"@元宝 请帮我总结分析这条链接/视频/文章的核心内容与关键要点：{clean_hint[:180]}"
+            prompt_relay = f"请帮我总结分析这条链接/视频/文章的核心要点：{clean_hint[:220]}"
+        else:
+            prompt_at = "@元宝 请帮我总结分析上面分享的链接/视频/文章卡片的核心内容与要点"
+            prompt_relay = "请帮我总结分析我转发给你的这条链接/视频/文章的核心要点"
+
+        assistant_session_found = False
+        matched_assistant_session = ""
+        send_res: Optional[Dict[str, Any]] = None
+        live_harvested: List[str] = list(harvested)
+        assistant_label = "小微" if effective_mode == "relay_xiaowei" else "元宝"
+
+        if effective_mode == "at_yuanbao":
+            prompt_text = prompt_at
+            if not dry_run and clean_target:
+                send_res = self.engine.send_text(
+                    clean_target,
+                    prompt_text,
+                    dry_run=False,
+                    silent_mode=False,
+                    confirm_send=True,
+                    skip_navigation=False,
+                )
+                if send_res.get("ok") and send_res.get("status") == "sent":
+                    time.sleep(min(max(float(wait_seconds), 1.0), 10.0))
+                    snap_path = self.analysis_dir / f"{analysis_id}_yuanbao.png"
+                    cap = self.engine.capture_wechat_ocr(snap_path, timeout=20.0)
+                    if cap.get("ok"):
+                        structured = self.engine.inspector.extract_structured_bubbles(
+                            cap, snapshot_path=snap_path
+                        )
+                        new_insights = extract_assistant_insights_from_bubbles(
+                            structured.get("bubbles") or []
+                        )
+                        for item in new_insights:
+                            if item not in live_harvested:
+                                live_harvested.append(item)
+        else:
+            prompt_text = prompt_relay
+            try:
+                status = self.engine._run_native(["status"], 8.0)
+            except Exception:
+                status = {}
+            windows = status.get("windows") or []
+            if status.get("ok") and status.get("wechatRunning") and windows:
+                bounds = windows[0]["bounds"]
+                scan_path = self.analysis_dir / f"{analysis_id}_scan.png"
+                cap = self.engine.capture_wechat_ocr(scan_path, timeout=20.0)
+                if cap.get("ok"):
+                    els = cap.get("elements") or []
+                    win_w = float(bounds["width"])
+                    win_h = float(bounds["height"])
+                    split_x = float(cap.get("splitX") or self.engine.inspector._infer_split_x(els, win_w))
+                    rows = self.engine.inspector._cluster_session_rows(
+                        els, split_x, win_h, image_path=scan_path
+                    )
+                    candidates = [
+                        r for r in rows
+                        if is_wechat_ai_assistant_name(str(r.get("titleSnippet") or ""))
+                    ]
+                    if candidates:
+                        # Prefer 小微 when requested or auto, otherwise 元宝
+                        prefer_key = "元宝" if "元宝" in clean_assistant or "yuanbao" in clean_assistant else "小微"
+                        candidates.sort(
+                            key=lambda r: (0 if prefer_key in str(r.get("titleSnippet") or "") else 1)
+                        )
+                        matched_assistant_session = str(candidates[0].get("titleSnippet") or "").strip()
+                        assistant_session_found = bool(matched_assistant_session and is_wechat_ai_assistant_name(matched_assistant_session))
+
+            if assistant_session_found and matched_assistant_session and not dry_run:
+                # Strict guard: only relay to a verified WeChat native AI assistant row
+                if is_wechat_ai_assistant_name(matched_assistant_session):
+                    assistant_label = "小微" if "小微" in matched_assistant_session else "元宝"
+                    send_res = self.engine.send_text(
+                        matched_assistant_session,
+                        prompt_relay,
+                        dry_run=False,
+                        silent_mode=False,
+                        confirm_send=True,
+                        skip_navigation=False,
+                        allowed_groups=[matched_assistant_session],
+                    )
+                    if send_res.get("ok") and send_res.get("status") == "sent":
+                        time.sleep(min(max(float(wait_seconds), 1.0), 10.0))
+                        reply_snap = self.analysis_dir / f"{analysis_id}_relay.png"
+                        cap2 = self.engine.capture_wechat_ocr(reply_snap, timeout=20.0)
+                        if cap2.get("ok"):
+                            st2 = self.engine.inspector.extract_structured_bubbles(
+                                cap2, snapshot_path=reply_snap
+                            )
+                            peer_replies = [
+                                str(b.get("text") or "").strip()
+                                for b in (st2.get("bubbles") or [])
+                                if b.get("direction") != "self"
+                                and str(b.get("text") or "").strip()
+                                and str(b.get("text") or "").strip() != prompt_relay
+                            ]
+                            if peer_replies:
+                                tag = "小微深读" if "小微" in assistant_label else "元宝深读"
+                                note_item = f"[{tag}:{matched_assistant_session}] {peer_replies[-1][:340]}"
+                                if note_item not in live_harvested:
+                                    live_harvested.append(note_item)
+                    if clean_target:
+                        try:
+                            self.engine.inspector.select_session(clean_target)
+                        except Exception:
+                            pass
+
+        if live_harvested:
+            primary_note = live_harvested[-1]
+            summary_text = primary_note.split("]", 1)[-1].strip()
+            rec_reply = f"结合{assistant_label}解析：{summary_text[:110]}"
+            llm_meta: Dict[str, Any] = {
+                "ok": True,
+                "modelId": f"wechat_native:{assistant_label}",
+                "summary": summary_text,
+                "keyPoints": [n.split("]", 1)[-1].strip()[:120] for n in live_harvested[-3:]],
+                "friendIntent": f"借助微信原生「{assistant_label}」理解链接/视频/文章内容",
+                "actionPlan": "已将助手摘要写入联系人记忆（media_note），自动回复可直接引用。",
+                "recommendedReply": rec_reply,
+            }
+        else:
+            llm_meta = self._synthesize_with_deepseek(
+                kind="wechat_ai_assist",
+                title=f"微信 {assistant_label} 辅助解析 ({clean_target or '当前会话'})",
+                ocr_text=clean_hint,
+                body_text=(
+                    f"模式: {effective_mode}\n"
+                    f"目标会话: {clean_target or '未指定'}\n"
+                    f"原生会话可见: {'是 (' + matched_assistant_session + ')' if assistant_session_found else '暂未在侧栏看到小微/腾讯元宝会话'}\n"
+                    f"提示词: {prompt_text}\n"
+                    f"线索内容: {clean_hint or '仅见视频号/公众号卡片'}"
+                ),
+                contact=clean_target,
+                context_text=clean_hint,
+                model_id=model_id,
+            )
+            tag = "小微深读" if effective_mode == "relay_xiaowei" else "元宝深读"
+            summary_text = str(llm_meta.get("summary") or "").strip()
+            if not summary_text:
+                summary_text = (
+                    f"已生成{assistant_label}求助指令「{prompt_text}」"
+                    + ("" if assistant_session_found else "；当前侧栏未发现独立小微会话，可直接在群聊或支持的会话内使用 @元宝 触发。")
+                )
+            primary_note = f"[{tag}:{assistant_label}] {summary_text[:340]}"
+
+        persisted_note = False
+        if clean_target and primary_note:
+            try:
+                persisted_note = bool(self.engine.append_media_note(clean_target, primary_note))
+            except Exception:
+                persisted_note = False
+
+        result: Dict[str, Any] = {
+            "ok": True,
+            "analysisId": analysis_id,
+            "kind": "wechat_ai_assist",
+            "mode": effective_mode,
+            "assistant": assistant_label,
+            "target": clean_target,
+            "assistantSessionFound": assistant_session_found,
+            "matchedAssistantSession": matched_assistant_session,
+            "promptText": prompt_text,
+            "harvestedNotes": live_harvested,
+            "note": primary_note,
+            "persistedToHistory": persisted_note,
+            "dryRun": bool(dry_run),
+            "send": send_res,
+            **llm_meta,
         }
         art_path = self.analysis_dir / f"{analysis_id}.json"
         atomic_write_json(art_path, result, newline=False)
