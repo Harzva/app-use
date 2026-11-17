@@ -8,6 +8,7 @@ personality system (`openbot-personality.js`).
 from __future__ import annotations
 
 import json
+import random
 import re
 import sqlite3
 import time
@@ -1096,6 +1097,27 @@ class PersonaSwitchEngine:
             return cut[:idx].rstrip("，、； ") + "…"
         return cut.rstrip("，、；：： ") + "…"
 
+    # 人性化结尾轮换池：同一客户重问时回复不同，避免内容级防重发（120s）拦截导致客户收不到答复
+    _REPLY_SUFFIX_POOL: Dict[str, List[str]] = {
+        "wecom-kf-pro": ["祝您生活愉快！", "期待您的下次咨询～", "祝一切顺利！"],
+        "warm-friend": ["跟你聊超开心！", "随时来找我玩呀～", "比心 ❤️"],
+        "concise-assistant": ["完毕。", "待命中。"],
+    }
+
+    def _vary_reply(self, text: str, pid: str, max_chars: int = 160) -> str:
+        """为模板回复追加轮换结尾（已在原文出现则跳过），保证重问时内容有变化。"""
+        pool = self._REPLY_SUFFIX_POOL.get(pid)
+        if not pool or not text:
+            return text
+        suffix = random.choice(pool)
+        base = text.rstrip("。！？～… ")
+        if not base or suffix in text or base.endswith(suffix[:6]):
+            return text
+        budget = max(20, int(max_chars) - len(suffix) - 2)
+        if len(base) > budget:
+            base = self._clean_single_line(base, budget)
+        return f"{base}。{suffix}" if base[-1] not in "。！？～…" else f"{base}{suffix}"
+
     # 内部术语（客户看不懂）：LLM 模仿知识库技术条目时可能外泄，出口统一净化
     _INTERNAL_JARGON_RE = re.compile(
         r"(FTS5|AXUIElement|熔断|读回|Takeover|3x\b|prompt|system prompt|RealtimeMessageMonitor|RealtimeMonitor|preview_reply|脏输入|CGWindow|VNRecognize|CGEvent|零注入)",
@@ -1313,6 +1335,9 @@ class PersonaSwitchEngine:
             else:
                 reply = f"收到「{clean_in}」啦！{recent_hint}我的实时监控正稳稳盯着窗口呢，你想测什么话术、术语或切换哪种性格随时告诉我～🤖"
 
+        # 人性化变化：同一客户重问时回复不同，防止 120s 内容级防重发把第二次答复拦掉
+        if pid != "rpa-tech-expert" and not is_explicit_handoff:
+            reply = self._vary_reply(str(reply), pid, max_chars=int(persona.get("maxChars") or 160))
         template_text = self._clean_single_line(reply, max_len=int(persona.get("maxChars") or 160))
         final_text = template_text
         generation_mode = "kb_template_fallback"

@@ -119,6 +119,69 @@ CATEGORIES = [
 PERSONAS = ["wecom-kf-pro", "warm-friend", "concise-assistant", "rpa-tech-expert"]
 
 
+class _FakeHub:
+    """mock Magpie 网关：覆盖 LLM 出口分支的净化/截断/回退行为。"""
+
+    def __init__(self, reply: str = "", ok: bool = True, error: str = ""):
+        self._reply, self._ok, self._error = reply, ok, error
+
+    def is_llm_enabled(self) -> bool:
+        return True
+
+    def generate_chat_reply(self, messages, *, model_id=None, contact_name=None):
+        return {
+            "ok": self._ok,
+            "replyText": self._reply,
+            "error": self._error,
+            "latencyMs": 12,
+            "modelId": "mock-model",
+            "providerId": "mock-provider",
+        }
+
+
+def run_llm_branch_cases(engine) -> list:
+    """LLM 出口分支基准：术语净化、超长截断、失败回退、多行清洗。"""
+    cases = []
+    def gen(text, hub):
+        engine.persona_switch("基准用户", "wecom-kf-pro")
+        return engine.personas.generate_smart_reply(
+            "基准用户", text,
+            knowledge_store=engine.knowledge,
+            binding=engine.bindings.get_binding("基准用户"),
+            model_hub=hub, use_llm=True,
+        )
+
+    # 1) LLM 复述内部术语 → 客户出口必须净化
+    r = gen("多少钱？", _FakeHub(reply="根据 FTS5 知识库与 RealtimeMessageMonitor 后台检索，价格是开源免费。"))
+    ok1 = "FTS5" not in r["replyText"] and "RealtimeMessageMonitor" not in r["replyText"] and r["replyText"]
+    cases.append({"case": "llm_jargon_sanitized", "passed": ok1, "reply": r["replyText"][:80],
+                  "mode": r.get("generationMode")})
+
+    # 2) LLM 超长回复 → 截断到 maxChars 内
+    r = gen("多少钱？", _FakeHub(reply="价格说明：" + "这是一段很长的说明文字。" * 40))
+    ok2 = len(r["replyText"]) <= 160 and r["replyText"]
+    cases.append({"case": "llm_overlong_clamped", "passed": ok2, "replyLen": len(r["replyText"]),
+                  "mode": r.get("generationMode")})
+
+    # 3) LLM 多行/引号回复 → 单行清洗
+    r = gen("多少钱？", _FakeHub(reply="「免费开源」\n第二行内容"))
+    ok3 = "\n" not in r["replyText"] and r["replyText"]
+    cases.append({"case": "llm_multiline_flattened", "passed": ok3, "reply": r["replyText"][:60]})
+
+    # 4) LLM 失败 → 回退模板回复
+    r = gen("多少钱？", _FakeHub(ok=False, error="gateway_down"))
+    ok4 = bool(r["replyText"]) and r.get("generationMode") == "kb_template_fallback"
+    cases.append({"case": "llm_failure_fallback", "passed": ok4, "reply": r["replyText"][:60],
+                  "mode": r.get("generationMode")})
+
+    # 5) LLM 空回复 → 回退模板回复
+    r = gen("多少钱？", _FakeHub(reply=""))
+    ok5 = bool(r["replyText"]) and r.get("generationMode") == "kb_template_fallback"
+    cases.append({"case": "llm_empty_fallback", "passed": ok5, "reply": r["replyText"][:60],
+                  "mode": r.get("generationMode")})
+    return cases
+
+
 def build_engine(tmp: Path) -> WeChatControlEngine:
     engine = WeChatControlEngine(
         audit_log_path=tmp / "a.jsonl", auth_file_path=tmp / "auth.json",
@@ -191,6 +254,20 @@ def run_benchmark(quick: bool = False) -> dict:
                 results.append(entry)
     elapsed = time.time() - t0
 
+    # 重问变化维度：同一问题重复生成应产生多种回复（防 120s 内容级防重发拦截）
+    variation_cases = []
+    engine.persona_switch("基准用户", "wecom-kf-pro")
+    for probe in ("多少钱？", "WaveBot 是什么产品？", "在吗"):
+        variants = {str(engine.preview_smart_reply("基准用户", probe).get("replyText")) for _ in range(5)}
+        variation_cases.append({"incoming": probe, "distinct": len(variants), "varied": len(variants) >= 2})
+    repeat_variation_rate = round(
+        sum(1 for v in variation_cases if v["varied"]) / len(variation_cases), 3
+    )
+
+    # LLM 出口分支基准
+    llm_cases = run_llm_branch_cases(engine)
+    llm_passed = sum(1 for c in llm_cases if c["passed"])
+
     # 频控评分：同 target 连发触发 AntiBanGuard 拦截
     guard = engine.antiban
     freq_ok, freq_blocked_at = True, None
@@ -234,6 +311,8 @@ def run_benchmark(quick: bool = False) -> dict:
         "jargonLeaks": len(jargon_leaks),
         "answeredRate": answered_rate,
         "replyDiversity": diversity,
+        "repeatVariation": {"rate": repeat_variation_rate, "cases": variation_cases},
+        "llmBranch": {"passed": llm_passed, "total": len(llm_cases), "cases": llm_cases},
         "frequencyGuard": {"ok": freq_ok, "blockedAtSend": freq_blocked_at},
         "elapsedSeconds": round(elapsed, 2),
         "byCategory": by_cat,
@@ -260,7 +339,12 @@ def main() -> int:
     print(f"话术基准: {rep['passed']}/{rep['totalCases']} 通过 "
           f"(通过率 {rep['passRate']:.1%})，术语外泄 {rep['jargonLeaks']} 条，"
           f"答所问率 {rep['answeredRate'] if rep['answeredRate'] is not None else 'n/a'}，"
+          f"重问变化率 {rep['repeatVariation']['rate']:.0%}，"
+          f"LLM 分支 {rep['llmBranch']['passed']}/{rep['llmBranch']['total']}，"
           f"频控 {'OK' if rep['frequencyGuard']['ok'] else 'FAIL'}，耗时 {rep['elapsedSeconds']}s")
+    for c in rep["llmBranch"]["cases"]:
+        if not c["passed"]:
+            print(f"  [LLM失败] {c['case']}: {c}")
     for cat, c in rep["byCategory"].items():
         mark = "✓" if c["passed"] == c["total"] else "✗"
         print(f"  {mark} {cat}: {c['passed']}/{c['total']}")
@@ -268,7 +352,7 @@ def main() -> int:
         print(f"  [外泄] {s['category']}/{s['persona']}「{s['incoming']}」→ {s['reply'][:60]}")
     for s in rep["failSamples"][:5]:
         print(f"  [失败] {s['category']}/{s['persona']}「{s['incoming']}」→ {s['reply'][:60]}")
-    return 0 if rep["passRate"] >= 0.95 and rep["jargonLeaks"] == 0 else 1
+    return 0 if rep["passRate"] >= 0.95 and rep["jargonLeaks"] == 0 and rep["llmBranch"]["passed"] == rep["llmBranch"]["total"] else 1
 
 
 if __name__ == "__main__":
