@@ -921,6 +921,7 @@ class WeChatMediaLinkAnalyzer:
         assistant: str = "auto",
         mode: str = "auto",
         bubbles: Optional[List[Dict[str, Any]]] = None,
+        bubble_coords: Optional[Dict[str, float]] = None,
         wait_seconds: float = 5.5,
         dry_run: bool = False,
         model_id: str = DEFAULT_VISION_MODEL_ID,
@@ -956,6 +957,7 @@ class WeChatMediaLinkAnalyzer:
         assistant_session_found = False
         matched_assistant_session = ""
         send_res: Optional[Dict[str, Any]] = None
+        forward_menu_res: Optional[Dict[str, Any]] = None
         live_harvested: List[str] = list(harvested)
         assistant_label = "小微" if effective_mode == "relay_xiaowei" else "元宝"
 
@@ -1016,20 +1018,33 @@ class WeChatMediaLinkAnalyzer:
                         matched_assistant_session = str(candidates[0].get("titleSnippet") or "").strip()
                         assistant_session_found = bool(matched_assistant_session and is_wechat_ai_assistant_name(matched_assistant_session))
 
+            if isinstance(bubble_coords, dict) and "x" in bubble_coords and "y" in bubble_coords and hasattr(self.engine, "forward_bubble_via_menu"):
+                recipient_for_menu = matched_assistant_session or assistant_label
+                try:
+                    forward_menu_res = self.engine.forward_bubble_via_menu(
+                        float(bubble_coords["x"]),
+                        float(bubble_coords["y"]),
+                        recipient_for_menu,
+                        dry_run=dry_run,
+                    )
+                except Exception as exc:
+                    forward_menu_res = {"ok": False, "error": str(exc)}
+
             if assistant_session_found and matched_assistant_session and not dry_run:
                 # Strict guard: only relay to a verified WeChat native AI assistant row
                 if is_wechat_ai_assistant_name(matched_assistant_session):
                     assistant_label = "小微" if "小微" in matched_assistant_session else "元宝"
-                    send_res = self.engine.send_text(
-                        matched_assistant_session,
-                        prompt_relay,
-                        dry_run=False,
-                        silent_mode=False,
-                        confirm_send=True,
-                        skip_navigation=False,
-                        allowed_groups=[matched_assistant_session],
-                    )
-                    if send_res.get("ok") and send_res.get("status") == "sent":
+                    if not (forward_menu_res and forward_menu_res.get("forwarded")):
+                        send_res = self.engine.send_text(
+                            matched_assistant_session,
+                            prompt_relay,
+                            dry_run=False,
+                            silent_mode=False,
+                            confirm_send=True,
+                            skip_navigation=False,
+                            allowed_groups=[matched_assistant_session],
+                        )
+                    if (send_res and send_res.get("ok") and send_res.get("status") == "sent") or (forward_menu_res and forward_menu_res.get("forwarded")):
                         time.sleep(min(max(float(wait_seconds), 1.0), 10.0))
                         reply_snap = self.analysis_dir / f"{analysis_id}_relay.png"
                         cap2 = self.engine.capture_wechat_ocr(reply_snap, timeout=20.0)
@@ -1115,6 +1130,7 @@ class WeChatMediaLinkAnalyzer:
             "persistedToHistory": persisted_note,
             "dryRun": bool(dry_run),
             "send": send_res,
+            "forwardMenu": forward_menu_res,
             **llm_meta,
         }
         art_path = self.analysis_dir / f"{analysis_id}.json"

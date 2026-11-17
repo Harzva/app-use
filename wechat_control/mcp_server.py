@@ -1825,6 +1825,7 @@ def create_http_server(
                         assistant=str(body.get("assistant") or "auto"),
                         mode=str(body.get("mode") or "auto"),
                         bubbles=body.get("bubbles"),
+                        bubble_coords=body.get("bubbleCoords") or body.get("bubble_coords"),
                         wait_seconds=float(body.get("waitSeconds", body.get("wait_seconds", 5.5))),
                         dry_run=bool(body.get("dryRun", body.get("dry_run", False))),
                         model_id=str(body.get("modelId") or body.get("model_id") or "auto/deepseek-v4.1-flash"),

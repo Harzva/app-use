@@ -704,6 +704,74 @@ class DiagnosticsTests(unittest.TestCase):
             srv.shutdown()
             srv.server_close()
 
+    def test_botstudio_ui_settings_and_deep_read_reply_preview(self):
+        from wechat_control.web_console import render_web_console_html
+
+        # 1) Web Console BotStudio 布局、设置中心弹窗、@元宝/小微快捷入口
+        html = render_web_console_html()
+        for marker in (
+            "topSettingsBtn",
+            "sidebarSettingsBtn",
+            "settingsOverlay",
+            "openSettingsModal",
+            "quickYuanbaoBtn",
+            "quickXiaoweiBtn",
+            "runQuickWeChatAiAssist",
+            "bs-view-switcher",
+            "hosting-picker-popover",
+        ):
+            self.assertIn(marker, html, f"控制台缺少 BotStudio/设置/快捷助手标记: {marker}")
+
+        # 2) openbot (2) 历史文件名归一化 + 手动「生成草稿」preview_smart_reply 自动注入 media_note
+        self.engine.bind_contact("openbot", role="group", auto_reply_enabled=True)
+        self.assertTrue(
+            self.engine.append_media_note("openbot (2)", "[元宝深读:元宝] 视频要点：Fable 5.2 代码生成分镜。")
+        )
+        notes = self.engine.recent_media_notes("openbot")
+        self.assertTrue(any("Fable 5.2" in n for n in notes))
+        preview = self.engine.preview_smart_reply("openbot", "心安: 这条视频讲了什么？", use_llm=False)
+        self.assertIn("Fable 5.2", preview["replyText"])
+
+        # 3) _agent_dispatch_notes 任务优先级：最新气泡中的 link_deep_read 不被前面多条旧 agent_instruction 饿死
+        self.engine.bind_contact("心安", role="friend", auto_reply_enabled=True)
+        called_urls = []
+
+        def fake_analyze_link(url, *, contact="", context_text="", model_id="", **kwargs):
+            called_urls.append(url)
+            return {"ok": True, "title": "示例文章", "summary": "优先深读最新链接而非被旧指令饿死。"}
+
+        self.engine.media_analyzer.analyze_link = fake_analyze_link  # type: ignore[method-assign]
+        bubbles = [
+            {"direction": "peer", "text": "帮我分析一下架构"},
+            {"direction": "peer", "text": "帮我总结一下SOP"},
+            {"direction": "peer", "text": "帮忙看看这个仓库"},
+            {"direction": "peer", "text": "最新链接：https://example.com/article W 高老师的分享局"},
+        ]
+        notes_out, receipt = self.engine.monitor._agent_dispatch_notes(
+            self.engine.bindings.get_binding("心安") or {},
+            "心安",
+            bubbles,
+            "最新链接：https://example.com/article",
+            {"snapshotPath": ""},
+        )
+        self.assertEqual(called_urls, ["https://example.com/article"])
+        self.assertTrue(any("优先深读最新链接" in n for n in notes_out))
+        self.assertIsNotNone(receipt)
+
+        # 4) forward_bubble_via_menu 安全隔离（拒绝未授权人类联系人，允许小微/元宝）
+        blocked = self.engine.forward_bubble_via_menu(600.0, 300.0, "陌生路人", dry_run=True)
+        self.assertFalse(blocked["ok"])
+        self.assertEqual(blocked["error_code"], "recipient_not_allowed")
+        allowed = self.engine.forward_bubble_via_menu(600.0, 300.0, "小微", dry_run=True)
+        self.assertTrue(allowed["ok"])
+        self.assertTrue(allowed["isWeChatAiAssistant"])
+
+        # 5) diagnostics recentEvents 按最新倒序返回
+        self.engine.monitor._append_event("older_evt", {"n": 1})
+        self.engine.monitor._append_event("newer_evt", {"n": 2})
+        diag = self.engine.diagnostics()
+        self.assertEqual(diag["recentEvents"][0]["event"], "newer_evt")
+
 
 if __name__ == "__main__":
     unittest.main()

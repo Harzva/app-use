@@ -1686,6 +1686,312 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       #tab-monitor .chat-context-bar, #tab-monitor .chat-tools-drawer .grid-2 { grid-template-columns: minmax(0,1fr); }
     }
 
+    /* BotStudio-Inspired Workbench Layout, Viewport-Locked Chat & Settings Center (v2.4.68) */
+    nav.tabs {
+      padding: 4px 12px !important;
+      gap: 3px !important;
+      min-height: 40px;
+      flex-shrink: 0;
+    }
+    .bs-view-switcher {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 2px;
+      padding: 3px;
+      margin: 8px 8px 4px;
+      border: 1px solid var(--work-divider);
+      border-radius: 9px;
+      background: color-mix(in srgb, var(--work-divider) 42%, var(--surface-soft));
+      flex-shrink: 0;
+    }
+    .bs-view-tab {
+      min-width: 0;
+      min-height: 28px;
+      padding: 4px 4px !important;
+      border: 0 !important;
+      border-radius: 6px !important;
+      background: transparent !important;
+      color: var(--work-muted) !important;
+      font-size: 12px !important;
+      font-weight: 500 !important;
+      justify-content: center !important;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .bs-view-tab:hover { color: var(--work-pine) !important; }
+    .bs-view-tab.active, .bs-view-tab[aria-selected="true"] {
+      color: var(--text) !important;
+      background: var(--surface) !important;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+      font-weight: 600 !important;
+    }
+    #tab-monitor .chat-workspace {
+      grid-template-columns: minmax(220px, 256px) minmax(0, 1fr);
+      height: calc(100dvh - 41px);
+      min-height: calc(100dvh - 41px);
+      overflow: hidden;
+    }
+    #tab-monitor .home-conversations {
+      position: static;
+      height: 100%;
+      min-height: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    [hidden] { display: none !important; }
+    #tab-monitor .chat-thread-list {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      display: block;
+    }
+    #tab-monitor .chat-thread-list > summary { padding: 7px 12px; font-size: 12.5px; }
+    #tab-monitor #monitorEventsList {
+      padding: 4px 6px;
+    }
+    #tab-monitor .chat-list-head {
+      flex-shrink: 0;
+      display: flex !important;
+      flex-direction: row !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      gap: 6px;
+      padding: 8px 10px;
+      border-top: 1px solid var(--work-divider);
+      margin-top: auto;
+      background: color-mix(in srgb, var(--work-rail) 88%, var(--surface));
+    }
+    #tab-monitor .chat-list-head .chat-feedback { display: none; }
+    #tab-monitor .chat-main-pane {
+      height: 100%;
+      min-height: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      padding: 8px 18px 10px !important;
+      max-width: none !important;
+    }
+    #tab-monitor #hostingPanel {
+      position: relative;
+      flex-shrink: 0;
+      padding: 6px 12px !important;
+      border-radius: 9px;
+      gap: 0;
+      overflow: visible;
+    }
+    #tab-monitor .hosting-top-row {
+      flex-wrap: nowrap;
+      gap: 8px;
+    }
+    #tab-monitor .hosting-status {
+      flex: 1 1 160px;
+      min-width: 0;
+      flex-wrap: nowrap;
+      overflow: hidden;
+    }
+    #tab-monitor .hosting-badge { font-size: 12px; padding: 2px 9px; flex-shrink: 0; }
+    #tab-monitor .hosting-meta {
+      flex: 1 1 auto;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 11.5px;
+    }
+    #tab-monitor .hosting-actions { flex-wrap: nowrap; flex-shrink: 0; gap: 5px; }
+    #tab-monitor .hosting-actions button { padding: 4px 9px !important; font-size: 12px !important; min-height: 28px; }
+    #tab-monitor .hosting-picker { position: static; flex-shrink: 0; }
+    #tab-monitor .hosting-picker > summary {
+      font-size: 12px; font-weight: 500;
+      padding: 3px 8px; border: 1px solid var(--border); border-radius: 7px;
+      background: var(--surface-soft); white-space: nowrap; list-style: none;
+    }
+    #tab-monitor .hosting-picker > summary::-webkit-details-marker { display: none; }
+    #tab-monitor .hosting-picker-popover {
+      display: none;
+    }
+    #tab-monitor .hosting-picker[open] > .hosting-picker-popover {
+      display: block;
+      position: absolute;
+      top: calc(100% + 5px);
+      right: 10px;
+      z-index: 68;
+      width: min(380px, calc(100vw - 48px));
+      max-height: 300px;
+      overflow-y: auto;
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+      padding: 10px 12px;
+    }
+    #tab-monitor .chat-pane-head {
+      flex-shrink: 0;
+      min-height: 32px;
+      gap: 10px;
+      padding: 0;
+    }
+    #tab-monitor .conversation-heading { font-size: 15.5px; }
+    #tab-monitor .conversation-recipient { flex: 0 1 280px; max-width: 300px; gap: 6px; }
+    #tab-monitor #previewTarget { padding: 4px 9px !important; font-size: 13px !important; }
+    #tab-monitor .chat-stream-card {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #tab-monitor .chat-bubble-wrap {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      overflow: hidden;
+    }
+    #tab-monitor .chat-bubble-head { flex-shrink: 0; font-size: 12.5px; }
+    #tab-monitor #chatBubbleStream {
+      flex: 1 1 auto;
+      min-height: 110px;
+      max-height: none !important;
+      overflow-y: auto;
+      padding: 12px 14px;
+    }
+    #tab-monitor .chat-paste-details { flex-shrink: 0; }
+    #tab-monitor .chat-paste-details[open] { max-height: 108px; overflow-y: auto; }
+    #tab-monitor .chat-composer {
+      flex-shrink: 0;
+      background: var(--work-rail) !important;
+      border: 1px solid var(--work-divider) !important;
+      border-radius: 10px !important;
+      padding: 7px 11px !important;
+      gap: 5px;
+    }
+    .composer-head-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    #tab-monitor #sendText {
+      min-block-size: 46px !important;
+      max-block-size: 88px !important;
+      padding: 6px 9px !important;
+      background: var(--surface) !important;
+      font-size: 13.5px !important;
+    }
+    #tab-monitor .chat-composer-bar { gap: 4px; padding-top: 0; }
+    #tab-monitor .composer-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    #tab-monitor .composer-actions button { min-block-size: 31px !important; padding: 4px 11px !important; font-size: 12.5px !important; }
+    #tab-monitor #quickAiAssistResult:not([hidden]),
+    #tab-monitor #replyPreviewResult:not([hidden]) {
+      max-height: 106px;
+      overflow-y: auto;
+      font-size: 12.5px;
+      line-height: 1.5;
+      padding: 6px 10px;
+      background: var(--surface);
+      border: 1px solid var(--work-divider);
+      border-radius: 8px;
+      margin-top: 2px;
+    }
+    #tab-monitor .reply-settings { flex-shrink: 0; border-top: 1px solid var(--work-divider); }
+    #tab-monitor .reply-settings > summary { padding: 5px 0; font-size: 12px; }
+    #tab-monitor .chat-tools-drawer { flex-shrink: 0; padding: 5px 0 !important; }
+    #tab-monitor .chat-tools-drawer[open] { max-height: 250px; overflow-y: auto; }
+    #tab-monitor .chat-tools-drawer > summary { font-size: 12px; }
+
+    /* BotStudio Unified Settings Modal (#settingsOverlay) */
+    .settings-modal {
+      width: min(760px, calc(100vw - 40px)) !important;
+      max-height: min(590px, calc(100vh - 48px)) !important;
+      padding: 0 !important;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden !important;
+    }
+    .settings-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 13px 18px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface-soft);
+      flex-shrink: 0;
+    }
+    .settings-head h2 { margin: 0 !important; text-align: left !important; font-size: 15.5px !important; }
+    .settings-shell {
+      display: grid;
+      grid-template-columns: 168px minmax(0, 1fr);
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .settings-rail {
+      padding: 10px 8px;
+      border-right: 1px solid var(--border);
+      background: var(--work-rail);
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      overflow-y: auto;
+    }
+    .settings-nav-btn {
+      width: 100%;
+      justify-content: flex-start !important;
+      padding: 7px 10px !important;
+      border: 0 !important;
+      border-radius: 7px !important;
+      background: transparent !important;
+      color: var(--text-secondary) !important;
+      font-size: 12.5px !important;
+      font-weight: 500 !important;
+    }
+    .settings-nav-btn:hover { background: var(--surface-hover) !important; color: var(--text) !important; }
+    .settings-nav-btn.active {
+      background: var(--surface) !important;
+      color: var(--work-pine) !important;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+      font-weight: 600 !important;
+    }
+    .settings-body {
+      padding: 16px 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .settings-section { display: none; flex-direction: column; gap: 12px; }
+    .settings-section.active { display: flex; }
+    .settings-card {
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .settings-card h3 { margin: 0; font-size: 13.5px; }
+    .settings-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 10px; font-size: 13px; }
+    @media (max-width: 900px) {
+      #tab-monitor .chat-workspace { height: auto; min-height: auto; overflow: visible; }
+      #tab-monitor .home-conversations { height: auto; max-height: 270px; }
+      #tab-monitor .chat-main-pane { height: auto; overflow: visible; padding: 10px 12px 18px !important; }
+      #tab-monitor .hosting-top-row { flex-wrap: wrap; }
+      #tab-monitor .hosting-actions { flex-wrap: wrap; }
+      #tab-monitor #chatBubbleStream { max-height: 360px !important; }
+    }
+    @media (max-width: 680px) {
+      .settings-shell { grid-template-columns: 1fr; }
+      .settings-rail { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border); }
+      .settings-nav-btn { width: auto; white-space: nowrap; }
+      .settings-row { grid-template-columns: 1fr; gap: 4px; }
+    }
+
   </style>
 </head>
 <body>
@@ -1698,12 +2004,12 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       <button type="button" class="tab-btn active" aria-current="page" data-tab="monitor" onclick="switchTab('monitor')">对话</button>
       <a id="reviewWorkbenchLink" class="tab-btn workspace-link" href="/workbench">待办审阅</a>
       <button type="button" class="tab-btn" data-tab="care" onclick="switchTab('care')">联系人</button>
-      <button type="button" class="tab-btn" data-tab="stats" onclick="switchTab('stats')">统计</button>
+      <button type="button" class="tab-btn" data-tab="knowledge" onclick="switchTab('knowledge')">知识库</button>
+      <button type="button" class="tab-btn" data-tab="salescrm" onclick="switchTab('salescrm')">客户跟进</button>
       <details class="nav-more" id="navMore">
-        <summary>更多功能 ▾</summary>
+        <summary>更多 ▾</summary>
         <div class="nav-more-list">
-          <button type="button" class="tab-btn" data-tab="salescrm" onclick="switchTab('salescrm')">客户跟进 CRM</button>
-          <button type="button" class="tab-btn" data-tab="knowledge" onclick="switchTab('knowledge')">知识库与话术</button>
+          <button type="button" class="tab-btn" data-tab="stats" onclick="switchTab('stats')">统计与巡检</button>
           <button type="button" class="tab-btn" data-tab="articles" onclick="switchTab('articles')">文章与视频导出</button>
           <button type="button" class="tab-btn" data-tab="soul" onclick="switchTab('soul')">本我与记忆</button>
           <button type="button" class="tab-btn" data-tab="models" onclick="switchTab('models')">模型路由</button>
@@ -1717,8 +2023,9 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
           <button type="button" id="homeRetry" class="btn-outline sm" onclick="loadOverview(true)" hidden>重连</button>
         </div>
         <div class="tb-right">
+          <button type="button" id="topSettingsBtn" class="btn-outline sm" onclick="openSettingsModal()" title="打开 BotStudio 风格统一设置中心（模型、回复策略、防抢鼠标、权限与窗口）">⚙️ 设置</button>
           <details class="topbar-more" id="topbarMore">
-            <summary>窗口设置</summary>
+            <summary>窗口 ▾</summary>
             <div id="topbarMoreMenu" class="more-popover" aria-label="窗口设置">
               <button type="button" class="menu-item" onclick="triggerDockSidebar('dock')">贴靠微信侧栏</button>
               <button type="button" class="menu-item" onclick="triggerDockSidebar('tile')">并排分屏</button>
@@ -1779,19 +2086,137 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       </div>
     </div>
 
+    <!-- BotStudio Unified Settings Modal -->
+    <div class="perm-overlay" id="settingsOverlay" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle" onclick="if(event.target===this)hideSettingsModal()">
+      <div class="perm-modal settings-modal">
+        <div class="settings-head">
+          <h2 id="settingsModalTitle">⚙️ 工作台设置中心</h2>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <button type="button" class="btn-outline sm" onclick="toggleTheme()">🌓 深浅主题</button>
+            <button type="button" class="btn-outline sm" onclick="hideSettingsModal()">关闭</button>
+          </div>
+        </div>
+        <div class="settings-shell">
+          <nav class="settings-rail" aria-label="设置分类">
+            <button type="button" class="settings-nav-btn active" data-settings-sec="reply" onclick="switchSettingsSection('reply')">💬 回复与 AI 助手</button>
+            <button type="button" class="settings-nav-btn" data-settings-sec="models" onclick="switchSettingsSection('models')">🧠 模型与网关</button>
+            <button type="button" class="settings-nav-btn" data-settings-sec="guard" onclick="switchSettingsSection('guard')">🛡️ 防抢鼠标与安全</button>
+            <button type="button" class="settings-nav-btn" data-settings-sec="window" onclick="switchSettingsSection('window')">🪟 窗口与系统权限</button>
+            <button type="button" class="settings-nav-btn" data-settings-sec="bridge" onclick="switchSettingsSection('bridge')">🔌 BotStudio 接入</button>
+          </nav>
+          <div class="settings-body">
+            <div class="settings-section active" data-settings-panel="reply">
+              <div class="settings-card">
+                <h3>默认回复性格与发送安全</h3>
+                <div class="settings-row">
+                  <label for="cfgPersonaSelect">回复性格</label>
+                  <select id="cfgPersonaSelect" onchange="const p=document.getElementById('previewPersona'); if(p){p.value=this.value;}"></select>
+                </div>
+                <div class="settings-row">
+                  <label for="cfgModelSelect">驱动模型</label>
+                  <select id="cfgModelSelect" onchange="const m=document.getElementById('previewModelSelect'); if(m){m.value=this.value;}"></select>
+                </div>
+                <div class="settings-row">
+                  <label for="cfgSendModeSelect">发送安全模式</label>
+                  <select id="cfgSendModeSelect" onchange="const s=document.getElementById('sendMode'); if(s){s.value=this.value; syncSendModeLabel();}">
+                    <option value="dry_run">模拟检查（不写入微信）</option>
+                    <option value="silent_verify">粘贴校验后清空</option>
+                    <option value="confirm_send">确认并发送</option>
+                  </select>
+                </div>
+                <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                  <input type="checkbox" id="cfgUseLlmCheckbox" checked style="width:auto;" onchange="const u=document.getElementById('previewUseLlm'); if(u){u.checked=this.checked;}" />
+                  启用大模型与知识库协同生成回复
+                </label>
+              </div>
+              <div class="settings-card">
+                <h3>微信原生助手（@元宝 / 小微）</h3>
+                <p style="margin:0; font-size:12.5px; color:var(--text-secondary);">遇到视频号、公众号卡片或复杂链接时，可直接点主操作栏的 <b>@元宝 解析</b> 或 <b>转发小微</b>，将原生摘要写入联系人记忆并自动重算回复草稿。</p>
+              </div>
+            </div>
+            <div class="settings-section" data-settings-panel="models">
+              <div class="settings-card">
+                <h3>LLM 网关与模型路由</h3>
+                <div id="cfgGatewayStatusBox" style="font-size:12.5px; color:var(--text-secondary);">正在读取网关状态…</div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                  <button type="button" class="btn-outline sm" onclick="relaunchLlmGateway()">🔧 启动 Magpie 网关</button>
+                  <button type="button" class="btn-solid sm" onclick="hideSettingsModal(); switchTab('models')">前往模型路由详情页 →</button>
+                </div>
+              </div>
+            </div>
+            <div class="settings-section" data-settings-panel="guard">
+              <div class="settings-card">
+                <h3>防抢鼠标 / 键盘自动让路守卫</h3>
+                <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                  <input type="checkbox" id="cfgGuardEnabled" checked style="width:auto;" /> 启用人工键鼠活动自动避让
+                </label>
+                <div class="settings-row">
+                  <label for="cfgGuardCooldown">干预空窗期 (秒)</label>
+                  <input type="number" id="cfgGuardCooldown" min="3" max="600" value="45" style="max-width:120px;" />
+                </div>
+                <div class="settings-row">
+                  <label for="cfgGuardIdle">静止恢复阈值 (秒)</label>
+                  <input type="number" id="cfgGuardIdle" min="3" max="600" value="45" style="max-width:120px;" />
+                </div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                  <button type="button" class="btn-solid sm" onclick="saveHumanGuardFromSettings()">💾 保存守卫配置</button>
+                  <button type="button" class="btn-outline sm" onclick="resetHumanGuardCooldown()">⚡ 立即结束当前空窗</button>
+                  <button type="button" class="btn-outline sm" onclick="hideSettingsModal(); switchTab('uiprotocol')">打开守卫详情页 →</button>
+                </div>
+              </div>
+            </div>
+            <div class="settings-section" data-settings-panel="window">
+              <div class="settings-card">
+                <h3>窗口贴靠与 macOS 系统权限</h3>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                  <button type="button" class="btn-outline sm" onclick="triggerDockSidebar('dock')">📌 贴靠微信侧栏</button>
+                  <button type="button" class="btn-outline sm" onclick="triggerDockSidebar('tile')">◫ 与微信并排</button>
+                  <button type="button" class="btn-outline sm" onclick="triggerActivateWeChat()">💬 唤醒微信窗口</button>
+                  <button type="button" class="btn-outline sm" onclick="hideSettingsModal(); window.PERM_MODAL_DISMISSED=false; loadPermissions(true)">🔐 检查系统权限</button>
+                  <button type="button" class="btn-outline sm" onclick="hideSettingsModal(); loadDiagnostics(true, true)">🩺 深度健康诊断</button>
+                </div>
+              </div>
+              <div class="settings-card">
+                <h3>工作台授权</h3>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                  <button type="button" class="btn-outline sm" onclick="toggleStudioAuth()">🔑 切换工作台访问授权</button>
+                </div>
+              </div>
+            </div>
+            <div class="settings-section" data-settings-panel="bridge">
+              <div class="settings-card">
+                <h3>BotStudio & 独立应用集成</h3>
+                <p style="margin:0; font-size:12.5px; color:var(--text-secondary);">管理独立 App 打包、DSH 插件导出与 BotStudio 四标签工作台接入。</p>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                  <button type="button" class="btn-solid sm" onclick="hideSettingsModal(); switchTab('open')">打开 BotStudio 集成页 →</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Tab 2 (Default Chat-First Home): Live Chat & AI Copilot -->
     <section id="tab-monitor" class="tab-panel active">
       <div class="chat-workspace">
         <aside class="home-conversations" aria-label="最近会话">
+          <div class="bs-view-switcher" role="tablist" aria-label="工作台视图切换">
+            <button type="button" class="bs-view-tab active" aria-selected="true" onclick="switchTab('monitor')">会话</button>
+            <button type="button" class="bs-view-tab" aria-selected="false" onclick="switchTab('care')">联系人</button>
+            <button type="button" class="bs-view-tab" aria-selected="false" onclick="switchTab('knowledge')">知识库</button>
+            <button type="button" class="bs-view-tab" aria-selected="false" onclick="location.href='/workbench'">待办</button>
+          </div>
           <details class="chat-thread-list" id="conversationThreads" open>
             <summary>最近会话 <span id="conversationCount" class="conversation-count"></span></summary>
             <div id="monitorEventsList"><p class="home-empty">正在读取最近会话…</p></div>
-            <div class="chat-list-head">
-              <button type="button" class="link-btn" onclick="triggerWatchOnce(false)" aria-describedby="watchPreviewHint">巡检已绑定会话</button>
-              <p id="watchPreviewHint" class="chat-feedback">可能切换微信会话，只生成草稿，不发送。</p>
-            </div>
-            <div id="watchRunReceipt" style="display:none;"></div>
           </details>
+          <div class="chat-list-head">
+            <button type="button" class="link-btn" onclick="triggerWatchOnce(false)" aria-describedby="watchPreviewHint">🔍 巡检会话</button>
+            <button type="button" id="sidebarSettingsBtn" class="btn-outline sm" onclick="openSettingsModal()" style="padding:3px 9px; font-size:11.5px;">⚙️ 设置</button>
+            <p id="watchPreviewHint" class="chat-feedback">可能切换微信会话，只生成草稿，不发送。</p>
+          </div>
+          <div id="watchRunReceipt" style="display:none;"></div>
         </aside>
 
         <main class="chat-main-pane" aria-labelledby="conversationHeading">
@@ -1813,25 +2238,30 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
                 <span id="hostingMeta" class="hosting-meta">加载中…</span>
               </div>
               <div class="hosting-actions">
+                <details class="hosting-picker">
+                  <summary>托管好友 <span id="hostingCheckedCount" class="conversation-count"></span> ▾</summary>
+                  <div class="hosting-picker-popover">
+                    <div class="hosting-toolbar">
+                      <button type="button" class="link-btn" onclick="hostingSelectAll(true)">全选</button>
+                      <button type="button" class="link-btn" onclick="hostingSelectAll(false)">清空</button>
+                      <button type="button" class="link-btn" onclick="refreshHostingFriends()">刷新好友列表</button>
+                      <span class="hosting-hint">勾选即托管对象；未绑定过的好友开启托管时会自动创建绑定。</span>
+                    </div>
+                    <ul class="hosting-friend-list" id="hostingFriendList"><li class="hosting-empty">正在读取好友列表…</li></ul>
+                  </div>
+                </details>
                 <button type="button" id="hostingEnableBtn" class="btn-solid hosting-btn" onclick="applyHosting(true)">🚀 一键托管</button>
-                <button type="button" id="hostingDisableBtn" class="btn-outline sm" onclick="applyHosting(false)">⏹ 停止托管</button>
+                <button type="button" id="hostingDisableBtn" class="btn-outline sm" onclick="applyHosting(false)">⏹ 停止</button>
                 <button type="button" id="llmFixBtn" class="btn-outline sm" onclick="relaunchLlmGateway()" hidden>🔧 启动 Magpie（修复 LLM 网关）</button>
-                <button type="button" id="diagBtn" class="btn-outline sm" onclick="loadDiagnostics(true)">🩺 健康诊断</button>
+                <button type="button" id="diagBtn" class="btn-outline sm" onclick="loadDiagnostics(true)">🩺 诊断</button>
               </div>
             </div>
-            <details class="hosting-picker">
-              <summary>选择托管好友 <span id="hostingCheckedCount" class="conversation-count"></span></summary>
-              <div class="hosting-toolbar">
-                <button type="button" class="link-btn" onclick="hostingSelectAll(true)">全选</button>
-                <button type="button" class="link-btn" onclick="hostingSelectAll(false)">清空</button>
-                <button type="button" class="link-btn" onclick="refreshHostingFriends()">刷新好友列表</button>
-                <span class="hosting-hint">勾选即托管对象；未绑定过的好友开启托管时会自动创建绑定。</span>
-              </div>
-              <ul class="hosting-friend-list" id="hostingFriendList"><li class="hosting-empty">正在读取好友列表…</li></ul>
-            </details>
           </div>
           <div class="chat-pane-head">
-            <h1 id="conversationHeading" class="conversation-heading">对话</h1>
+            <div style="display:flex; align-items:baseline; gap:8px; min-width:0;">
+              <h1 id="conversationHeading" class="conversation-heading">对话</h1>
+              <span class="hosting-hint">生成草稿自动针对最新来信</span>
+            </div>
             <div class="conversation-recipient">
               <label for="previewTarget">回复对象</label>
               <input type="text" id="previewTarget" placeholder="选择最近会话，或输入会话名称" oninput="syncChatRecipient(this.value)" />
@@ -1840,9 +2270,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
 
           <div class="chat-stream-card">
             <div class="chat-bubble-wrap">
-              <div class="chat-bubble-head">💬 聊天记录 <span id="chatStreamTarget" class="conversation-count"></span>
-                <span class="hosting-hint">生成草稿自动针对最新来信</span>
-              </div>
+              <div class="chat-bubble-head">💬 聊天记录 <span id="chatStreamTarget" class="conversation-count"></span></div>
               <div id="chatBubbleStream" class="chat-bubble-stream" aria-live="polite"><div class="bubble-sep">选择左侧会话查看往来记录</div></div>
               <details class="chat-paste-details">
                 <summary>✏️ 手动粘贴来信（覆盖自动提取）</summary>
@@ -1854,22 +2282,30 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
 
           <div class="chat-composer">
             <input type="hidden" id="sendTarget" />
-            <label for="sendText" class="chat-field-label">回复草稿</label>
-            <textarea id="sendText" placeholder="输入回复，或生成草稿后修改"></textarea>
+            <div class="composer-head-row">
+              <label for="sendText" class="chat-field-label">回复草稿</label>
+              <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                <p class="chat-feedback" id="saveDraftHint">手动加入待办不会发送。</p>
+                <p class="chat-feedback" id="sendModeHint">模拟检查不写入微信。</p>
+                <p class="draft-status" id="draftStatus" role="status" hidden></p>
+              </div>
+            </div>
+            <textarea id="sendText" placeholder="输入回复，或点下方「生成草稿」/「@元宝 解析」自动起草"></textarea>
             <div class="chat-composer-bar">
               <div class="composer-actions">
                 <button type="button" id="generateDraftBtn" class="btn-solid" onclick="runReplyPreview()">生成草稿</button>
+                <button type="button" id="quickYuanbaoBtn" class="btn-outline" onclick="runQuickWeChatAiAssist('at_yuanbao')" title="在当前会话唤起 @元宝 总结视频号/公众号卡片并自动生成回复草稿">@元宝 解析</button>
+                <button type="button" id="quickXiaoweiBtn" class="btn-outline" onclick="runQuickWeChatAiAssist('relay_xiaowei')" title="转发给微信小微/腾讯元宝解析链接、视频与文章并自动生成回复草稿">转发小微</button>
                 <button type="button" id="saveDraftBtn" class="btn-outline" aria-describedby="saveDraftHint" onclick="saveConversationDraft()">加入待办</button>
                 <button type="button" id="sendActionLabel" class="btn-outline" onclick="executeSafeSend()" aria-describedby="sendModeHint">模拟检查</button>
+                <button type="button" class="btn-outline" onclick="openSettingsModal('reply')" title="打开回复性格、模型与发送安全设置">⚙️ 设置</button>
               </div>
-              <p class="chat-feedback" id="saveDraftHint">手动加入待办后可继续编辑，不会发送。</p>
               <div class="saved-draft-feedback">
                 <p id="savedDraftStatus" role="status"></p>
                 <a id="openSavedTask" href="/workbench" hidden>查看待办</a>
               </div>
-              <p class="chat-feedback" id="sendModeHint">模拟检查不会写入微信。</p>
-              <p class="draft-status" id="draftStatus" role="status" hidden></p>
             </div>
+            <div id="quickAiAssistResult" class="chat-ai-answer" hidden></div>
             <div id="replyPreviewResult" class="chat-ai-answer" hidden></div>
             <details class="reply-settings">
               <summary>回复设置</summary>
@@ -2785,6 +3221,12 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         if (active) b.setAttribute("aria-current", "page");
         else b.removeAttribute("aria-current");
       });
+      document.querySelectorAll(".bs-view-tab").forEach((b) => {
+        const oc = String(b.getAttribute("onclick") || "");
+        const isCurrent = oc.includes("'" + tab + "'");
+        b.classList.toggle("active", isCurrent);
+        b.setAttribute("aria-selected", String(isCurrent));
+      });
       document.querySelectorAll(".tab-panel").forEach((p) => {
         p.classList.toggle("active", p.id === "tab-" + tab);
       });
@@ -3021,6 +3463,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         badge.classList.remove("on");
         meta.textContent = "勾选好友后开启，机器人只负责被托管好友的自动回复（真发送，带防封频控）。";
       }
+      meta.title = meta.textContent || "";
       const list = document.getElementById("hostingFriendList");
       if (!list) return;
       const friends = HOSTING_STATE.friends || [];
@@ -4376,6 +4819,9 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       const useLlmEl = document.getElementById("previewUseLlm");
       if (useLlmEl && STATE.models) {
         useLlmEl.checked = !!STATE.models.llmReplyEnabled;
+      }
+      if (typeof syncSettingsModalFromState === "function") {
+        syncSettingsModalFromState();
       }
     }
 
@@ -5960,6 +6406,111 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       }
     }
 
+    async function runQuickWeChatAiAssist(mode) {
+      const target = (document.getElementById("previewTarget")?.value || "").trim();
+      const previewInc = typeof extractLatestPeerMessage === "function"
+        ? extractLatestPeerMessage((document.getElementById("previewIncoming")?.value || "").trim())
+        : (document.getElementById("previewIncoming")?.value || "").trim();
+      const pasteInc = (document.getElementById("pasteIncoming")?.value || "").trim();
+      const contentHint = previewInc || pasteInc;
+      const modelId = (document.getElementById("previewModelSelect")?.value || "auto/deepseek-v4.1-flash").trim();
+      const dryRun = !target;
+      const outEl = document.getElementById("quickAiAssistResult");
+      if (outEl) {
+        outEl.hidden = false;
+        outEl.innerHTML = `<span style="color:var(--text-muted);">正在调用 ${mode === "relay_xiaowei" ? "小微/元宝转发解析" : "@元宝 群内/会话解析"}…</span>`;
+      }
+      try {
+        const { data } = await apiJson("/api/wechat-ai-assist", {
+          method: "POST",
+          body: JSON.stringify({ target, contentHint, mode, modelId, dryRun }),
+        });
+        if (outEl) {
+          const tag = data.mode === "relay_xiaowei" ? "小微/元宝转发" : "@元宝";
+          outEl.hidden = false;
+          outEl.innerHTML = `<strong>${escapeHtml(tag)} 已解析</strong> · ${escapeHtml(data.summary || data.note || "")}`;
+        }
+        showToast(data.ok ? `${data.assistant || "微信助手"} 解析已写入记忆，正在生成回复草稿…` : "解析已尝试，继续生成草稿");
+        if (target && contentHint) {
+          await runReplyPreview();
+        }
+      } catch (err) {
+        if (outEl) {
+          outEl.hidden = false;
+          outEl.textContent = "解析提示: " + (err.message || err);
+        }
+        showToast("微信助手协同失败: " + (err.message || err));
+      }
+    }
+
+    function syncSettingsModalFromState() {
+      const pSrc = document.getElementById("previewPersona");
+      const pDst = document.getElementById("cfgPersonaSelect");
+      if (pSrc && pDst) {
+        pDst.innerHTML = pSrc.innerHTML;
+        pDst.value = pSrc.value;
+      }
+      const mSrc = document.getElementById("previewModelSelect");
+      const mDst = document.getElementById("cfgModelSelect");
+      if (mSrc && mDst) {
+        mDst.innerHTML = mSrc.innerHTML;
+        mDst.value = mSrc.value;
+      }
+      const sSrc = document.getElementById("sendMode");
+      const sDst = document.getElementById("cfgSendModeSelect");
+      if (sSrc && sDst) sDst.value = sSrc.value;
+      const uSrc = document.getElementById("previewUseLlm");
+      const uDst = document.getElementById("cfgUseLlmCheckbox");
+      if (uSrc && uDst) uDst.checked = !!uSrc.checked;
+
+      const gw = STATE?.llmGateway || {};
+      const gwBox = document.getElementById("cfgGatewayStatusBox");
+      if (gwBox) {
+        const activeM = STATE?.models?.activeModelId || "-";
+        gwBox.innerHTML = `当前默认模型：<code>${escapeHtml(activeM)}</code> · 网关：${gw.reachable ? "🟢 在线" : "🔴 不可达"} (${escapeHtml(gw.gatewayUrl || "http://127.0.0.1:3425")})`;
+      }
+      const hg = STATE?.humanGuard || {};
+      const ge = document.getElementById("cfgGuardEnabled");
+      const gc = document.getElementById("cfgGuardCooldown");
+      const gi = document.getElementById("cfgGuardIdle");
+      if (ge && typeof hg.enabled === "boolean") ge.checked = hg.enabled;
+      if (gc && hg.cooldownSeconds !== undefined) gc.value = hg.cooldownSeconds;
+      if (gi && hg.idleResumeSeconds !== undefined) gi.value = hg.idleResumeSeconds;
+    }
+
+    function switchSettingsSection(section) {
+      const targetSec = section || "reply";
+      document.querySelectorAll(".settings-nav-btn").forEach((b) => {
+        b.classList.toggle("active", b.dataset.settingsSec === targetSec);
+      });
+      document.querySelectorAll(".settings-section").forEach((s) => {
+        s.classList.toggle("active", s.dataset.settingsPanel === targetSec);
+      });
+    }
+
+    function openSettingsModal(section = "reply") {
+      syncSettingsModalFromState();
+      switchSettingsSection(section);
+      document.getElementById("settingsOverlay")?.classList.add("visible");
+    }
+
+    function hideSettingsModal() {
+      document.getElementById("settingsOverlay")?.classList.remove("visible");
+    }
+
+    async function saveHumanGuardFromSettings() {
+      const enabled = !!document.getElementById("cfgGuardEnabled")?.checked;
+      const cooldownSeconds = Number(document.getElementById("cfgGuardCooldown")?.value || 45);
+      const idleResumeSeconds = Number(document.getElementById("cfgGuardIdle")?.value || 45);
+      const ge = document.getElementById("guardEnabledInput");
+      const gc = document.getElementById("guardCooldownInput");
+      const gi = document.getElementById("guardIdleInput");
+      if (ge) ge.checked = enabled;
+      if (gc) gc.value = cooldownSeconds;
+      if (gi) gi.value = idleResumeSeconds;
+      await saveHumanGuardConfig();
+    }
+
     async function runAgentDispatchFor(targetOverride) {
       const target = (targetOverride || document.getElementById("dispatchTargetInput")?.value || "").trim();
       if (!target) { showToast("请填写目标联系人"); return; }
@@ -6420,11 +6971,16 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
     setConversationDensity();
     const moreActions = document.getElementById("topbarMore");
     const navMore = document.getElementById("navMore");
+    const hostingPicker = document.querySelector("#hostingPanel .hosting-picker");
     document.addEventListener("click", event => {
       if (moreActions && (!moreActions.contains(event.target) || event.target.closest(".menu-item"))) moreActions.open = false;
       if (navMore && !navMore.contains(event.target)) navMore.open = false;
+      if (hostingPicker && !hostingPicker.contains(event.target)) hostingPicker.open = false;
     });
     document.addEventListener("keydown", event => {
+      if (event.key === "Escape" && document.getElementById("settingsOverlay")?.classList.contains("visible")) {
+        hideSettingsModal();
+      }
       if (event.key === "Escape" && moreActions?.open) {
         moreActions.open = false;
         moreActions.querySelector("summary").focus();
@@ -6432,6 +6988,9 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       if (event.key === "Escape" && navMore?.open) {
         navMore.open = false;
         navMore.querySelector("summary").focus();
+      }
+      if (event.key === "Escape" && hostingPicker?.open) {
+        hostingPicker.open = false;
       }
     });
     document.getElementById("sendText").addEventListener("input", () => { draftRevision++; });

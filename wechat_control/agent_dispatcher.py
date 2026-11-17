@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from .live_inspector import _matches_target, _slugify_target
+from .live_inspector import _CARD_SOURCE_RE, _matches_target, _slugify_target
 from .media_link_analyzer import DEFAULT_VISION_MODEL_ID
 
 if TYPE_CHECKING:
@@ -135,7 +135,7 @@ class WeChatAgentDispatcher:
                     if not inc:
                         continue
                     if _matches_target(contact, ev_target) or norm_target in inc.casefold() or (
-                        norm_target == "联系人A"
+                        norm_target == "心安"
                         and any(kw in inc.lower() for kw in ("母版", "线稿", "antigravity", "staffdeck", "yobot", "rpa", "作画", "风水"))
                     ):
                         collected.append({
@@ -175,6 +175,10 @@ class WeChatAgentDispatcher:
         def _add_task(kind: str, category: str, text: str, **extra: Any) -> None:
             raw_sig = f"{kind}:{category}:{text[:120]}"
             if raw_sig in seen_keys:
+                if extra.get("isLatest"):
+                    for existing in tasks:
+                        if f"{existing.get('kind')}:{existing.get('category')}:{str(existing.get('rawText') or '')[:120]}" == raw_sig:
+                            existing["isLatest"] = True
                 return
             seen_keys.add(raw_sig)
             task_id = f"task_{hashlib.sha1(raw_sig.encode('utf-8')).hexdigest()[:10]}"
@@ -190,12 +194,14 @@ class WeChatAgentDispatcher:
             )
 
         peer_texts: List[str] = []
-        for m in messages:
+        total_msgs = len(messages)
+        for idx, m in enumerate(messages):
             if m.get("direction", "peer") != "peer":
                 continue
             txt = str(m.get("text") or "").strip()
             if not txt or txt.casefold() == contact.strip().casefold():
                 continue
+            is_latest = idx == total_msgs - 1
             peer_texts.append(txt)
 
             # 1. URLs / links
@@ -208,6 +214,7 @@ class WeChatAgentDispatcher:
                     "url",
                     txt,
                     url=cleaned_url,
+                    isLatest=is_latest,
                     sessionSource=m.get("sessionSource", contact),
                 )
 
@@ -218,24 +225,32 @@ class WeChatAgentDispatcher:
                         "agent_instruction",
                         cat,
                         txt,
+                        isLatest=is_latest,
                         sessionSource=m.get("sessionSource", contact),
                     )
                     break
 
-            # 3. Article cards / video markers mentioned explicitly in text
+            # 3. Article cards / video markers / card footer markers (_CARD_SOURCE_RE)
             lower = txt.lower()
-            if any(k in lower for k in ("[视频", "视频号", "video", "呆猫")):
+            card_lines = [ln.strip() for ln in txt.splitlines() if ln.strip()]
+            has_card_footer = any(
+                bool(_CARD_SOURCE_RE.match(ln)) or "公众号" in ln or "视频号" in ln or "小程序" in ln
+                for ln in card_lines
+            ) or bool(re.search(r"(?:^|\s)[CVWXYM]\s+\S+", txt))
+            if any(k in lower for k in ("[视频", "视频号", "video", "呆猫")) or (has_card_footer and re.search(r"(?:^|\s)[WV]\s+\S+", txt)):
                 _add_task(
                     "video_analysis",
                     "wechat_video",
                     txt,
+                    isLatest=is_latest,
                     sessionSource=m.get("sessionSource", contact),
                 )
-            if any(k in lower for k in ("[链接", "[图片", "图文", "郑兰", "上架 app store", "image2.6")):
+            elif any(k in lower for k in ("[链接", "[图片", "图文", "郑兰", "上架 app store", "image2.6")) or has_card_footer:
                 _add_task(
                     "image_card_analysis",
                     "wechat_card_or_image",
                     txt,
+                    isLatest=is_latest,
                     sessionSource=m.get("sessionSource", contact),
                 )
 

@@ -450,6 +450,18 @@ class WeChatRealtimeMonitor:
                 for t in parsed_tasks
                 if t.get("kind") in ("link_deep_read", "agent_instruction", "video_analysis", "image_card_analysis")
             ]
+            _kind_prio = {
+                "link_deep_read": 0,
+                "video_analysis": 1,
+                "image_card_analysis": 2,
+                "agent_instruction": 3,
+            }
+            interesting.sort(
+                key=lambda t: (
+                    0 if (t.get("isLatest") or (incoming_text and incoming_text[:24] in str(t.get("rawText") or ""))) else 1,
+                    _kind_prio.get(str(t.get("kind") or ""), 9),
+                )
+            )
             if interesting and (
                 any(t.get("kind") == "link_deep_read" for t in interesting)
                 or binding.get("autoDispatchInstructions", True)

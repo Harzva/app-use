@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import shutil
 import socket
 import subprocess
@@ -1196,6 +1197,7 @@ class WeChatControlEngine:
         assistant: str = "auto",
         mode: str = "auto",
         bubbles: Optional[List[Dict[str, Any]]] = None,
+        bubble_coords: Optional[Dict[str, float]] = None,
         wait_seconds: float = 5.5,
         dry_run: bool = False,
         model_id: str = "auto/deepseek-v4.1-flash",
@@ -1208,6 +1210,7 @@ class WeChatControlEngine:
             assistant=assistant,
             mode=mode,
             bubbles=bubbles,
+            bubble_coords=bubble_coords,
             wait_seconds=wait_seconds,
             dry_run=dry_run,
             model_id=model_id,
@@ -1383,21 +1386,28 @@ class WeChatControlEngine:
         return analytics
 
     def _recent_messages_for(self, target: str) -> List[str]:
-        contacts_dir = self.inspector.reports_dir / "contacts"
-        if contacts_dir.exists():
-            for hp in sorted(contacts_dir.glob("*_history.json")):
+        matches = self._find_contact_history_files(target)
+        if matches:
+            for hp in reversed(matches):
                 try:
                     data = json.loads(hp.read_text(encoding="utf-8"))
-                    if _matches_target(target, str(data.get("target") or "")) or _matches_target(
-                        target, str(data.get("matchedTitle") or "")
-                    ):
-                        msgs = [
-                            str(r.get("text", ""))
-                            for r in (data.get("records") or [])
-                            if r.get("kind") == "message" and r.get("text")
-                        ]
-                        if msgs:
-                            return msgs[-6:]
+                    records = data.get("records") or []
+                    msgs = [
+                        str(r.get("text", ""))
+                        for r in records
+                        if r.get("kind") == "message" and r.get("text")
+                    ]
+                    notes = [
+                        str(r.get("text", ""))
+                        for r in records
+                        if r.get("kind") == "media_note" and str(r.get("text") or "").strip()
+                    ]
+                    merged = msgs[-6:]
+                    for note in notes[-2:]:
+                        if note not in merged:
+                            merged.append(note)
+                    if merged:
+                        return merged
                 except Exception:
                     continue
         report_file = self.inspector.reports_dir / "wechat_management_report.json"
@@ -1614,11 +1624,61 @@ class WeChatControlEngine:
     ) -> Dict[str, Any]:
         self._require("status")
         binding = self.bindings.get_binding(target)
-        recent = self._recent_messages_for(target)
-        memory_context = self.soul_profiler.get_contact_memory_context(target)
+        recent = list(self._recent_messages_for(target))
+
+        raw_in = str(incoming_text or "").strip()
+        sender_name = ""
+        query_incoming = raw_in
+        m_spk = re.match(r"^(?!https?:)([^:\s/\n]{1,16}):\s+(.+)$", raw_in, flags=re.S)
+        if m_spk:
+            sender_name = m_spk.group(1).strip()
+            query_incoming = m_spk.group(2).strip() or raw_in
+
+        # Merge recent media/assistant insights (e.g. [元宝深读:] / [小微深读:] / [链接深读:])
+        for note in self.recent_media_notes(target, limit=3):
+            if note not in recent:
+                recent.append(note)
+
+        # Auto deep-read URL if present in manual preview input and not already summarized
+        url_m = re.search(r"https?://[^\s<>\"'\]）)]+", query_incoming, flags=re.IGNORECASE)
+        if url_m and hasattr(self, "media_analyzer"):
+            found_url = url_m.group(0).strip()
+            already_read = any(
+                "[链接深读:" in m and (found_url[:36] in m or urllib.parse.urlparse(found_url).netloc in m)
+                for m in recent
+            )
+            if not already_read:
+                try:
+                    lres = self.media_analyzer.analyze_link(
+                        found_url,
+                        contact=target,
+                        context_text=query_incoming,
+                        model_id=model_id or (binding or {}).get("visionModelId") or "auto/deepseek-v4.1-flash",
+                    )
+                    if lres.get("summary"):
+                        link_note = f"[链接深读:{lres.get('title', '')}] {lres.get('summary')}"
+                        if link_note not in recent:
+                            recent.append(link_note)
+                        try:
+                            self.append_media_note(target, link_note)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+        memory_context = dict(self.soul_profiler.get_contact_memory_context(target) or {})
+        try:
+            history_snippet = self.recent_history_thread(target, limit=6)
+            if history_snippet:
+                memory_context["historyThreadSnippet"] = history_snippet
+        except Exception:
+            pass
+        if sender_name:
+            memory_context["groupSpeaker"] = sender_name
+
         return self.personas.generate_smart_reply(
             target,
-            incoming_text,
+            query_incoming,
             knowledge_store=self.knowledge,
             binding=binding,
             persona_override=persona_override,
@@ -1902,16 +1962,7 @@ class WeChatControlEngine:
         except Exception as exc:
             report["monitorState"] = {"error": str(exc)}
         try:
-            events: List[Dict[str, Any]] = []
-            if self.monitor.events_path.exists():
-                for line in self.monitor.events_path.read_text(encoding="utf-8").splitlines()[-20:]:
-                    line = line.strip()
-                    if line:
-                        try:
-                            events.append(json.loads(line))
-                        except Exception:
-                            pass
-            report["recentEvents"] = events
+            report["recentEvents"] = self.monitor.recent_events(limit=20)
         except Exception as exc:
             report["recentEvents"] = {"error": str(exc)}
         if deep:
@@ -2366,19 +2417,45 @@ class WeChatControlEngine:
             "profilesTouched": touched,
         }
 
-    def recent_history_thread(self, target: str, limit: int = 6) -> str:
-        """单联系人最近 limit 条往来（peer/self，正序），拼成片段注入自动回复上下文。"""
+    @staticmethod
+    def _strip_group_count_suffix(target: str) -> str:
+        return re.sub(r"\s*[\(（]\d+[\)）]\s*$", "", str(target or "").strip()).strip()
+
+    def _find_contact_history_files(self, target: str) -> List[Path]:
+        """Find persisted history files matching `target` (normalizing `openbot (2)` -> `openbot`), oldest -> newest."""
         clean = str(target or "").strip()
         if not clean:
-            return ""
+            return []
         contacts_dir = self.inspector.reports_dir / "contacts"
         if not contacts_dir.exists():
-            return ""
-        # slug 因来源不同而异（AX 巡检 / 导入 / chatlog 文件），按前缀 glob 取最新文件
-        matches = sorted(
-            contacts_dir.glob(f"{clean}_*_history.json"),
-            key=lambda p: p.stat().st_mtime,
-        )
+            return []
+        base = self._strip_group_count_suffix(clean)
+        found: List[Path] = []
+        seen: set[Path] = set()
+        for prefix in (clean, base):
+            if not prefix:
+                continue
+            for p in contacts_dir.glob(f"{prefix}_*_history.json"):
+                if p not in seen:
+                    seen.add(p)
+                    found.append(p)
+        if not found:
+            for p in contacts_dir.glob("*_history.json"):
+                try:
+                    doc = json.loads(p.read_text(encoding="utf-8"))
+                    if isinstance(doc, dict) and (
+                        _matches_target(clean, str(doc.get("target") or ""))
+                        or _matches_target(clean, str(doc.get("matchedTitle") or ""))
+                    ):
+                        found.append(p)
+                except Exception:
+                    continue
+        found.sort(key=lambda p: p.stat().st_mtime)
+        return found
+
+    def recent_history_thread(self, target: str, limit: int = 6) -> str:
+        """单联系人最近 limit 条往来（peer/self，正序），拼成片段注入自动回复上下文。"""
+        matches = self._find_contact_history_files(target)
         if not matches:
             return ""
         try:
@@ -2470,19 +2547,17 @@ class WeChatControlEngine:
         note_text = str(note or "").strip()
         if not clean or not note_text:
             return False
+        base_clean = self._strip_group_count_suffix(clean) or clean
         contacts_dir = self.inspector.reports_dir / "contacts"
         contacts_dir.mkdir(parents=True, exist_ok=True)
-        matches = sorted(
-            contacts_dir.glob(f"{clean}_*_history.json"),
-            key=lambda p: p.stat().st_mtime,
-        )
+        matches = self._find_contact_history_files(clean)
         now_iso = datetime.now(timezone.utc).isoformat()
         if not matches:
-            # 该联系人尚无历史文件：创建一个（与 sync_hosting_histories 的结构一致）
-            slug = _slugify_target(clean) or hashlib.sha1(normalize_chat_name(clean).encode("utf-8")).hexdigest()[:6]
-            path = contacts_dir / f"{clean}_{slug}_history.json"
+            # 该联系人尚无历史文件：创建一个（归一化群名如 openbot (2) -> openbot）
+            slug = _slugify_target(base_clean) or hashlib.sha1(normalize_chat_name(base_clean).encode("utf-8")).hexdigest()[:6]
+            path = contacts_dir / f"{base_clean}_{slug}_history.json"
             doc = {
-                "ok": True, "target": clean, "matchedTitle": clean, "slug": slug,
+                "ok": True, "target": base_clean, "matchedTitle": clean, "slug": slug,
                 "observedAt": now_iso, "pages": [], "recordCount": 0,
                 "records": [], "recordKeys": [], "historyPath": str(path),
             }
@@ -2530,16 +2605,7 @@ class WeChatControlEngine:
         max_age_seconds: int = 1800,
     ) -> List[str]:
         """读取联系人近期（默认 30 分钟内）的 media_note 摘要，用于小微/元宝深读结果的跨轮引用。"""
-        clean = str(target or "").strip()
-        if not clean:
-            return []
-        contacts_dir = self.inspector.reports_dir / "contacts"
-        if not contacts_dir.exists():
-            return []
-        matches = sorted(
-            contacts_dir.glob(f"{clean}_*_history.json"),
-            key=lambda p: p.stat().st_mtime,
-        )
+        matches = self._find_contact_history_files(target)
         if not matches:
             return []
         try:
@@ -2619,6 +2685,94 @@ class WeChatControlEngine:
         if not converted:
             return {"ok": False, "error_code": "voice_text_empty", "hint": "转换后未见新增文本（可能语音为空或界面差异）"}
         return {"ok": True, "text": converted[:300]}
+
+    def forward_bubble_via_menu(
+        self,
+        bubble_x: float,
+        bubble_y: float,
+        recipient: str,
+        *,
+        dry_run: bool = False,
+    ) -> Dict[str, Any]:
+        """通过微信右键菜单「转发」把当前气泡（如视频号/公众号卡片）安全转发给已验证的原生助手或白名单联系人。"""
+        self._require("send_text_live")
+        from .media_link_analyzer import is_wechat_ai_assistant_name
+
+        clean_recipient = str(recipient or "").strip()
+        if not clean_recipient:
+            return {"ok": False, "error_code": "recipient_required", "error": "Recipient cannot be empty."}
+        bound_targets = [str(b.get("target") or "").strip() for b in self.bindings.list_bindings()]
+        is_ai = is_wechat_ai_assistant_name(clean_recipient)
+        is_explicit_allow = bool(self.allowlist.enabled and self.allowlist.is_allowed(clean_recipient))
+        is_bound = any(_matches_target(clean_recipient, bt) for bt in bound_targets if bt)
+        if not (is_ai or is_explicit_allow or is_bound):
+            return {
+                "ok": False,
+                "error_code": "recipient_not_allowed",
+                "recipient": clean_recipient,
+                "error": f"Refusing to forward bubble to non-allowlisted recipient {clean_recipient!r}.",
+            }
+        if dry_run:
+            return {
+                "ok": True,
+                "dryRun": True,
+                "recipient": clean_recipient,
+                "isWeChatAiAssistant": is_ai,
+                "bubble": {"x": float(bubble_x), "y": float(bubble_y)},
+            }
+
+        snap_menu = self.inspector.snapshots_dir / "forward_menu_probe.png"
+        self._run_native(["right-click", "--x", str(bubble_x), "--y", str(bubble_y)], 10.0)
+        time.sleep(0.6)
+        cap_menu = self._run_native(["capture-ocr", "--out", str(snap_menu)], 12.0)
+        forward_center = None
+        for el in cap_menu.get("elements") or []:
+            txt = str(el.get("text") or "").strip()
+            if txt.startswith("转发") and isinstance(el.get("center"), dict):
+                forward_center = el["center"]
+                break
+        if not forward_center:
+            return {
+                "ok": False,
+                "error_code": "forward_menu_not_found",
+                "recipient": clean_recipient,
+                "menuItems": [str(e.get("text") or "") for e in (cap_menu.get("elements") or [])[:12]],
+            }
+        self._run_native(["click", "--x", str(forward_center.get("x")), "--y", str(forward_center.get("y"))], 10.0)
+        time.sleep(0.75)
+
+        snap_picker = self.inspector.snapshots_dir / "forward_picker_probe.png"
+        cap_picker = self._run_native(["capture-ocr", "--out", str(snap_picker)], 12.0)
+        rec_center = None
+        for el in cap_picker.get("elements") or []:
+            txt = str(el.get("text") or "").strip()
+            if _matches_target(clean_recipient, txt) and isinstance(el.get("center"), dict):
+                rec_center = el["center"]
+                break
+        if not rec_center:
+            return {
+                "ok": False,
+                "error_code": "forward_recipient_not_visible",
+                "recipient": clean_recipient,
+            }
+        self._run_native(["click", "--x", str(rec_center.get("x")), "--y", str(rec_center.get("y"))], 10.0)
+        time.sleep(0.35)
+        cap_confirm = self._run_native(["capture-ocr", "--out", str(self.inspector.snapshots_dir / "forward_confirm_probe.png")], 12.0)
+        sent_ok = False
+        for el in reversed(cap_confirm.get("elements") or []):
+            txt = str(el.get("text") or "").strip()
+            if txt in ("发送", "确定", "Send", "OK") and isinstance(el.get("center"), dict):
+                c = el["center"]
+                self._run_native(["click", "--x", str(c.get("x")), "--y", str(c.get("y"))], 10.0)
+                sent_ok = True
+                break
+        return {
+            "ok": sent_ok,
+            "forwarded": sent_ok,
+            "recipient": clean_recipient,
+            "isWeChatAiAssistant": is_ai,
+            "error_code": "" if sent_ok else "forward_confirm_button_not_found",
+        }
 
     def push_pending_draft_to_workbench(self, target: str, msgid: str, incoming: str, draft: str) -> Dict[str, Any]:
         """人工接管期间生成的回复草稿同步进待办审阅台，让人工真的看得到、能一键发送。

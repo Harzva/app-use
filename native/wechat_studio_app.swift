@@ -484,7 +484,7 @@ final class StudioAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         let rootView = NSView(frame: frame)
         rootView.autoresizingMask = [.width, .height]
 
-        let barHeight: CGFloat = 48
+        let barHeight: CGFloat = 36
         let toolbar = NSView(frame: NSRect(x: 0, y: frame.height - barHeight, width: frame.width, height: barHeight))
         toolbar.wantsLayer = true
         toolbar.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
@@ -505,15 +505,16 @@ final class StudioAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         btnCollapse = NSButton(title: "收起", target: self, action: #selector(onToggleCollapse))
         btnCollapse.isHidden = true
         let btnWatch = NSButton(title: "立即巡检", target: self, action: #selector(onWatchOnce))
+        let btnSettings = NSButton(title: "⚙️ 设置", target: self, action: #selector(onOpenSettings))
 
         btnTileSplit = NSButton(title: "并排", target: self, action: #selector(onTileWithWeChat))
         let btnRefresh = NSButton(title: "刷新", target: self, action: #selector(onRefresh))
         let btnBrowser = NSButton(title: "浏览器", target: self, action: #selector(onOpenBrowser))
         secondaryButtons = [btnTileSplit!, btnRefresh, btnBrowser]
 
-        for b in [btnDockToggle!, btnCollapse!, btnWatch] {
+        for b in [btnDockToggle!, btnCollapse!, btnWatch, btnSettings] {
             b.bezelStyle = .rounded
-            b.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+            b.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
             b.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
             stack.addArrangedSubview(b)
         }
@@ -1097,6 +1098,10 @@ final class StudioAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
 
     @objc private func onWatchOnce() {
         webView.evaluateJavaScript("if (typeof triggerWatchOnce === 'function') { triggerWatchOnce(false); }", completionHandler: nil)
+    }
+
+    @objc private func onOpenSettings() {
+        webView.evaluateJavaScript("if (typeof openSettingsModal === 'function') { openSettingsModal(); }", completionHandler: nil)
     }
 }
 
