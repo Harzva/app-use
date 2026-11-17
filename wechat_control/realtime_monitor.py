@@ -756,15 +756,22 @@ class WeChatRealtimeMonitor:
                 continue
 
             recent_peer_msgs = [str(b.get("text", "")) for b in bubbles[-6:] if b.get("text")]
+            sender_name = str(last_bubble.get("sender") or "").strip()
+            query_incoming = incoming_text
+            if sender_name and incoming_text.startswith(f"{sender_name}: "):
+                query_incoming = incoming_text[len(sender_name) + 2 :].strip() or incoming_text
             extra_notes, dispatched_receipt = self._agent_dispatch_notes(
-                binding, target, bubbles, incoming_text, inspected,
+                binding, target, bubbles, query_incoming, inspected,
             )
             if extra_notes:
                 recent_peer_msgs = recent_peer_msgs + extra_notes
             mem_ctx = self._memory_context_with_history(target)
+            if sender_name:
+                mem_ctx = dict(mem_ctx or {})
+                mem_ctx["groupSpeaker"] = sender_name
             smart = self.engine.personas.generate_smart_reply(
                 target,
-                incoming_text,
+                query_incoming,
                 knowledge_store=self.engine.knowledge,
                 binding=binding,
                 recent_messages=recent_peer_msgs,

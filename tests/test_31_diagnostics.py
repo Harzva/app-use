@@ -460,6 +460,85 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertLess(main_idx, perm_idx)
         self.assertLess(main_idx, hosting_idx)
 
+    def test_professional_reply_no_jargon_nuke_on_agent_sandbox_and_external_links(self):
+        from wechat_control.live_inspector import WeChatLiveInspector
+
+        # 1) 通用停用词（为什么/需要/可以/那里）不得误命中本机产品 FAQ
+        kb_sandbox = self.engine.knowledge.search_context("为什么Agent 需要沙箱？")
+        self.assertEqual(kb_sandbox["matchedCount"], 0)
+
+        # 2) 包含 Prompt / 熔断 的高质量 LLM 技术答复应平滑替换为自然中文，严禁整段吞没成“还在学习中”
+        recorded = []
+
+        class _FakeHub:
+            def is_llm_enabled(self):
+                return True
+
+            def generate_chat_reply(self, messages, *, model_id=None, contact_name=None):
+                recorded.append(messages)
+                return {
+                    "ok": True,
+                    "replyText": "Agent 需要沙箱是为了隔离权限，防止 Prompt 注入触发越权命令执行或资源安全熔断。",
+                    "modelId": "mock-pro",
+                    "providerId": "mock",
+                    "latencyMs": 10,
+                }
+
+        # legacy aiPersona="warm-companion" 在群聊里不得跌入 rpa-tech-expert；无明确技术指定时走 wecom-kf-pro
+        self.engine.bind_contact("openbot", role="group", ai_persona="warm-companion", auto_reply_enabled=True)
+        res = self.engine.personas.generate_smart_reply(
+            "openbot",
+            "为什么Agent 需要沙箱？",
+            knowledge_store=self.engine.knowledge,
+            binding=self.engine.bindings.get_binding("openbot"),
+            model_hub=_FakeHub(),
+            use_llm=True,
+        )
+        self.assertEqual(res["persona"]["id"], "wecom-kf-pro")
+        self.assertIn("沙箱", res["replyText"])
+        self.assertIn("提示词", res["replyText"])
+        self.assertNotIn("还在学习中", res["replyText"])
+        self.assertNotIn("Prompt", res["replyText"])
+
+        # 3) 第三方开源链接不应把自家 github.com/Harzva/wechat-bot 定价/FAQ 硬塞进 sys_prompt
+        recorded.clear()
+        self.engine.personas.generate_smart_reply(
+            "心安",
+            "LoopForge 的开源地址是：https://github.com/Tencent/LoopForge，可以去那里看完整文档和源码。",
+            knowledge_store=self.engine.knowledge,
+            binding={"role": "friend", "aiPersona": "wecom-kf-pro"},
+            model_hub=_FakeHub(),
+            use_llm=True,
+        )
+        self.assertEqual(len(recorded), 1)
+        self.assertNotIn("Harzva/wechat-bot", recorded[0][0]["content"])
+
+        # 4) 112px 跨度的视频号卡片尾行 + 群聊发言人分离
+        import struct
+        import zlib
+        card_png = self.data / "video_card_112.png"
+        cw, ch = 853, 600
+        raw_rows = b"".join(b"\x00" + (b"\xf5\xf5\xf5" * cw) for _ in range(ch))
+        def _ck(tag, data):
+            return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        ihdr = struct.pack(">IIBBBBB", cw, ch, 8, 2, 0, 0, 0)
+        card_png.write_bytes(b"\x89PNG\r\n\x1a\n" + _ck(b"IHDR", ihdr) + _ck(b"IDAT", zlib.compress(raw_rows)) + _ck(b"IEND", b""))
+
+        bubbles = WeChatLiveInspector.cluster_message_bubbles(
+            [
+                {"text": "心安", "x": 570, "y": 400, "bbox": {"x": 557, "y": 392, "width": 26, "height": 16}},
+                {"text": "看到这个Fable 5.2纯代码视频效果很强", "x": 680, "y": 440, "bbox": {"x": 565, "y": 431, "width": 220, "height": 18}},
+                {"text": "W 高老师的分享局", "x": 620, "y": 552, "bbox": {"x": 570, "y": 544, "width": 100, "height": 14}},
+            ],
+            split_x=489.0,
+            win_w=853.0,
+            image_path=card_png,
+        )
+        self.assertEqual(len(bubbles), 1)
+        self.assertEqual(bubbles[0].get("sender"), "心安")
+        self.assertTrue(bubbles[0]["text"].startswith("心安: "))
+        self.assertIn("高老师的分享局", bubbles[0]["text"])
+
 
 if __name__ == "__main__":
     unittest.main()

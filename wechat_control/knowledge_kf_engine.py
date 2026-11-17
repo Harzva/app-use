@@ -40,10 +40,10 @@ STYLE_LABELS: Dict[str, str] = {
 }
 
 STYLE_DIRECTIVES: Dict[str, str] = {
-    "challenger": "直率核验前提与潜在风险，不被习惯表述带偏。",
-    "builder": "结论先行并给出可执行方案与前置条件。",
-    "neutral": "客观陈述事实、依据与边界，不偏不倚。",
-    "supporter": "积极回应并肯定对方互动细节，自然延展交流。",
+    "challenger": "直率核验前提与潜在风险，不迎合错误假设，给出关键反例或核查点。",
+    "builder": "结论先行，条理清晰地给出核心依据与可执行建议，专业干练、不堆砌套话。",
+    "neutral": "客观陈述事实、依据与边界，分点清晰、不偏不倚。",
+    "supporter": "积极回应并肯定对方观点与互动细节，在此基础上补充有价值的专业延伸。",
 }
 
 _TERM_SPLIT_RE = re.compile(r"[\s,，。、;；:：!！?？\"'“”‘’()（）\[\]{}<>《》~@#$%^&*+=|\\/\-_]+")
@@ -99,6 +99,16 @@ def _guard_secrets(*values: str) -> None:
             raise ValueError("Secret/private-key material is rejected from knowledge store.")
 
 
+_SEARCH_STOPWORDS = frozenset({
+    "什么", "怎么", "怎样", "如何", "为何", "为什么",
+    "可以", "能否", "能不能", "是不是", "是否",
+    "这个", "那个", "这些", "那些", "这样", "那样", "这里", "那里", "这边", "那边",
+    "目前", "现在", "已经", "还是", "或者", "以及", "因为", "所以", "但是", "不过", "如果", "虽然",
+    "需要", "想要", "知道", "觉得", "没有", "不是", "不会", "不能",
+    "我们", "你们", "他们", "大家", "自己", "一下", "看看", "请问", "帮忙",
+})
+
+
 def split_search_terms(query: str, max_terms: int = 16) -> List[str]:
     """Extract phrase, tokenized terms, and 2-char Han bigrams matching OpenBot knowledgeForText."""
     norm = unicodedata.normalize("NFKC", query or "").strip()
@@ -113,19 +123,23 @@ def split_search_terms(query: str, max_terms: int = 16) -> List[str]:
         if not clean:
             return
         cf = clean.casefold()
-        if cf in seen:
+        if cf in _SEARCH_STOPWORDS or cf in seen:
             return
         seen.add(cf)
         terms.append(clean[:40])
 
+    # Extract ASCII/alnum words cleanly even when adjacent to Chinese characters (e.g. "为什么Agent需要")
+    for ascii_tok in re.findall(r"[A-Za-z0-9][A-Za-z0-9_.-]{1,}", norm):
+        _add(ascii_tok)
+
     for raw in _TERM_SPLIT_RE.split(norm):
-        if len(raw) >= 2:
+        if len(raw) >= 2 and not re.search(r"[\u4e00-\u9fff][A-Za-z0-9]|[A-Za-z0-9][\u4e00-\u9fff]", raw):
             _add(raw)
 
-    # Extract sliding 2-char Chinese bigrams and meaningful English/alnum tokens
+    # Extract sliding 2-char Chinese bigrams and meaningful short Han phrases
     han_runs = re.findall(r"[\u4e00-\u9fff]+", norm)
     for run in han_runs:
-        if len(run) <= 6 and len(run) >= 2:
+        if 2 <= len(run) <= 6:
             _add(run)
         for i in range(len(run) - 1):
             _add(run[i : i + 2])
@@ -252,8 +266,8 @@ DEFAULT_SEED_ENTRIES: List[Dict[str, Any]] = [
         "library": "shared",
         "kind": "faq",
         "title": "价格与获取方式",
-        "body": "WaveBot 目前在 GitHub 开源（github.com/Harzva/wechat-bot），可免费下载使用；暂无付费套餐与试用区别，如后续推出企业增值服务会在官网与公众号同步公告。",
-        "keywords": ["多少钱", "收费", "价格", "免费", "费用", "优惠", "试用", "退款", "计费", "折扣", "会员", "开发票", "购买", "太贵", "便宜"],
+        "body": "WaveBot 目前在 GitHub 开源（github.com/Harzva/wechat-bot），可免费下载使用；暂无付费套餐与续费计费，如后续推出企业增值服务会在官网与公众号同步公告。",
+        "keywords": ["多少钱", "收费", "价格", "免费", "费用", "优惠", "试用", "退款", "计费", "折扣", "会员", "开发票", "购买", "续费", "太贵", "便宜"],
         "synonyms": ["报价", "怎么收费", "免费版", "年付", "付款"],
         "source": "openbot://faq/pricing",
         "external": True,
@@ -264,8 +278,8 @@ DEFAULT_SEED_ENTRIES: List[Dict[str, Any]] = [
         "library": "shared",
         "kind": "faq",
         "title": "自动回复与一键托管使用方法",
-        "body": "在首页「好友托管」面板勾选需要托管的好友，点「一键托管」即可：机器人只回复被托管好友的咨询，重启后自动恢复托管状态；随时可停止托管或对单个好友转人工。",
-        "keywords": ["自动回复", "托管", "一键托管", "选择好友", "监管", "开启", "怎么开", "自动恢复", "重启", "同时管", "几个好友", "停止"],
+        "body": "在首页「好友托管」面板勾选需要托管的好友，点「一键托管」即可：机器人只回复被托管好友的咨询，并内置防封频控保护（按小时/每日发送限额与最小回复间隔自动节流），重启后自动恢复托管状态；随时可停止托管或对单个好友转人工。",
+        "keywords": ["自动回复", "托管", "一键托管", "选择好友", "监管", "开启", "怎么开", "自动恢复", "重启", "同时管", "几个好友", "停止", "防封", "封号"],
         "synonyms": ["批量托管", "托管好友", "自动回复设置"],
         "source": "openbot://faq/hosting-usage",
         "external": True,
@@ -275,9 +289,9 @@ DEFAULT_SEED_ENTRIES: List[Dict[str, Any]] = [
         "id": "seed-faq-privacy-security",
         "library": "shared",
         "kind": "faq",
-        "title": "数据安全与隐私说明",
-        "body": "所有消息识别、知识库检索与回复生成都在本机完成，聊天记录与日志保存在本地设备不上传云端；对外分享的代码与配置均已脱敏处理，可放心用于私域客服场景。",
-        "keywords": ["数据", "安全", "隐私", "泄露", "聊天记录", "存储", "本地", "脱敏", "上传", "保密"],
+        "title": "数据安全、备份与导出说明",
+        "body": "所有消息识别、知识库检索与回复生成都在本机完成，聊天记录与日志保存在本地设备不上传云端，支持按需备份与导出文章/视频内容；对外分享的代码与配置均已脱敏处理，可放心用于私域客服场景。",
+        "keywords": ["数据", "安全", "隐私", "泄露", "聊天记录", "存储", "本地", "脱敏", "上传", "保密", "导出", "备份"],
         "synonyms": ["数据存在哪里", "信息安全", "数据保存"],
         "source": "openbot://faq/privacy-security",
         "external": True,
@@ -370,9 +384,9 @@ DEFAULT_PERSONAS: Dict[str, Dict[str, Any]] = {
         "name": "轻松幽默好友",
         "mbti": "ENFP",
         "interactionStyle": "supporter",
-        "tone": "轻松自然、懂得接梗、带温度与适度表情符号",
+        "tone": "专业可靠又不失亲和力，表达自然流畅、直击重点",
         "prefixHint": "哈哈收到啦！",
-        "guidelines": "像熟悉的老友一样自然回话，同时清晰传递知识库要点；避免生硬客服官腔。",
+        "guidelines": "像懂技术的专业好友一样自然回话：有观点、有依据、简练清晰，不背诵生硬客服官腔。",
         "maxChars": 150,
     },
     "wecom-kf-pro": {
@@ -380,9 +394,9 @@ DEFAULT_PERSONAS: Dict[str, Dict[str, Any]] = {
         "name": "微信企业客服专员",
         "mbti": "ISTJ",
         "interactionStyle": "builder",
-        "tone": "礼貌规范、结构清晰、严格遵循已发布话术与专业术语口径",
+        "tone": "礼貌专业、结构清晰、结论明确，严守事实依据与服务边界",
         "prefixHint": "您好，",
-        "guidelines": "以“您好”开头，分点给出准确答案与依据，不对未授权政策作承诺。",
+        "guidelines": "以「您好」开头，先给明确结论再分点给出准确依据或可行建议；对外部话题或技术咨询就事论事专业解答，不泄露内部实现细节。",
         "maxChars": 160,
     },
     "rpa-tech-expert": {
@@ -390,9 +404,9 @@ DEFAULT_PERSONAS: Dict[str, Dict[str, Any]] = {
         "name": "OpenBot 技术架构师",
         "mbti": "INTJ",
         "interactionStyle": "builder",
-        "tone": "硬核干练、善用专业术语（Vision OCR / FTS5 / 3x 熔断 / Takeover）",
-        "prefixHint": "【技术应答】",
-        "guidelines": "直接阐明底层机制、数据链路与安全边界，精准使用术语名称。",
+        "tone": "资深技术顾问视角：结论清晰、直击技术原理与架构权衡，语言简洁干练",
+        "prefixHint": "",
+        "guidelines": "直接拆解核心机理、适用场景、潜在风险与安全边界，就事论事回答，避免内部调试术语或固定前缀套话。",
         "maxChars": 160,
     },
     "concise-assistant": {
@@ -402,7 +416,7 @@ DEFAULT_PERSONAS: Dict[str, Dict[str, Any]] = {
         "interactionStyle": "neutral",
         "tone": "简洁明了、直击结论、不拖泥带水",
         "prefixHint": "收到：",
-        "guidelines": "一句结论 + 关键事实，控制字数在 80 字以内。",
+        "guidelines": "一句核心结论 + 1-2 个关键事实，控制在 80 字以内。",
         "maxChars": 95,
     },
     "owner-digital-twin": {
@@ -814,7 +828,7 @@ class WeChatKnowledgeStore:
                     if kw not in matched_terms:
                         matched_terms.append(kw)
 
-            if score <= 0:
+            if score < 2.0:
                 continue
             if view["kind"] == "terminology":
                 score += 1.5
@@ -1026,10 +1040,14 @@ class PersonaSwitchEngine:
                     selected = dict(personas["owner-digital-twin"])
                 elif "客服" in hint or "kf" in cf or role == "customer":
                     selected = dict(personas["wecom-kf-pro"])
-                elif any(k in hint for k in ("技术", "架构", "研发", "Agent", "StaffDeck")) or role == "group":
+                elif any(k in hint for k in ("技术", "架构", "研发", "Agent", "StaffDeck")):
                     selected = dict(personas["rpa-tech-expert"])
                 elif any(k in hint for k in ("简洁", "助理", "concise")):
                     selected = dict(personas["concise-assistant"])
+                elif role == "group":
+                    selected = dict(personas["wecom-kf-pro"])
+                elif any(k in cf for k in ("warm", "friend", "companion", "友好", "轻松")):
+                    selected = dict(personas["warm-friend"])
                 else:
                     selected = dict(personas["warm-friend"])
 
@@ -1090,6 +1108,14 @@ class PersonaSwitchEngine:
         collapsed = re.sub(r"\s+", " ", (text or "").replace("\r", " ").replace("\n", " ")).strip()
         if len(collapsed) <= max_len:
             return collapsed
+        cut = collapsed[:max_len]
+        for sep in ("。", "；", "！", "？"):
+            idx = cut.rfind(sep)
+            if idx >= max(24, int(max_len * 0.55)):
+                return cut[: idx + 1]
+        idx = cut.rfind("，")
+        if idx >= max(24, int(max_len * 0.65)):
+            return cut[:idx].rstrip("，、；： ") + "…"
         return collapsed[: max_len - 1].rstrip("，、；： ") + "…"
 
     @staticmethod
@@ -1131,14 +1157,30 @@ class PersonaSwitchEngine:
             base = self._clean_single_line(base, budget)
         return f"{base}。{suffix}" if base[-1] not in "。！？～…" else f"{base}{suffix}"
 
-    # 内部术语（客户看不懂）：LLM 模仿知识库技术条目时可能外泄，出口统一净化
+    # 内部术语（客户看不懂）：LLM 模仿知识库技术条目时可能外泄，出口统一温和改写为面向用户的自然表述
     _INTERNAL_JARGON_RE = re.compile(
         r"(FTS5|AXUIElement|熔断|读回|Takeover|3x\b|prompt|system prompt|RealtimeMessageMonitor|RealtimeMonitor|preview_reply|脏输入|CGWindow|VNRecognize|CGEvent|零注入)",
         re.IGNORECASE,
     )
+    _JARGON_REPLACEMENTS: Tuple[Tuple[re.Pattern[str], str], ...] = (
+        (re.compile(r"RealtimeMessageMonitor|RealtimeMonitor", re.I), "实时巡检"),
+        (re.compile(r"VNRecognize\w*|Vision\s*OCR", re.I), "图文识别"),
+        (re.compile(r"CGWindow\w*", re.I), "窗口截图"),
+        (re.compile(r"CGEvent\w*", re.I), "界面操作"),
+        (re.compile(r"AXUIElement", re.I), "界面组件"),
+        (re.compile(r"preview_reply", re.I), "回复预览"),
+        (re.compile(r"FTS5", re.I), "知识库"),
+        (re.compile(r"\bsystem\s+prompt\b|\bprompt\b", re.I), "提示词"),
+        (re.compile(r"\btakeover\b", re.I), "人工接管"),
+        (re.compile(r"3\s*x\s*(?:读回|校验|熔断)|\b3x\b", re.I), "多重校验"),
+        (re.compile(r"脏输入", re.I), "异常输入"),
+        (re.compile(r"零注入", re.I), "非侵入式安全"),
+        (re.compile(r"读回", re.I), "校验"),
+        (re.compile(r"熔断", re.I), "安全拦截"),
+    )
 
     def sanitize_for_customer(self, text: str, max_len: int = 160) -> str:
-        """客户出口净化：内部术语 → 友好话术改写；仍含术语则替换为通用兜底。"""
+        """客户出口净化：内部术语 → 自然易懂的专业表述；去除机械调试前缀。"""
         cleaned = str(text or "").strip()
         if not cleaned:
             return cleaned
@@ -1148,15 +1190,17 @@ class PersonaSwitchEngine:
             cleaned,
         )
         rewritten = re.sub(r"但我只能暂判为[^。；]+[。；]?", "", rewritten)
-        rewritten = rewritten.replace("FTS5", "知识库").replace("Vision OCR", "图片识别")
-        rewritten = rewritten.replace("VNRecognizeTextRequest", "图片识别").replace("CGWindowListCreateImage", "窗口截图")
-        rewritten = rewritten.replace("CGEvent", "消息发送").replace("零注入", "安全")
-        rewritten = rewritten.replace("OCR 噪声偏大", "消息内容识别得不太清楚").replace("3x", "")
-        rewritten = rewritten.replace("熔断", "").replace("读回", "").replace("前置条件：", "")
+        rewritten = rewritten.replace("OCR 噪声偏大", "内容识别不太清晰")
+        for pat, repl in self._JARGON_REPLACEMENTS:
+            rewritten = pat.sub(repl, rewritten)
+        rewritten = re.sub(r"(知识库|校验|多重校验|实时巡检|提示词)\s*\1+", r"\1", rewritten)
+        rewritten = re.sub(r"(?:前置条件|信源标识)[：:]?\s*", "", rewritten)
+        rewritten = re.sub(r"(?:未触发可执行任务|无法定位可执行任务|仅名称无法定位具体条目)[，,；;。]?", "", rewritten)
         rewritten = re.sub(r"已捕获关键词[^。；]+[。；]?", "", rewritten)
         rewritten = re.sub(r"无法可靠[^一-龥，。]*[。；]?", "这条我需要更多信息才能帮到你。", rewritten)
-        rewritten = re.sub(r"前置条件[：:][^。]*[。]?", "", rewritten)
-        # 最终兜底：仍含内部术语 → 通用友好回复
+        rewritten = re.sub(r"\s*([，,。；;！!？?])", r"\1", rewritten)
+        rewritten = re.sub(r"^[，,；;。:\s]+", "", rewritten)
+        # 最终兜底：仅当仍有未替换的内部术语时才触发通用回复
         if self._INTERNAL_JARGON_RE.search(rewritten):
             rewritten = "这条消息我还在学习中，已转交人工客服为您详细解答～"
         return self._clean_single_line(rewritten, max_len)
@@ -1187,14 +1231,27 @@ class PersonaSwitchEngine:
         memory_snippet = str(mem_ctx.get("memoryPromptSnippet") or "").strip()
         memory_refs = list(mem_ctx.get("memoryRefs") or [])
 
+        norm_in = unicodedata.normalize("NFKC", incoming_text or "").strip()
+        in_cf = norm_in.casefold()
         kb_res = knowledge_store.search_context(incoming_text, external_only=True, limit=5)
-        entries = kb_res.get("entries") or []
+        raw_entries = kb_res.get("entries") or []
+        has_url = bool(re.search(r"(?:https?://|github\.com/)", in_cf))
+        mentions_self_product = any(
+            k in in_cf for k in ("wavebot", "harzva/wechat-bot", "yobot", "微信客服", "自动回复", "托管")
+        )
+        is_external_link = has_url and not mentions_self_product
+        entries = (
+            [
+                e
+                for e in raw_entries
+                if not str(e.get("id") or "").startswith("seed-") and float(e.get("score") or 0.0) >= 8.0
+            ]
+            if is_external_link
+            else raw_entries
+        )
         terms_hit = [e for e in entries if e["kind"] == "terminology"]
         scripts_hit = [e for e in entries if e["kind"] == "script"]
         knowledge_hit = [e for e in entries if e["kind"] in ("knowledge", "faq")]
-
-        norm_in = unicodedata.normalize("NFKC", incoming_text or "").strip()
-        in_cf = norm_in.casefold()
         # 空/纯标点消息早退：不走 KB 检索，避免误命中内部术语条目
         _substantive = re.sub(r"[\s。，．,．.！!？?～~、…·•\-_=]+", "", norm_in)
         if not _substantive:
@@ -1239,6 +1296,9 @@ class PersonaSwitchEngine:
                        "人工接管", "人工在线", "找主管", "你们主管", "找经理", "找负责人", "要投诉",
                        "transfer to human", "human agent", "real person")
         is_explicit_handoff = any(kw in in_cf for kw in _handoff_kw)
+
+        card_m = re.match(r"^(?:[CVWXYMcvwxym]\s+(\S.*)|([◎•·∞♡〇])\s*(\S.*))$", norm_in)
+        is_card_source_only = bool(card_m) and len(norm_in) <= 24 and "?" not in norm_in and "？" not in norm_in
 
         # Build fact-grounded answer tailored strictly in tone/structure by persona
         shared_mems = (mem_ctx.get("memories") or {}).get("sharedContext") or []
@@ -1294,12 +1354,15 @@ class PersonaSwitchEngine:
                 reply = f"结论：{core_fact}"
             else:
                 reply = f"嘿～简单来说区别在这：{core_fact} 是不是比纯靠死坐标靠谱多啦 😄"
+        elif is_card_source_only:
+            card_name = (card_m.group(1) or card_m.group(3) or norm_in).strip()
+            reply = f"您好，看到您分享了「{card_name}」的内容卡片；目前仅能看到来源标题，方便贴一下具体链接或想交流的问题，我帮您进一步梳理分析。"
         elif is_explicit_handoff:
             # 显式转人工意图优先于 KB 命中（包括英文 transfer to human）
             if pid == "wecom-kf-pro":
                 reply = "好的，已为您标记转接人工客服，专员会尽快跟进您的问题，请稍候～"
             elif pid == "rpa-tech-expert":
-                reply = f"已识别转人工意图；已进入人工接管队列，等待号主上线处理。"
+                reply = "已收到转人工请求，已转交人工团队为您跟进处理，请稍候。"
             elif pid == "concise-assistant":
                 reply = "已转人工，请稍候。"
             else:
@@ -1334,7 +1397,7 @@ class PersonaSwitchEngine:
                 if pid == "wecom-kf-pro":
                     reply = "好的，已为您标记转接人工客服，专员会尽快跟进您的问题，请稍候～"
                 elif pid == "rpa-tech-expert":
-                    reply = f"已识别转人工意图「{clean_in}」{recent_hint}；已进入人工接管队列，等待号主上线处理。"
+                    reply = f"已收到「{clean_in}」的转人工请求{recent_hint}，已转交人工团队处理。"
                 elif pid == "concise-assistant":
                     reply = "已转人工，请稍候。"
                 else:
@@ -1342,11 +1405,11 @@ class PersonaSwitchEngine:
             elif pid == "wecom-kf-pro":
                 reply = f"您好，我已实时收到您的消息「{clean_in}」。当前知识库暂未收录该细分条款，我已为您记录并可转人工客服核对确认。"
             elif pid == "rpa-tech-expert":
-                reply = f"RealtimeMonitor 已捕获来信「{clean_in}」{recent_hint}；当前 KB 未命中精确术语条目，已进入标准人工待核队列。"
+                reply = f"关于「{clean_in}」{recent_hint}，我已记录要点；如有具体文档、链接或报错细节可继续发我，也可以为您转交人工跟进。"
             elif pid == "concise-assistant":
                 reply = f"已收到「{clean_in}」，知识库暂无直接条目，已记录。"
             else:
-                reply = f"收到「{clean_in}」啦！{recent_hint}我的实时监控正稳稳盯着窗口呢，你想测什么话术、术语或切换哪种性格随时告诉我～🤖"
+                reply = f"收到「{clean_in}」啦！{recent_hint}有什么想继续探讨的细节、文档或问题随时发我就行～"
 
         # 人性化变化：同一客户重问时回复不同，防止 120s 内容级防重发把第二次答复拦掉
         if pid != "rpa-tech-expert" and not is_explicit_handoff:
@@ -1365,8 +1428,19 @@ class PersonaSwitchEngine:
             kb_snippets = "\n".join(
                 f"- [{e['kind']}] {e['title']}: {e['body'][:180]}"
                 for e in entries[:4]
-            ) or "（本次来信未命中特定企业知识库条目，按角色与对话语境自然作答）"
-            recent_ctx = "\n".join(f"- {m[:120]}" for m in (recent_messages or [])[-4:]) or "（暂无历史消息）"
+            ) or "（本次来信未命中特定企业知识库条目，按专业常识与当前对话语境直接作答）"
+            chat_lines: List[str] = []
+            media_notes: List[str] = []
+            for m in (recent_messages or []):
+                s_m = str(m or "").strip()
+                if not s_m:
+                    continue
+                if s_m.startswith(("[链接深读:", "[图片识别:", "[视频识别:", "[识别指令:")):
+                    media_notes.append(f"- {s_m[:420]}")
+                else:
+                    chat_lines.append(f"- {s_m[:160]}")
+            recent_ctx = "\n".join(chat_lines[-5:]) or "（暂无历史消息）"
+            media_block = ("\n深读解析上下文（已提取的链接/图文/视频事实）：\n" + "\n".join(media_notes[:3]) + "\n") if media_notes else ""
             # 聊天历史往来（导入的旧记录 + 托管实时沉淀）注入参考，机器人"记得"之前聊过什么
             history_snippet = str((memory_context or {}).get("historyThreadSnippet") or "").strip()
             if history_snippet:
@@ -1382,17 +1456,26 @@ class PersonaSwitchEngine:
                     f"双方长期共同记忆（facts/events/shared）：\n{memory_snippet or '（暂无）'}\n"
                 )
             max_chars = int(persona.get("maxChars") or 160)
+            target_chars = max(60, max_chars - 12)
+            speaker = str((memory_context or {}).get("groupSpeaker") or "").strip()
+            speaker_hint = f"群内发言人：{speaker}\n" if speaker else ""
+            card_hint = "\n提示：对方仅发来了公众号/视频号来源卡片标题，请礼貌说明目前仅能看到标题，并邀请对方补充原文链接或想讨论的具体问题。\n" if is_card_source_only else ""
             sys_prompt = (
-                f"你正在代表主人回复微信好友「{target}」的消息。\n"
+                f"你正在代表号主通过微信与「{target}」专业沟通。\n"
                 f"当前性格角色：{persona['name']}（MBTI: {persona['mbti']}，互动风格: {persona.get('interactionStyleLabel', '')}）。\n"
-                f"性格设定：{persona.get('tone', '')} {persona.get('guidelines', '')}\n"
-                f"互动指令：{persona.get('styleDirective', '')}\n"
-                f"企业知识库与术语参考：\n{kb_snippets}{soul_block}\n"
-                f"硬性要求：1) 必须符合上述人设、长期记忆与知识库事实；2) 输出单行自然口语微信回复，不要 Markdown 标题或引号；3) 字数控制在 {max_chars} 字以内。"
+                f"角色定位与要求：{persona.get('tone', '')} {persona.get('guidelines', '')}\n"
+                f"表达原则：{persona.get('styleDirective', '')}\n"
+                f"企业知识库与术语参考（仅在对方确实咨询我们的产品、定价、功能、权限或服务政策时引用；若对方询问通用技术原理、行业问题或分享第三方 GitHub/文章/视频，请直接就事论事给出专业解答或点评，切勿生硬推销或强行附加无关产品链接）：\n{kb_snippets}"
+                f"{media_block}{soul_block}{card_hint}\n"
+                "高质量专业回复标准：\n"
+                "1) 结论清晰、信息密度高：先给出明确判断或核心结论，再补充 1-2 条关键依据、机制拆解或可执行建议。\n"
+                "2) 若「深读解析上下文」已有识别结论，优先紧扣其中的具体项目/观点作答。\n"
+                "3) 面向真实客户/好友输出自然流畅、不亢不卑的中文单行文本，严禁出现内部模块或调试词汇（如 FTS5、AXUIElement、RealtimeMessageMonitor、127.0.0.1:18788、信源标识、未触发可执行任务、前置条件），不要 Markdown 标题或多余引号。\n"
+                f"4) 必须完整收尾，总字数严格控制在 {target_chars} 字以内（上限 {max_chars} 字），避免半句话被截断。"
             )
             user_prompt = (
-                f"最近聊天参考：\n{recent_ctx}\n\n"
-                f"好友发来新消息：{norm_in}\n请直接给出一条微信回复："
+                f"{speaker_hint}最近聊天参考：\n{recent_ctx}\n\n"
+                f"对方发来新消息：{norm_in}\n请直接给出一条专业、自然、直击要点的微信回复："
             )
             llm_res = hub.generate_chat_reply(
                 [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}],
@@ -1427,8 +1510,8 @@ class PersonaSwitchEngine:
                 term for e in entries for term in (e.get("matchedTerms") or [])
             ][:8],
         }
-        # 内部人设（号主技术测试）保留技术口径；客户人设统一净化
-        if str(persona.get("id") or "") != "rpa-tech-expert":
+        # 对所有客户向人设与 LLM 实发回复统一执行客户出口术语净化与句界规整
+        if generation_mode == "llm_magpie" or str(persona.get("id") or "") != "rpa-tech-expert":
             final_text = self.sanitize_for_customer(final_text, max_len=int(persona.get("maxChars") or 160))
         return {
             "ok": True,

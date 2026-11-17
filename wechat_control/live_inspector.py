@@ -35,7 +35,7 @@ _TIMESTAMP_DIVIDER_RE = re.compile(
 
 
 _BADGE_RE = re.compile(r"^\d{1,3}\+?$")
-_CARD_SOURCE_RE = re.compile(r"^[CVWcvw◎•·]\s*\S+")
+_CARD_SOURCE_RE = re.compile(r"^(?:[CVWXYMcvwxym]\s+\S+|[◎•·∞♡〇]\s*\S+)")
 
 
 def _slugify_target(target: str) -> str:
@@ -478,9 +478,9 @@ class WeChatLiveInspector:
                 and current["direction"] == "peer"
                 and direction == "peer"
                 and current["timeMarker"] == active_time_marker
-                and len(txt) <= 20
+                and len(txt) <= 24
                 and (bool(_CARD_SOURCE_RE.match(txt)) or "公众号" in txt or "视频号" in txt)
-                and -4.0 <= dy <= 95.0
+                and -4.0 <= dy <= 165.0
             )
             if (
                 current is not None
@@ -488,8 +488,14 @@ class WeChatLiveInspector:
                 and current["timeMarker"] == active_time_marker
                 and (-4.0 <= dy <= 34.0 or same_group_head or card_footer_follow)
             ):
+                if same_group_head and dy >= 24.0 and not current.get("sender"):
+                    current["sender"] = current["lines"][0].strip()
                 current["lines"].append(txt)
-                current["text"] = WeChatLiveInspector._join_bubble_lines(current["lines"])
+                if current.get("sender") and len(current["lines"]) >= 2:
+                    body_text = WeChatLiveInspector._join_bubble_lines(current["lines"][1:])
+                    current["text"] = f"{current['sender']}: {body_text}"
+                else:
+                    current["text"] = WeChatLiveInspector._join_bubble_lines(current["lines"])
                 current["yBottom"] = round(max(float(current["yBottom"]), y_bottom), 1)
                 current["_lastCenterY"] = max(float(current["_lastCenterY"]), y_center)
             else:
