@@ -441,6 +441,25 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["unreadBadge"], "dot")
 
+    def test_web_console_left_chat_list_and_top_ribbon_layout(self):
+        from wechat_control.web_console import render_web_console_html
+
+        html = render_web_console_html()
+        # 顶部彩带栏采用横向布局（不再占用左侧 216px 整列）
+        self.assertIn("flex-direction: row !important;", html)
+        self.assertIn(".hosting-panel[hidden] { display: none !important; }", html)
+
+        monitor_idx = html.index('id="tab-monitor"')
+        aside_idx = html.index('<aside class="home-conversations"', monitor_idx)
+        main_idx = html.index('<main class="chat-main-pane"', monitor_idx)
+        hosting_idx = html.index('id="hostingPanel"', monitor_idx)
+        perm_idx = html.index('id="permPanel"', monitor_idx)
+
+        # 聊天列表位于最左侧列，#permPanel 与 #hostingPanel 位于右侧主工作区内，不压在聊天列表上方
+        self.assertLess(aside_idx, main_idx)
+        self.assertLess(main_idx, perm_idx)
+        self.assertLess(main_idx, hosting_idx)
+
 
 if __name__ == "__main__":
     unittest.main()

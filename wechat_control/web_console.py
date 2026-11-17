@@ -696,31 +696,32 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       white-space: nowrap !important;
     }
 
-    /* Fixed 216px Sidebar + Clean Main Canvas */
+    /* Unified Top Horizontal Ribbon + Full-Height Left Chat Sidebar */
     .container {
-      max-width: 1400px !important;
-      margin: 0 auto !important;
+      max-width: none !important;
+      margin: 0 !important;
       padding: 0 !important;
-      display: grid !important;
-      grid-template-columns: 216px minmax(0, 1fr);
-      min-height: 100vh;
-      align-items: stretch;
+      display: flex !important;
+      flex-direction: column;
+      min-height: 100dvh;
     }
 
     nav.tabs {
-      grid-column: 1;
-      grid-row: 1 / span 16;
       position: sticky;
       top: 0;
-      height: 100vh;
-      overflow-y: auto;
+      z-index: 50;
+      width: 100%;
+      height: auto !important;
+      overflow: visible;
       display: flex !important;
-      flex-direction: column !important;
-      flex-wrap: nowrap !important;
+      flex-direction: row !important;
+      flex-wrap: wrap !important;
+      align-items: center !important;
       gap: 4px !important;
-      padding: 14px 10px !important;
-      background: var(--surface) !important;
-      border-right: 1px solid var(--border) !important;
+      padding: 6px 14px !important;
+      background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 6%, var(--surface)) 0%, var(--surface) 100%) !important;
+      border: 0 !important;
+      border-bottom: 1px solid var(--border) !important;
       border-radius: 0 !important;
       box-shadow: none !important;
       margin: 0 !important;
@@ -730,11 +731,14 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 4px 8px 10px;
-      font-size: 14px;
-      font-weight: 600;
+      padding: 4px 12px 4px 4px;
+      margin-right: 4px;
+      border-right: 1px solid var(--border);
+      font-size: 13.5px;
+      font-weight: 650;
       letter-spacing: -0.01em;
       color: var(--text);
+      white-space: nowrap;
     }
 
     .nav-dot {
@@ -746,9 +750,9 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
     }
 
     .nav-cta {
-      width: 100%;
-      margin-bottom: 10px;
-      padding: 7px 10px;
+      width: auto;
+      margin-bottom: 0;
+      padding: 5px 10px;
       border-radius: var(--radius-sm);
       border: 1px solid var(--border-strong);
       background: var(--surface-soft);
@@ -764,10 +768,10 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
 
     nav.tabs .tab-btn {
       position: relative;
-      width: 100% !important;
+      width: auto !important;
       text-align: left !important;
       justify-content: flex-start !important;
-      padding: 7px 10px !important;
+      padding: 5px 11px !important;
       border-radius: var(--radius-sm) !important;
       font-size: 13px !important;
       font-weight: 500 !important;
@@ -775,6 +779,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       color: var(--text-secondary) !important;
       border: 1px solid transparent !important;
       box-shadow: none !important;
+      white-space: nowrap;
       transition: background-color 140ms var(--ease-out), color 140ms var(--ease-out);
     }
     nav.tabs .tab-btn:hover {
@@ -789,49 +794,76 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
     }
 
     .nav-more {
-      margin-top: auto;
-      padding-top: 8px;
-      border-top: 1px solid var(--border);
+      position: relative;
+      margin-top: 0;
+      padding-top: 0;
+      border-top: 0;
     }
     .nav-more summary {
       cursor: pointer;
       list-style: none;
-      padding: 7px 10px;
-      font-size: 12.5px;
+      padding: 5px 10px;
+      font-size: 13px;
       font-weight: 500;
-      color: var(--text-muted);
+      color: var(--text-secondary);
       border-radius: var(--radius-sm);
+      white-space: nowrap;
+      user-select: none;
     }
-    .nav-more summary:hover { color: var(--text); background: var(--surface-soft); }
-    .nav-more[open] summary { color: var(--text); margin-bottom: 4px; }
+    .nav-more summary:hover,
+    .nav-more[open] summary,
+    .nav-more:has(.tab-btn.active) > summary {
+      color: var(--text);
+      background: var(--surface-soft);
+    }
+    .nav-more[open] summary { margin-bottom: 0; }
+    .nav-more-list {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      min-width: 176px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      box-shadow: var(--shadow-md);
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      z-index: 70;
+    }
+    .nav-more-list .tab-btn {
+      width: 100% !important;
+    }
 
-    .container > :not(nav.tabs) {
-      grid-column: 2;
+    .container > * {
       min-width: 0;
     }
 
-    /* Compact Single-Row Quiet Header */
+    /* Compact Status & Window Tools Integrated into Top Ribbon */
     .topbar {
+      margin-left: auto !important;
       display: flex !important;
       align-items: center !important;
-      justify-content: space-between !important;
-      gap: 12px !important;
-      padding: 8px 20px !important;
-      min-height: 44px;
-      background: var(--surface) !important;
+      justify-content: flex-end !important;
+      gap: 10px !important;
+      padding: 0 !important;
+      min-height: 0 !important;
+      background: transparent !important;
       border: none !important;
-      border-bottom: 1px solid var(--border) !important;
       border-radius: 0 !important;
       box-shadow: none !important;
-      margin: 0 !important;
+      margin-top: 0 !important;
+      margin-bottom: 0 !important;
+      flex-wrap: nowrap !important;
     }
 
     .tb-left {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       min-width: 0;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
     }
     .tb-pipeline {
       font-size: 12.5px;
@@ -912,12 +944,15 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
     .menu-item:hover { background: var(--surface-soft); }
 
     .tab-panel {
-      padding: 18px 22px 32px !important;
-      max-width: 1080px;
+      padding: 18px 24px 32px !important;
+      max-width: 1120px;
+      width: 100%;
+      margin: 0 auto;
     }
     #tab-monitor.tab-panel {
-      max-width: none;
-      padding: 14px 18px 22px !important;
+      max-width: none !important;
+      padding: 0 !important;
+      margin: 0 !important;
     }
 
     /* Unified Calm Surfaces, Buttons, Inputs & Pill Restraint */
@@ -1044,7 +1079,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
     .chat-bubble-head { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
     .chat-bubble-stream {
       background: var(--surface-soft); border: 1px solid var(--border);
-      border-radius: 12px; padding: 14px; max-height: 340px; overflow-y: auto;
+      border-radius: 12px; padding: 14px; min-height: 220px; max-height: 400px; overflow-y: auto;
       display: flex; flex-direction: column; gap: 10px;
     }
     .bubble-row { display: flex; }
@@ -1078,27 +1113,29 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
 
     /* 首页「一键托管好友」面板 */
     .hosting-panel {
-      background: var(--surface-soft);
+      background: var(--surface);
       border: 1px solid var(--border);
       border-left: 3px solid var(--primary);
       border-radius: 10px;
-      padding: 14px 16px;
-      margin-bottom: 14px;
+      padding: 10px 14px;
+      margin-bottom: 0;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 6px;
     }
-    .hosting-status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .hosting-panel[hidden] { display: none !important; }
+    .hosting-top-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .hosting-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; flex: 1 1 260px; }
     .hosting-badge {
-      font-size: 14px; font-weight: 600;
-      padding: 4px 12px; border-radius: 999px;
+      font-size: 13px; font-weight: 600;
+      padding: 3px 10px; border-radius: 999px;
       background: var(--surface-soft); border: 1px solid var(--border);
-      color: var(--text-secondary);
+      color: var(--text-secondary); white-space: nowrap;
     }
     .hosting-badge.on { background: #dcfce7; border-color: #86efac; color: #166534; }
     .hosting-meta { color: var(--text-secondary); font-size: 12px; }
-    .hosting-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-    .hosting-btn { font-size: 14px !important; padding: 8px 20px !important; font-weight: 600 !important; }
+    .hosting-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .hosting-btn { font-size: 13px !important; padding: 6px 14px !important; font-weight: 600 !important; }
     .hosting-picker summary { cursor: pointer; font-weight: 600; font-size: 13px; color: var(--text-secondary); }
     .hosting-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 8px 0; }
     .hosting-hint { color: var(--text-secondary); font-size: 12px; }
@@ -1365,57 +1402,42 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
     }
 
     @media (max-width: 900px) {
-      .container { grid-template-columns: 1fr !important; }
-      nav.tabs {
-        grid-column: 1 !important;
-        grid-row: auto !important;
-        position: static !important;
-        height: auto !important;
-        flex-direction: row !important;
-        flex-wrap: wrap !important;
-        border-right: none !important;
-        border-bottom: 1px solid var(--border) !important;
-        padding: 8px 10px !important;
-      }
-      .nav-brand, .nav-cta, .nav-more { width: 100%; margin: 2px 0; }
-      nav.tabs .tab-btn { width: auto !important; flex: 1 1 auto; text-align: center !important; }
-      .container > :not(nav.tabs) { grid-column: 1 !important; }
+      .nav-brand, .nav-cta { display: none; }
+      nav.tabs { padding: 6px 10px !important; }
+      nav.tabs .tab-btn { flex: 0 0 auto; text-align: center !important; }
       .chat-workspace { grid-template-columns: 1fr; }
       .chat-thread-list { max-height: 220px; }
       .chat-context-bar { grid-template-columns: 1fr 1fr; }
     }
 
     @media (max-width: 520px) {
-      .topbar { padding: 8px 10px !important; }
+      .topbar { padding: 0 !important; }
       .tb-pipeline { font-size: 11.5px; }
       .tab-panel { padding: 10px 10px 24px !important; }
       .chat-context-bar { grid-template-columns: 1fr; }
       .chat-incoming-wrap textarea { max-width: 100%; }
     }
 
-    /* Shared workspace: a compact header, quiet surfaces and a dedicated statistics view. */
-    .container { grid-template-rows: auto auto 1fr; min-height: 100dvh; }
-    nav.tabs { grid-row: 1 / span 3; height: 100dvh; }
-    .topbar { grid-row: 1; }
-    .auth-banner { grid-row: 2; }
-    .tab-panel { grid-row: 3; }
-    .tb-left { flex: 1; }
+    /* Shared workspace: top horizontal ribbon + leftmost conversation rail + quiet action surface. */
+    .container { display: flex !important; flex-direction: column; min-height: 100dvh; }
+    .tb-left { flex: 0 1 auto; }
     .tb-pipeline { min-width: 0; }
     .topbar .status-pills { display: none !important; }
-    .nav-more { margin-top: 10px; }
-    .chat-workspace { container: conversation / inline-size; grid-template-columns: minmax(165px, 220px) minmax(0, 1fr); }
-    .chat-thread-list { display: block; padding: 0; max-height: calc(100dvh - 78px); }
+    .nav-more { margin-top: 0; }
+    .chat-workspace { container: conversation / inline-size; grid-template-columns: minmax(220px, 268px) minmax(0, 1fr); }
+    .chat-thread-list { display: block; padding: 0; max-height: none; }
     .chat-thread-list > summary, .reply-settings > summary {
       cursor: pointer;
       font-size: 13px;
       font-weight: 600;
-      padding: 9px 12px;
+      padding: 10px 12px;
     }
     .chat-thread-list[open] > summary { border-bottom: 1px solid var(--border); }
-    #monitorEventsList { padding: 4px 6px; }
+    #monitorEventsList { padding: 6px; flex: 1; overflow-y: auto; }
     .chat-main-pane { width: 100%; min-width: 0; max-width: none; gap: 10px; }
-    .conversation-recipient { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; }
-    .conversation-recipient label, .chat-field-label { font-size: 13px; font-weight: 600; }
+    .chat-pane-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .conversation-recipient { display: inline-flex; align-items: center; gap: 8px; flex: 1 1 260px; max-width: 420px; margin-left: auto; }
+    .conversation-recipient label, .chat-field-label { font-size: 13px; font-weight: 600; white-space: nowrap; }
     .reply-settings { border-top: 1px solid var(--border); }
     .reply-settings > summary { color: var(--text-secondary); padding-inline: 0; }
     .reply-settings .chat-context-bar { border: 0; padding: 0 0 6px; border-radius: 0; }
@@ -1471,12 +1493,12 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
     .topbar-more > summary {
       list-style: none; cursor: pointer; padding: 4px 9px;
       border: 1px solid var(--border); border-radius: var(--radius-sm);
-      color: var(--text); font-size: 13px; white-space: nowrap;
+      color: var(--text); font-size: 12.5px; white-space: nowrap;
     }
     .topbar-more > summary::-webkit-details-marker { display: none; }
     .topbar-more[open] > .more-popover {
       display: grid; position: absolute; inset: calc(100% + 6px) 0 auto auto;
-      gap: 2px; z-index: 20; width: min(240px, calc(100vw - 28px));
+      gap: 2px; z-index: 70; width: min(240px, calc(100vw - 28px));
     }
 
     @container conversation (max-width: 510px) {
@@ -1484,38 +1506,10 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       .composer-actions { width: 100%; }
       .composer-actions button { flex: 1; }
     }
-    @media (max-width: 900px) {
-      .container { grid-template-rows: auto auto auto 1fr; }
-      nav.tabs {
-        grid-row: 2 !important; display: grid !important;
-        grid-template-columns: auto auto auto minmax(0, 1fr); align-items: start;
-        padding: 5px 10px !important; gap: 4px !important;
-      }
-      .auth-banner { grid-row: 3; }
-      .tab-panel { grid-row: 4; }
-      nav.tabs .nav-brand, nav.tabs .nav-cta { display: none; }
-      nav.tabs > .tab-btn, .nav-more summary { padding: 5px 7px !important; white-space: nowrap; }
-      .nav-more { margin: 0; padding: 0; border: 0; }
-      .nav-more[open] { grid-column: 1 / -1; }
-      .nav-more[open] .tab-btn { display: inline-flex; }
-      nav.tabs .tab-btn { max-width: 100%; }
-      .nav-more summary { text-align: end; }
-      .tb-pipeline .desktop-detail { display: none; }
-      .tb-right .seg-group, #tfTakeoverBtn { display: none; }
-      .chat-workspace { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-      .chat-thread-list[open] { max-height: min(240px, 35dvh); }
-      #tab-monitor.tab-panel { padding: 10px 12px 18px !important; }
-    }
-    @media (max-width: 390px) {
-      .topbar .btn-outline { padding-inline: 6px; }
-      nav.tabs { grid-template-columns: auto auto auto minmax(0, 1fr); gap: 2px !important; }
-      nav.tabs > .tab-btn { padding-inline: 5px !important; }
-      .stats-time-row { grid-template-columns: minmax(0, 130px) minmax(16px, 1fr) auto; }
-    }
-    /* Daily workspace: one quiet action surface and a separate list of recent conversations. */
+    /* Daily workspace: one quiet action surface and a separate leftmost list of recent conversations. */
     :root {
-      --work-rail: #f7f7f4;
-      --work-selection: #e9f0eb;
+      --work-rail: #f4f5f2;
+      --work-selection: #e6efe8;
       --work-pine: #27593f;
       --work-on-pine: #ffffff;
       --work-muted: #535c55;
@@ -1525,7 +1519,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
     }
     html[data-theme="dark"] {
       color-scheme: dark;
-      --work-rail: #1b201d;
+      --work-rail: #171c19;
       --work-selection: #293b31;
       --work-pine: #acd9b9;
       --work-on-pine: #14281c;
@@ -1538,10 +1532,14 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
     @media (prefers-color-scheme: dark) {
       html:not([data-theme]) { color-scheme: dark; }
     }
-    nav.tabs .workspace-link { display: block; text-decoration: none; }
-    nav.tabs .tab-btn.active { background: var(--work-selection) !important; }
+    nav.tabs {
+      background: linear-gradient(180deg, color-mix(in srgb, var(--work-pine) 6%, var(--surface)) 0%, var(--surface) 100%) !important;
+      border-bottom-color: var(--work-divider) !important;
+    }
+    nav.tabs .workspace-link { display: inline-flex; text-decoration: none; }
+    nav.tabs .tab-btn.active { background: var(--work-selection) !important; color: var(--work-pine) !important; border-color: color-mix(in srgb, var(--work-pine) 25%, transparent) !important; }
     nav.tabs .nav-dot { background: var(--work-pine); }
-    nav.tabs > :is(button,a), .nav-more > summary { min-block-size: 36px; }
+    nav.tabs > :is(button,a), .nav-more > summary { min-block-size: 32px; }
     nav.tabs .tab-btn:focus-visible,
     .topbar :is(summary,button):focus-visible,
     #tab-monitor :is(button,summary,input,textarea,select):focus-visible {
@@ -1550,7 +1548,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
     }
     .topbar-more[open] > .more-popover { box-shadow: 0 3px 10px rgb(0 0 0 / 12%); }
     .topbar-more > summary { display: flex; align-items: center; min-block-size: 30px; }
-    .home-connection { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--work-muted); }
+    .home-connection { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--work-muted); white-space: nowrap; }
     .home-connection::before {
       content: ""; inline-size: 7px; block-size: 7px; flex: none;
       border: 1px solid currentColor; border-radius: 50%;
@@ -1558,36 +1556,53 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
     .home-connection[data-state="ready"] { color: var(--work-pine); }
     .home-connection[data-state="ready"]::before { background: currentColor; }
     .home-connection[data-state="limited"] { color: var(--work-alert); }
-    #tab-monitor.tab-panel { padding: 20px 24px 24px !important; }
+    #tab-monitor.tab-panel { padding: 0 !important; max-width: none !important; }
     #tab-monitor .chat-workspace {
-      grid-template-columns: minmax(165px, 222px) minmax(0, 660px);
-      gap: 20px;
+      display: grid;
+      grid-template-columns: minmax(220px, 268px) minmax(0, 1fr);
+      gap: 0;
+      align-items: stretch;
+      min-height: calc(100dvh - 46px);
     }
-    .home-conversations { min-inline-size: 0; }
-    #tab-monitor .chat-thread-list {
+    .home-conversations {
+      min-inline-size: 0;
+      position: sticky;
+      top: 46px;
+      height: calc(100dvh - 46px);
+      overflow-y: auto;
       background: var(--work-rail);
-      border: 1px solid var(--work-divider);
-      border-radius: 8px;
+      border-right: 1px solid var(--work-divider);
+      display: flex;
+      flex-direction: column;
     }
-    #tab-monitor .chat-thread-list > summary { padding-block: 11px; }
+    #tab-monitor .chat-thread-list {
+      background: transparent;
+      border: 0;
+      border-radius: 0;
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+    #tab-monitor .chat-thread-list > summary { padding: 10px 12px; border-bottom: 1px solid var(--work-divider); }
     #tab-monitor .chat-thread-list[open] > summary { border-color: var(--work-divider); }
     .conversation-count { margin-inline-start: 4px; color: var(--work-muted); font-weight: 400; font-variant-numeric: tabular-nums; }
     .home-empty { margin: 0; padding: 10px 7px; color: var(--work-muted); font-size: 13px; overflow-wrap: anywhere; }
     #tab-monitor .chat-list-head {
       display: grid; gap: 2px; justify-items: start;
-      padding: 7px 10px 10px; border: 0; border-top: 1px solid var(--work-divider);
+      padding: 8px 10px 10px; border: 0; border-top: 1px solid var(--work-divider);
+      margin-top: auto;
     }
     #tab-monitor .chat-list-head button { min-height: 29px; color: var(--work-muted) !important; }
     #tab-monitor .chat-thread-row + .chat-thread-row { border-block-start: 1px solid var(--work-divider) !important; }
-    #tab-monitor .chat-thread-row { border-radius: 5px !important; min-height: 47px; }
+    #tab-monitor .chat-thread-row { border-radius: 6px !important; min-height: 50px; }
     #tab-monitor .chat-thread-row[aria-pressed="true"] { background: var(--work-selection) !important; color: var(--work-pine) !important; }
     #tab-monitor .chat-row-top { inline-size: 100%; min-inline-size: 0; }
     #tab-monitor .chat-row-top > span:first-child,
     #tab-monitor .chat-row-snippet { min-inline-size: 0; max-inline-size: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #tab-monitor .chat-row-meta { flex: none; color: var(--work-muted); font-variant-numeric: tabular-nums; }
     #tab-monitor .chat-row-snippet, #tab-monitor .chat-feedback { color: var(--work-muted); }
-    #tab-monitor .chat-main-pane { gap: 12px; }
-    .conversation-heading { margin: 0; font-size: 22px; line-height: 1.3; font-weight: 650; }
+    #tab-monitor .chat-main-pane { gap: 10px; padding: 14px 20px 24px; min-width: 0; max-width: 960px; }
+    .conversation-heading { margin: 0; font-size: 18px; line-height: 1.3; font-weight: 650; }
     #tab-monitor :is(.chat-stream-card,.chat-composer) {
       background: transparent;
       border: 0;
@@ -1600,12 +1615,12 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       background: var(--surface) !important;
       color: var(--text) !important;
       font-size: 14px !important;
-      padding: 8px 10px !important;
+      padding: 7px 10px !important;
       inline-size: 100%;
       max-inline-size: 100%;
       min-inline-size: 0;
     }
-    #tab-monitor :is(#previewIncoming,#sendText) { min-block-size: 76px; resize: vertical; }
+    #tab-monitor :is(#previewIncoming,#sendText) { min-block-size: 72px; resize: vertical; }
     #tab-monitor .chat-field-label, #tab-monitor .conversation-recipient label { color: var(--text); }
     #tab-monitor .chat-composer-bar { display: grid; justify-content: stretch; border-top: 0; padding: 1px 0 0; gap: 5px; }
     #tab-monitor .composer-actions { margin-block-end: 2px; }
@@ -1656,16 +1671,15 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
     .chat-tools-drawer .grid-2 > * { min-inline-size: 0; }
     @media (max-width: 900px) {
       nav.tabs {
-        grid-template-columns: repeat(4, minmax(0,1fr)) max-content;
-        padding-inline: 12px !important;
+        padding: 5px 10px !important;
+        gap: 4px !important;
       }
-      nav.tabs > :is(.tab-btn, .nav-more) { min-inline-size: 0; max-width: 100%; }
-      nav.tabs > .tab-btn { white-space: nowrap; min-block-size: 36px; }
-      nav.tabs .nav-more[open] { grid-column: 1 / -1; }
-      nav.tabs .nav-more > summary { display: flex; justify-content: center; align-items: center; }
-      nav.tabs .nav-more[open] > summary { justify-content: start; }
-      #tab-monitor.tab-panel { padding: 14px 14px 20px !important; }
-      #tab-monitor .chat-workspace { grid-template-columns: minmax(0,1fr); gap: 12px; }
+      nav.tabs .nav-brand, nav.tabs .nav-cta { display: none; }
+      nav.tabs > .tab-btn, .nav-more > summary { padding: 5px 8px !important; font-size: 12.5px !important; }
+      #tab-monitor.tab-panel { padding: 0 !important; }
+      #tab-monitor .chat-workspace { grid-template-columns: minmax(0,1fr); min-height: auto; }
+      .home-conversations { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--work-divider); }
+      #tab-monitor .chat-main-pane { padding: 12px 14px 20px; }
       #tab-monitor .chat-thread-list:not([open]) > summary { min-block-size: 39px; }
     }
     @media (max-width: 430px) {
@@ -1676,25 +1690,47 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
 </head>
 <body>
   <div class="container">
-    <header class="topbar">
-      <div class="tb-left">
-        <div class="home-connection" id="homeConnection" role="status" data-state="loading">正在连接工作台</div>
-        <button type="button" id="homeRetry" class="btn-outline sm" onclick="loadOverview(true)" hidden>重连</button>
+    <nav class="tabs" aria-label="工作区">
+      <div class="nav-brand">
+        <span class="nav-dot" aria-hidden="true"></span>
+        <span>WeChat Bot</span>
       </div>
-      <div class="tb-right">
-        <details class="topbar-more" id="topbarMore">
-          <summary>窗口设置</summary>
-          <div id="topbarMoreMenu" class="more-popover" aria-label="窗口设置">
-            <button type="button" class="menu-item" onclick="triggerDockSidebar('dock')">贴靠微信侧栏</button>
-            <button type="button" class="menu-item" onclick="triggerDockSidebar('tile')">并排分屏</button>
-            <button type="button" class="menu-item" onclick="triggerActivateWeChat()">唤醒微信窗口</button>
-            <button type="button" class="menu-item" onclick="loadOverview(true)">刷新工作台状态</button>
-            <button type="button" class="menu-item" onclick="toggleTheme()">切换深浅主题</button>
-            <button type="button" id="btnAuthToggle" class="menu-item" onclick="toggleStudioAuth()">访问授权</button>
-          </div>
-        </details>
-      </div>
-    </header>
+      <button type="button" class="tab-btn active" aria-current="page" data-tab="monitor" onclick="switchTab('monitor')">对话</button>
+      <a id="reviewWorkbenchLink" class="tab-btn workspace-link" href="/workbench">待办审阅</a>
+      <button type="button" class="tab-btn" data-tab="care" onclick="switchTab('care')">联系人</button>
+      <button type="button" class="tab-btn" data-tab="stats" onclick="switchTab('stats')">统计</button>
+      <details class="nav-more" id="navMore">
+        <summary>更多功能 ▾</summary>
+        <div class="nav-more-list">
+          <button type="button" class="tab-btn" data-tab="salescrm" onclick="switchTab('salescrm')">客户跟进 CRM</button>
+          <button type="button" class="tab-btn" data-tab="knowledge" onclick="switchTab('knowledge')">知识库与话术</button>
+          <button type="button" class="tab-btn" data-tab="articles" onclick="switchTab('articles')">文章与视频导出</button>
+          <button type="button" class="tab-btn" data-tab="soul" onclick="switchTab('soul')">本我与记忆</button>
+          <button type="button" class="tab-btn" data-tab="models" onclick="switchTab('models')">模型路由</button>
+          <button type="button" class="tab-btn" data-tab="uiprotocol" onclick="switchTab('uiprotocol')">防抢鼠标守卫</button>
+          <button type="button" class="tab-btn" data-tab="open" onclick="switchTab('open')">独立包与外部接入</button>
+        </div>
+      </details>
+      <header class="topbar">
+        <div class="tb-left">
+          <div class="home-connection" id="homeConnection" role="status" data-state="loading">正在连接工作台</div>
+          <button type="button" id="homeRetry" class="btn-outline sm" onclick="loadOverview(true)" hidden>重连</button>
+        </div>
+        <div class="tb-right">
+          <details class="topbar-more" id="topbarMore">
+            <summary>窗口设置</summary>
+            <div id="topbarMoreMenu" class="more-popover" aria-label="窗口设置">
+              <button type="button" class="menu-item" onclick="triggerDockSidebar('dock')">贴靠微信侧栏</button>
+              <button type="button" class="menu-item" onclick="triggerDockSidebar('tile')">并排分屏</button>
+              <button type="button" class="menu-item" onclick="triggerActivateWeChat()">唤醒微信窗口</button>
+              <button type="button" class="menu-item" onclick="loadOverview(true)">刷新工作台状态</button>
+              <button type="button" class="menu-item" onclick="toggleTheme()">切换深浅主题</button>
+              <button type="button" id="btnAuthToggle" class="menu-item" onclick="toggleStudioAuth()">访问授权</button>
+            </div>
+          </details>
+        </div>
+      </header>
+    </nav>
 
     <div id="formStatusAnnouncer" role="status" aria-live="polite" class="visually-hidden"></div>
 
@@ -1706,27 +1742,6 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       </div>
       <button type="button" class="primary" onclick="grantAllAuth()">恢复访问授权</button>
     </div>
-
-    <nav class="tabs" aria-label="工作区">
-      <div class="nav-brand">
-        <span class="nav-dot" aria-hidden="true"></span>
-        <span>WeChat Bot</span>
-      </div>
-      <button type="button" class="tab-btn active" aria-current="page" data-tab="monitor" onclick="switchTab('monitor')">对话</button>
-      <a id="reviewWorkbenchLink" class="tab-btn workspace-link" href="/workbench">待办审阅</a>
-      <button type="button" class="tab-btn" data-tab="care" onclick="switchTab('care')">联系人</button>
-      <button type="button" class="tab-btn" data-tab="stats" onclick="switchTab('stats')">统计</button>
-      <details class="nav-more">
-        <summary>更多功能</summary>
-        <button type="button" class="tab-btn" data-tab="salescrm" onclick="switchTab('salescrm')">客户跟进 CRM</button>
-        <button type="button" class="tab-btn" data-tab="knowledge" onclick="switchTab('knowledge')">知识库与话术</button>
-        <button type="button" class="tab-btn" data-tab="articles" onclick="switchTab('articles')">文章与视频导出</button>
-        <button type="button" class="tab-btn" data-tab="soul" onclick="switchTab('soul')">本我与记忆</button>
-        <button type="button" class="tab-btn" data-tab="models" onclick="switchTab('models')">模型路由</button>
-        <button type="button" class="tab-btn" data-tab="uiprotocol" onclick="switchTab('uiprotocol')">防抢鼠标守卫</button>
-        <button type="button" class="tab-btn" data-tab="open" onclick="switchTab('open')">独立包与外部接入</button>
-      </details>
-    </nav>
 
     <!-- 启动授权弹窗（影刀式）：缺权限时自动弹出 -->
     <div class="perm-overlay" id="permOverlay" role="dialog" aria-modal="true" aria-labelledby="permModalTitle">
@@ -1766,39 +1781,6 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
 
     <!-- Tab 2 (Default Chat-First Home): Live Chat & AI Copilot -->
     <section id="tab-monitor" class="tab-panel active">
-      <details class="hosting-panel perm-panel" id="permPanel" open>
-        <summary id="permSummary">🔐 系统权限检查（首次使用必读）</summary>
-        <div id="permPanelBody" style="margin-top:10px;">
-          <div class="perm-items" id="permItems"><p class="hosting-empty">正在检查系统权限…</p></div>
-          <div class="perm-actions">
-            <a id="permOpenSettings" class="btn-outline" href="x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" style="text-decoration:none;">⚙️ 打开系统设置 · 隐私与安全性</a>
-            <button type="button" id="permRecheckBtn" class="btn-solid" onclick="window.PERM_MODAL_DISMISSED = false; loadPermissions(true)">🔄 重新检查</button>
-            <span class="hosting-hint" id="permHint">授权后回到这里点「重新检查」即可，无需重启。</span>
-          </div>
-        </div>
-      </details>
-      <div class="hosting-panel" id="hostingPanel">
-        <div class="hosting-status">
-          <span id="hostingBadge" class="hosting-badge off">⚪ 托管未开启</span>
-          <span id="hostingMeta" class="hosting-meta">加载中…</span>
-        </div>
-        <div class="hosting-actions">
-          <button type="button" id="hostingEnableBtn" class="btn-solid hosting-btn" onclick="applyHosting(true)">🚀 一键托管</button>
-          <button type="button" id="hostingDisableBtn" class="btn-outline" onclick="applyHosting(false)">⏹ 停止托管</button>
-          <button type="button" id="llmFixBtn" class="btn-outline" onclick="relaunchLlmGateway()" hidden>🔧 启动 Magpie（修复 LLM 网关）</button>
-          <button type="button" id="diagBtn" class="btn-outline" onclick="loadDiagnostics(true)">🩺 健康诊断</button>
-        </div>
-        <details class="hosting-picker">
-          <summary>选择托管好友 <span id="hostingCheckedCount" class="conversation-count"></span></summary>
-          <div class="hosting-toolbar">
-            <button type="button" class="link-btn" onclick="hostingSelectAll(true)">全选</button>
-            <button type="button" class="link-btn" onclick="hostingSelectAll(false)">清空</button>
-            <button type="button" class="link-btn" onclick="refreshHostingFriends()">刷新好友列表</button>
-            <span class="hosting-hint">勾选即托管对象；未绑定过的好友开启托管时会自动创建绑定。</span>
-          </div>
-          <ul class="hosting-friend-list" id="hostingFriendList"><li class="hosting-empty">正在读取好友列表…</li></ul>
-        </details>
-      </div>
       <div class="chat-workspace">
         <aside class="home-conversations" aria-label="最近会话">
           <details class="chat-thread-list" id="conversationThreads" open>
@@ -1813,10 +1795,47 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
         </aside>
 
         <main class="chat-main-pane" aria-labelledby="conversationHeading">
-          <h1 id="conversationHeading" class="conversation-heading">对话</h1>
-          <div class="conversation-recipient">
-            <label for="previewTarget">回复对象</label>
-            <input type="text" id="previewTarget" placeholder="选择最近会话，或输入会话名称" oninput="syncChatRecipient(this.value)" />
+          <details class="hosting-panel perm-panel" id="permPanel">
+            <summary id="permSummary">🔐 系统权限检查（首次使用必读）</summary>
+            <div id="permPanelBody" style="margin-top:10px;">
+              <div class="perm-items" id="permItems"><p class="hosting-empty">正在检查系统权限…</p></div>
+              <div class="perm-actions">
+                <a id="permOpenSettings" class="btn-outline" href="x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" style="text-decoration:none;">⚙️ 打开系统设置 · 隐私与安全性</a>
+                <button type="button" id="permRecheckBtn" class="btn-solid" onclick="window.PERM_MODAL_DISMISSED = false; loadPermissions(true)">🔄 重新检查</button>
+                <span class="hosting-hint" id="permHint">授权后回到这里点「重新检查」即可，无需重启。</span>
+              </div>
+            </div>
+          </details>
+          <div class="hosting-panel" id="hostingPanel">
+            <div class="hosting-top-row">
+              <div class="hosting-status">
+                <span id="hostingBadge" class="hosting-badge off">⚪ 托管未开启</span>
+                <span id="hostingMeta" class="hosting-meta">加载中…</span>
+              </div>
+              <div class="hosting-actions">
+                <button type="button" id="hostingEnableBtn" class="btn-solid hosting-btn" onclick="applyHosting(true)">🚀 一键托管</button>
+                <button type="button" id="hostingDisableBtn" class="btn-outline sm" onclick="applyHosting(false)">⏹ 停止托管</button>
+                <button type="button" id="llmFixBtn" class="btn-outline sm" onclick="relaunchLlmGateway()" hidden>🔧 启动 Magpie（修复 LLM 网关）</button>
+                <button type="button" id="diagBtn" class="btn-outline sm" onclick="loadDiagnostics(true)">🩺 健康诊断</button>
+              </div>
+            </div>
+            <details class="hosting-picker">
+              <summary>选择托管好友 <span id="hostingCheckedCount" class="conversation-count"></span></summary>
+              <div class="hosting-toolbar">
+                <button type="button" class="link-btn" onclick="hostingSelectAll(true)">全选</button>
+                <button type="button" class="link-btn" onclick="hostingSelectAll(false)">清空</button>
+                <button type="button" class="link-btn" onclick="refreshHostingFriends()">刷新好友列表</button>
+                <span class="hosting-hint">勾选即托管对象；未绑定过的好友开启托管时会自动创建绑定。</span>
+              </div>
+              <ul class="hosting-friend-list" id="hostingFriendList"><li class="hosting-empty">正在读取好友列表…</li></ul>
+            </details>
+          </div>
+          <div class="chat-pane-head">
+            <h1 id="conversationHeading" class="conversation-heading">对话</h1>
+            <div class="conversation-recipient">
+              <label for="previewTarget">回复对象</label>
+              <input type="text" id="previewTarget" placeholder="选择最近会话，或输入会话名称" oninput="syncChatRecipient(this.value)" />
+            </div>
           </div>
 
           <div class="chat-stream-card">
@@ -2768,7 +2787,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         p.classList.toggle("active", p.id === "tab-" + tab);
       });
       const more = document.querySelector(".nav-more");
-      if (more) more.open = ["soul", "models", "uiprotocol", "open", "salescrm", "knowledge", "articles"].includes(tab);
+      if (more) more.open = false;
       if (tab === "stats") loadBackgroundObservation();
     }
 
@@ -3343,10 +3362,12 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
           panel.classList.remove("warn");
           panel.classList.add("ok");
           panel.open = false;
+          panel.hidden = true;
           summary.textContent = "✅ 系统权限就绪（辅助功能 / 系统事件 / 屏幕录制）";
           document.getElementById("permHint").textContent = "微信" + (data.wechatRunning ? "运行中 (PID " + data.wechatPid + ")" : "未运行——自动回复需要微信保持打开");
           hidePermModal();
         } else {
+          panel.hidden = false;
           panel.classList.remove("ok");
           panel.classList.add("warn");
           panel.open = true;
@@ -3361,6 +3382,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         }
         if (notify) showToast(data.allGranted ? "✅ 权限全部就绪，机器人功能全部可用" : "仍有权限未授权，按步骤操作后重新检查");
       } catch (err) {
+        panel.hidden = false;
         panel.classList.add("warn");
         panel.open = true;
         itemsEl.innerHTML = `<p class="hosting-empty">权限检查失败: ${err.message}</p>`;
@@ -4058,7 +4080,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       });
     }
 
-    function selectChatThread(encTarget, encIncoming) {
+    function selectChatThread(encTarget, encIncoming, fromUser = true) {
       const target = decodeURIComponent(encTarget || "");
       if (!target) return;
       const incoming = decodeURIComponent(encIncoming || "");
@@ -4088,7 +4110,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         resetDraftContext();
         source.value = incoming;
       }
-      if (compactConversation.matches) document.getElementById("conversationThreads").open = false;
+      if (fromUser && compactConversation.matches) document.getElementById("conversationThreads").open = false;
       renderChatStream(target);
     }
 
@@ -4133,7 +4155,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         stream.replaceChildren();
         const sep = document.createElement("div");
         sep.className = "bubble-sep";
-        sep.textContent = "暂往来记录——对方发消息后会自动出现在这里";
+        sep.textContent = "暂无往来记录——对方发消息后会自动出现在这里";
         stream.appendChild(sep);
         return;
       }
@@ -4245,10 +4267,19 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
           conversation.time = fmtRelativeTime(stamp.getTime());
         }
       }
+      const disabledTargets = new Set(
+        (STATE?.bindings || [])
+          .filter((b) => b && b.autoReplyEnabled === false)
+          .map((b) => String(b.target || "").trim().toLowerCase())
+          .filter(Boolean)
+      );
       for (const profile of (STATE?.analytics?.profiles || []).slice(0, 12)) {
         const target = (profile.target || profile.matchedTitle || "").trim();
         if (!target) continue;
-        if (!conversations.has(target)) conversations.set(target, {title: target, incoming: "", time: "", sortTs: 0});
+        if (!conversations.has(target)) {
+          if (disabledTargets.has(target.toLowerCase()) && !profile.messageCount) continue;
+          conversations.set(target, {title: target, incoming: "", time: "", sortTs: 0, fromProfileOnly: true});
+        }
         conversations.get(target).title = profile.matchedTitle || target;
       }
       // 历史来信兜底：事件流里没有 incomingText 的会话，从联系人历史（含导入+实时回写）取最近一条客户来信
@@ -4256,11 +4287,15 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       for (const lb of Object.values(STATE?.latestInbound || {})) {
         if (lb && lb.target) inboundByTarget[lb.target] = lb;
       }
-      for (const [target, conversation] of conversations) {
+      for (const [target, conversation] of [...conversations.entries()]) {
         const lb = inboundByTarget[target];
         if (lb) {
           const lbStamp = new Date(lb.sortAt || "");
           if (Number.isFinite(lbStamp.getTime()) && lbStamp.getTime() > (conversation.sortTs || 0)) conversation.sortTs = lbStamp.getTime();
+        }
+        if (conversation.fromProfileOnly && !conversation.incoming && !(lb && lb.text) && disabledTargets.has(target.toLowerCase())) {
+          conversations.delete(target);
+          continue;
         }
         if (conversation.incoming) continue;
         if (lb && lb.text) {
@@ -4311,6 +4346,10 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       }).join("");
       if (focused) [...container.querySelectorAll(".chat-thread-row")]
         .find(row => row.dataset.target === focused)?.focus({preventScroll:true});
+      if (!currentTarget && !(document.getElementById("sendText")?.value || "").trim() && orderedConversations.length > 0) {
+        const [firstTarget, firstEntry] = orderedConversations[0];
+        selectChatThread(encArg(firstTarget), encArg(firstEntry.incoming || ""), false);
+      }
     }
 
     function renderPersonaOptions() {
@@ -6346,13 +6385,19 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
     compactConversation.addEventListener("change", setConversationDensity);
     setConversationDensity();
     const moreActions = document.getElementById("topbarMore");
+    const navMore = document.getElementById("navMore");
     document.addEventListener("click", event => {
-      if (!moreActions.contains(event.target) || event.target.closest(".menu-item")) moreActions.open = false;
+      if (moreActions && (!moreActions.contains(event.target) || event.target.closest(".menu-item"))) moreActions.open = false;
+      if (navMore && !navMore.contains(event.target)) navMore.open = false;
     });
     document.addEventListener("keydown", event => {
-      if (event.key === "Escape" && moreActions.open) {
+      if (event.key === "Escape" && moreActions?.open) {
         moreActions.open = false;
         moreActions.querySelector("summary").focus();
+      }
+      if (event.key === "Escape" && navMore?.open) {
+        navMore.open = false;
+        navMore.querySelector("summary").focus();
       }
     });
     document.getElementById("sendText").addEventListener("input", () => { draftRevision++; });
