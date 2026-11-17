@@ -69,6 +69,8 @@ NOISY = [
     "a" * 200, "？？？？？？？？？？", "测 试 带 空 格", "混合abc123测试",
     "👍", "[动画表情]", "[图片]", "[视频]", "[语音]", "[文件]",
     "。。", "？？？喵", "zzzz", "0000", "test", "test test test",
+    "～！@#￥%……&*（）", "……", "！！！？？？", "😂", "🤖🤖🤖🤖🤖",
+    "。。。。。？！", "-----", "_____", "     👍", "[动画表情][动画表情]",
 ]
 LINKS = [
     "https://github.com/Harzva/wechat-bot", "http://yingdao.com/qa/",
@@ -163,6 +165,11 @@ def run_benchmark(quick: bool = False) -> dict:
                         a in top_title for a in ACK_TITLES
                     )
                 length_ok = 8 <= len(reply.strip()) <= 200
+                # 句中截断检测：虚词收尾的句子（"的。如仍需"）或省略号后硬接尾巴（"…如仍需"）
+                trunc_ok = not re.search(
+                    r"(的|了|在|和|与|或|是|把|被|对|向|从|及|并|不)。如(仍需|有需要)|…如(仍需|有需要)",
+                    reply,
+                )
                 entry = {
                     "category": cat_name,
                     "persona": pid,
@@ -171,10 +178,11 @@ def run_benchmark(quick: bool = False) -> dict:
                     "reply": reply[:110],
                     "topDoc": top_title,
                     "matchedCount": int(prev.get("matchedCount") or 0),
-                    "passed": bool(reply.strip()) and not has_jargon and answered_ok and length_ok,
+                    "passed": bool(reply.strip()) and not has_jargon and answered_ok and length_ok and trunc_ok,
                     "hasJargon": has_jargon,
                     "answeredOk": answered_ok,
                     "lengthOk": length_ok,
+                    "truncOk": trunc_ok,
                 }
                 if flags.get("expectHandoff"):
                     entry["passed"] = entry["passed"] and bool(

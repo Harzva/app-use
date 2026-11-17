@@ -1078,9 +1078,27 @@ class PersonaSwitchEngine:
             return collapsed
         return collapsed[: max_len - 1].rstrip("，、；： ") + "…"
 
+    @staticmethod
+    def _sentence_excerpt(text: str, max_len: int = 95) -> str:
+        """句界截断：优先在句末/分句标点处截断，避免半句话与 URL 被切断。"""
+        t = str(text or "").strip()
+        # 剥掉内部文档式元前缀（客户回复不需要"标准技术口径："这类引导语）
+        t = re.sub(r"^(标准技术口径|标准回复要点|标准客服口径|技术口径|标准口径)[：:]", "", t).strip()
+        if len(t) <= max_len:
+            return t
+        cut = t[:max_len]
+        for sep in ("。", "；", "！", "？"):
+            idx = cut.rfind(sep)
+            if idx >= 20:
+                return cut[: idx + 1]
+        idx = cut.rfind("，")
+        if idx >= 20:
+            return cut[:idx].rstrip("，、； ") + "…"
+        return cut.rstrip("，、；：： ") + "…"
+
     # 内部术语（客户看不懂）：LLM 模仿知识库技术条目时可能外泄，出口统一净化
     _INTERNAL_JARGON_RE = re.compile(
-        r"(FTS5|AXUIElement|熔断|读回|Takeover|3x\b|prompt|system prompt|RealtimeMessageMonitor|RealtimeMonitor|preview_reply|脏输入)",
+        r"(FTS5|AXUIElement|熔断|读回|Takeover|3x\b|prompt|system prompt|RealtimeMessageMonitor|RealtimeMonitor|preview_reply|脏输入|CGWindow|VNRecognize|CGEvent|零注入)",
         re.IGNORECASE,
     )
 
@@ -1096,6 +1114,8 @@ class PersonaSwitchEngine:
         )
         rewritten = re.sub(r"但我只能暂判为[^。；]+[。；]?", "", rewritten)
         rewritten = rewritten.replace("FTS5", "知识库").replace("Vision OCR", "图片识别")
+        rewritten = rewritten.replace("VNRecognizeTextRequest", "图片识别").replace("CGWindowListCreateImage", "窗口截图")
+        rewritten = rewritten.replace("CGEvent", "消息发送").replace("零注入", "安全")
         rewritten = rewritten.replace("OCR 噪声偏大", "消息内容识别得不太清楚").replace("3x", "")
         rewritten = rewritten.replace("熔断", "").replace("读回", "").replace("前置条件：", "")
         rewritten = re.sub(r"已捕获关键词[^。；]+[。；]?", "", rewritten)
@@ -1140,6 +1160,37 @@ class PersonaSwitchEngine:
 
         norm_in = unicodedata.normalize("NFKC", incoming_text or "").strip()
         in_cf = norm_in.casefold()
+        # 空/纯标点消息早退：不走 KB 检索，避免误命中内部术语条目
+        _substantive = re.sub(r"[\s。，．,．.！!？?～~、…·•\-_=]+", "", norm_in)
+        if not _substantive:
+            if pid == "concise-assistant":
+                reply = "您的消息好像没发完整，请再发一次。"
+            elif pid == "warm-friend":
+                reply = "咦，这条好像只有表情或标点～麻烦把想问的再发一次哈 🙂"
+            elif pid == "rpa-tech-expert":
+                reply = "EmptyInput: 未检测到有效内容，请重新发送测试文本。"
+            else:
+                reply = "您好，您的消息好像没发完整～麻烦再发一次，我看到后会立即为您解答。"
+            template_text = self._clean_single_line(reply, max_len=int(persona.get("maxChars") or 160))
+            return {
+                "ok": True,
+                "target": target,
+                "incomingText": norm_in,
+                "persona": persona,
+                "matchedCount": 0,
+                "matchedEntries": [],
+                "memoryCount": 0,
+                "memoryRefs": [],
+                "templateFallbackReply": template_text,
+                "replyText": template_text,
+                "generationMode": "empty_input_guard",
+                "modelUsed": None,
+                "providerUsed": None,
+                "latencyMs": None,
+                "llmError": None,
+                "basis": {"personaId": persona["id"], "personaName": persona["name"],
+                          "generationMode": "empty_input_guard"},
+            }
         is_reply_check = any(
             kw in in_cf
             for kw in ("回复我", "回复消息", "能回复", "在吗", "在线吗", "收到吗", "看到吗", "你好你好")
@@ -1170,7 +1221,7 @@ class PersonaSwitchEngine:
                 reply = f"在的在的，刚看到消息～我这边实时监测一直开着呢{clue_note}，有啥直接发我就行！"
             elif entries:
                 top = entries[0]  # 按检索分数取最高，避免 script 条目硬优先导致答非所问
-                fact_excerpt = top["body"][:82].rstrip("。；， ")
+                fact_excerpt = self._sentence_excerpt(top["body"], 82).rstrip("。；， ")
                 clue_note = f"；结合咱们之前的「{shared_clue}」" if shared_clue else ""
                 reply = f"这事按咱们这边经验：{fact_excerpt}{clue_note}，你要测的话我随时帮你跑一下～（本我语态：{owner_tone}）"
             else:
@@ -1198,9 +1249,9 @@ class PersonaSwitchEngine:
                 )
         elif is_rpa_question and (knowledge_hit or terms_hit):
             top = (knowledge_hit or terms_hit)[0]
-            core_fact = top["body"]
+            core_fact = re.sub(r"^(标准技术口径|标准回复要点|标准客服口径|技术口径|标准口径)[：:]", "", str(top["body"])).strip()
             if pid == "wecom-kf-pro":
-                reply = f"您好，关于「{top['title']}」，标准口径说明如下：{core_fact} 如有需要可进一步提供技术文档参考。"
+                reply = f"您好，关于「{top['title']}」，为您说明：{core_fact} 如有需要可进一步提供技术文档参考。"
             elif pid == "rpa-tech-expert":
                 term_names = "、".join(t["title"].split(" (")[0] for t in terms_hit[:3]) or "Vision OCR / CGEvent"
                 reply = f"结合专业术语（{term_names}）：{core_fact}"
@@ -1226,17 +1277,21 @@ class PersonaSwitchEngine:
                 cs = str(cs)
                 reply = cs if pid == "concise-assistant" else (cs + " 有啥尽管问哈～" if pid == "warm-friend" else cs)
             else:
-                fact_excerpt = top["body"][:95].rstrip("。；， ")
+                fact_excerpt = self._sentence_excerpt(top["body"], 95)
                 matched_term_titles = [t["title"].split(" (")[0] for t in terms_hit[:2]]
                 term_badge = f"（参考术语：{'、'.join(matched_term_titles)}）" if matched_term_titles else ""
                 if pid == "wecom-kf-pro":
-                    reply = f"您好，针对您咨询的「{norm_in[:22]}」，为您说明：{fact_excerpt}。如仍需人工核对，我可以为您转接人工客服。"
+                    if fact_excerpt.endswith("…"):
+                        # 摘要以省略号收尾（长条目压缩）时不再硬接尾巴
+                        reply = f"您好，针对您咨询的「{norm_in[:22]}」，为您说明：{fact_excerpt}更多细节欢迎随时问我～"
+                    else:
+                        reply = f"您好，针对您咨询的「{norm_in[:22]}」，为您说明：{fact_excerpt}如仍需人工核对，我可以为您转接人工客服。"
                 elif pid == "rpa-tech-expert":
-                    reply = f"命中知识库《{top['title']}》{term_badge}：{fact_excerpt}。"
+                    reply = f"命中知识库《{top['title']}》{term_badge}：{fact_excerpt}" + ("" if fact_excerpt.endswith(("。", "！", "？", "…")) else "。")
                 elif pid == "concise-assistant":
-                    reply = f"收到（匹配《{top['title']}》）：{fact_excerpt}。"
+                    reply = f"收到（匹配《{top['title']}》）：{fact_excerpt}" + ("" if fact_excerpt.endswith(("。", "！", "？", "…")) else "。")
                 else:
-                    reply = f"收到你说的啦！我刚查了下「{top['title']}」：{fact_excerpt}～{term_badge}有需要随时继续聊呀 ✨"
+                    reply = f"收到你说的啦！我刚查了下「{top['title']}」：{fact_excerpt}{term_badge}有需要随时继续聊呀 ✨"
         else:
             clean_in = norm_in[:28]
             recent_hint = f"（结合最近聊到的「{recent_messages[-1][:18]}」）" if recent_messages else ""
