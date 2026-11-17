@@ -1867,6 +1867,9 @@ class WeChatControlEngine:
             keys = set(doc.get("recordKeys") or [])
             for r in doc.get("records", []):
                 keys.add(_record_key(str(r.get("direction") or ""), str(r.get("text") or ""), str(r.get("timeMarker") or "")))
+                # 内容级去重（无 marker 也算重复）：同一轮遮挡重试会对同一消息重复发 auto_reply_sent 事件，
+                # 该事件无 timeMarker，若 key 含时间则去重必然失效
+                keys.add(_record_key(str(r.get("direction") or ""), str(r.get("text") or ""), ""))
             incoming = str(e.get("incomingText") or "").strip()
             reply = str(e.get("replyText") or "").strip()
             marker = str(e.get("timeMarker") or now_iso[:16].replace("T", " "))
@@ -1876,9 +1879,11 @@ class WeChatControlEngine:
                 if _looks_like_timestamp(text):
                     continue  # OCR 时间戳行误分类为 message，不入历史
                 k = _record_key(direction, text, marker)
-                if k in keys:
+                k_no_time = _record_key(direction, text, "")
+                if k in keys or k_no_time in keys:
                     continue
                 keys.add(k)
+                keys.add(k_no_time)
                 doc["records"].append({
                     "text": text,
                     "kind": "message",
