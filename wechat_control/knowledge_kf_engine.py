@@ -974,6 +974,34 @@ class PersonaSwitchEngine:
             return collapsed
         return collapsed[: max_len - 1].rstrip("，、；： ") + "…"
 
+    # 内部术语（客户看不懂）：LLM 模仿知识库技术条目时可能外泄，出口统一净化
+    _INTERNAL_JARGON_RE = re.compile(
+        r"(FTS5|AXUIElement|熔断|读回|Takeover|3x\b|prompt|system prompt)",
+        re.IGNORECASE,
+    )
+
+    def sanitize_for_customer(self, text: str, max_len: int = 160) -> str:
+        """客户出口净化：内部术语 → 友好话术改写；仍含术语则替换为通用兜底。"""
+        cleaned = str(text or "").strip()
+        if not cleaned:
+            return cleaned
+        rewritten = re.sub(
+            r"已捕获关键词[^\u4e00-\u9fa5]*[，,；]?\s*",
+            "",
+            cleaned,
+        )
+        rewritten = re.sub(r"但我只能暂判为[^。；]+[。；]?", "", rewritten)
+        rewritten = rewritten.replace("FTS5", "知识库").replace("Vision OCR", "图片识别")
+        rewritten = rewritten.replace("OCR 噪声偏大", "消息内容识别得不太清楚").replace("3x", "")
+        rewritten = rewritten.replace("熔断", "").replace("读回", "").replace("前置条件：", "")
+        rewritten = re.sub(r"已捕获关键词[^。；]+[。；]?", "", rewritten)
+        rewritten = re.sub(r"无法可靠[^一-龥，。]*[。；]?", "这条我需要更多信息才能帮到你。", rewritten)
+        rewritten = re.sub(r"前置条件[：:][^。]*[。]?", "", rewritten)
+        # 最终兜底：仍含内部术语 → 通用友好回复
+        if self._INTERNAL_JARGON_RE.search(rewritten):
+            rewritten = "这条消息我还在学习中，已转交人工客服为您详细解答～"
+        return self._clean_single_line(rewritten, max_len)
+
     def generate_smart_reply(
         self,
         target: str,
@@ -1042,24 +1070,22 @@ class PersonaSwitchEngine:
         elif is_reply_check and not is_rpa_question and not is_kf_or_handoff:
             if pid == "wecom-kf-pro":
                 reply = (
-                    "您好，我是 OpenBot 微信客服智能专员。您的消息已由后台 RealtimeMessageMonitor 实时监测捕获："
-                    "1）支持自动读取会话增量与未读提醒；2）已接入本地企业知识库、专业术语词典与性格切换引擎，确保回复口径规范；"
-                    "3）如涉及复杂问题可随时切换人工接管（takeover）。请随时发送您的咨询。"
+                    "您好，我是微信客服智能助手，您的消息我已收到～"
+                    "产品使用、活动规则、常见问题我都可以即时为您解答；"
+                    "如遇复杂问题，也可以随时让我为您转接人工客服。请问有什么可以帮您？"
                 )
             elif pid == "rpa-tech-expert":
                 reply = (
-                    "已实时捕获并响应！当前由 OpenBot RealtimeMessageMonitor 后台守护驱动："
-                    "macOS Vision OCR 增量监测 + FTS5 知识库/专业术语检索 + 多性格切换 + 3x 脏输入熔断校验，"
-                    "欢迎继续发送任意技术或测试指令。"
+                    "收到，消息已确认。我可以协助解答自动化工具对比、使用场景与技术方案类问题，"
+                    "欢迎直接描述你的需求或继续发送测试指令。"
                 )
             elif pid == "concise-assistant":
-                reply = "收到，后台实时监控已正常捕获你的消息，知识库、术语校验与自动回复链路全部在线，可随时继续测试。"
+                reply = "收到，我在线。有问题请直接说。"
             else:
                 # warm-friend
                 reply = (
-                    "哈哈收到收到！👋 我的后台实时消息监控已经秒速捕获你的消息啦～"
-                    "现在还接上了微信客服知识库、专业术语库，而且支持随时切换好友/客服/技术性格呢，"
-                    "不信你再问我个问题试试！✨"
+                    "哈哈收到收到！👋 你的消息我秒回啦～常见问题我都能答，"
+                    "解决不了也会帮你转人工，别客气尽管问！✨"
                 )
         elif is_rpa_question and (knowledge_hit or terms_hit):
             top = (knowledge_hit or terms_hit)[0]
@@ -1183,7 +1209,7 @@ class PersonaSwitchEngine:
             "matchedEntries": entries,
             "memoryCount": len(memory_refs),
             "memoryRefs": memory_refs[:6],
-            "replyText": final_text,
+            "replyText": self.sanitize_for_customer(final_text, max_len=int(persona.get("maxChars") or 160)),
             "templateFallbackReply": template_text,
             "generationMode": generation_mode,
             "modelUsed": model_used,
