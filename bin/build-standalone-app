@@ -13,20 +13,20 @@ VISION_BIN="$ROOT_DIR/bin/wechat-vision-ax"
 BIN_OUT="$ROOT_DIR/bin/wechat-studio-app"
 mkdir -p "$ROOT_DIR/bin" "$ROOT_DIR/dist" "/Volumes/SanDisk/Builds"
 
-APP_VERSION="2.4.61"
+APP_VERSION="2.4.62"
 
 # 版本一致性自检：四处版本声明必须一致，漏改即中止构建（防 App/插件版本错位）
 for _vf in pyproject.toml plugin.manifest.json dsh.plugin.json; do
   case "$_vf" in
-    pyproject.toml) _pat='version = "2.4.61"' ;;
-    *) _pat='"version": "2.4.49"' ;;
+    pyproject.toml) _pat="version = \"${APP_VERSION}\"" ;;
+    *) _pat="\"version\": \"${APP_VERSION}\"" ;;
   esac
-  if !grep -q "$_pat" "$_vf"; then
+  if ! grep -q "$_pat" "$_vf"; then
     echo "VERSION MISMATCH: $_vf 不含 ${APP_VERSION}（请同步版本号）" >&2
     exit 1
   fi
 done
-APP_BUILD="2441"
+APP_BUILD="2442"
 
 swiftc -O "$ROOT_DIR/native/wechat_vision_ax.swift" \
   -framework AppKit \

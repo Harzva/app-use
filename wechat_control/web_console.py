@@ -1048,7 +1048,11 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       display: flex; flex-direction: column; gap: 10px;
     }
     .bubble-row { display: flex; }
+    .bubble-row.peer { align-items: flex-start; gap: 8px; }
     .bubble-row.self { justify-content: flex-end; }
+    .chat-avatar { width: 24px; height: 24px; border-radius: 5px; object-fit: cover; flex: none; vertical-align: middle; }
+    .chat-row-title { display: inline-flex; align-items: center; gap: 6px; min-inline-size: 0; max-inline-size: 100%; overflow: hidden; }
+    .chat-row-title > span { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     /* 托管自动回复的我方气泡带一点提示色边框，与人工发送区分 */
     .bubble.self.hosted { border: 1px solid color-mix(in srgb, var(--primary) 55%, transparent); }
     .bubble {
@@ -1737,6 +1741,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
           </div>
         </details>
         <div class="perm-steps" id="permModalSteps"></div>
+        <div id="permWizard"></div>
         <div class="perm-items perm-modal-items" id="permModalItems"></div>
         <div class="perm-modal-actions">
           <a id="permModalOpenSettings" class="btn-solid" href="x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" style="text-decoration:none;">⚙️ 打开系统设置去授权</a>
@@ -3224,6 +3229,64 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
 
     const PERM_PANE_BY_ID = { accessibility: "Privacy_Accessibility", post_event: "Privacy_Accessibility", screen_capture: "Privacy_ScreenCapture" };
 
+    /* ---------- 分步授权向导：一次聚焦一个权限，点击去授权，回来自动检测并进入下一项 ---------- */
+    const PERM_WIZARD = { active: false, timer: null, stepId: null, items: [] };
+
+    function stopWizardPolling() {
+      PERM_WIZARD.active = false;
+      if (PERM_WIZARD.timer) { clearInterval(PERM_WIZARD.timer); PERM_WIZARD.timer = null; }
+    }
+
+    function renderPermWizard() {
+      const wizardEl = document.getElementById("permWizard");
+      if (!wizardEl) return;
+      const items = PERM_WIZARD.items || [];
+      const pending = items.filter(p => !p.granted);
+      if (!pending.length) {
+        wizardEl.innerHTML = "<p class=\"hosting-empty\">三项权限全部就绪 ✅</p>";
+        return;
+      }
+      const current = pending[0];
+      PERM_WIZARD.stepId = current.id;
+      const doneCount = items.length - pending.length;
+      const pane = PERM_PANE_BY_ID[current.id] || "Privacy_Accessibility";
+      const deepLink = "x-apple.systempreferences:com.apple.preference.security?" + pane;
+      wizardEl.innerHTML = `
+        <div style="text-align:center;padding:6px 8px 2px;">
+          <div style="font-size:13px;color:#888;margin-bottom:6px;">第 <b>${doneCount + 1}</b> 步 / 共 ${items.length} 步 · 当前授权项</div>
+          <div style="font-size:20px;font-weight:700;margin-bottom:4px;">${current.name}</div>
+          <div style="font-size:13px;color:#666;margin-bottom:14px;">${current.purpose}</div>
+          <a class="btn-solid" href="${deepLink}" style="display:inline-block;padding:12px 28px;font-size:15px;text-decoration:none;cursor:pointer;">🔑 去授权「${current.name}」</a>
+          <div style="font-size:12px;color:#999;margin-top:12px;">在系统设置中打开开关后回到这里——我会自动检测并进入下一步（每 2 秒检查一次）</div>
+        </div>`;
+      startWizardPolling();
+    }
+
+    function startWizardPolling() {
+      if (PERM_WIZARD.active) return;
+      PERM_WIZARD.active = true;
+      PERM_WIZARD.timer = setInterval(async () => {
+        if (!PERM_WIZARD.active) return;
+        try {
+          const { status, data } = await apiJson("/api/permissions");
+          if (status !== 200 || !data.ok) return;
+          PERM_WIZARD.items = data.items || [];
+          const current = (data.items || []).find(p => p.id === PERM_WIZARD.stepId);
+          if (current && current.granted) {
+            showToast("✅ 「" + current.name + "」授权成功，检测到啦！");
+            renderPermWizard(); // 检测到当前项成功 → 自动渲染下一步
+            const stillPending = (data.items || []).filter(p => !p.granted);
+            if (!stillPending.length) {
+              stopWizardPolling();
+              hidePermModal();
+              showToast("🎉 三项权限全部就绪，机器人功能全部可用！");
+              loadPermissions(false);
+            }
+          }
+        } catch (err) { /* 轮询静默 */ }
+      }, 2000);
+    }
+
     function showPermModal() {
       document.getElementById("permOverlay").classList.add("visible");
     }
@@ -3290,14 +3353,17 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
           const denied = data.items.filter((p) => !p.granted).map((p) => p.name).join(" / ");
           summary.textContent = "🔐 系统权限未就绪：缺 " + denied + " ——机器人会“睁眼瞎”";
           document.getElementById("permHint").textContent = "授权后点「重新检查」即可生效。";
-          if (!window.PERM_MODAL_DISMISSED) showPermModal(); // 用户点过「稍后再说」则只保留首页警示条，不再自动弹
+          if (!window.PERM_MODAL_DISMISSED) {
+            showPermModal();
+            PERM_WIZARD.items = data.items || [];
+            renderPermWizard(); // 分步向导：聚焦第一个未授权项，点击去授权，回来自动检测
+          }
         }
         if (notify) showToast(data.allGranted ? "✅ 权限全部就绪，机器人功能全部可用" : "仍有权限未授权，按步骤操作后重新检查");
       } catch (err) {
         panel.classList.add("warn");
         panel.open = true;
         itemsEl.innerHTML = `<p class="hosting-empty">权限检查失败: ${err.message}</p>`;
-        if (!window.PERM_MODAL_DISMISSED) showPermModal();
       }
     }
 
@@ -4026,6 +4092,19 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       renderChatStream(target);
     }
 
+    function avatarUrlFor(target) {
+      const avatars = STATE?.avatars || {};
+      const key = String(target || "").trim();
+      if (!key) return "";
+      if (avatars[key]) return avatars[key];
+      const lower = key.toLowerCase();
+      if (avatars[lower]) return avatars[lower];
+      for (const [k, v] of Object.entries(avatars)) {
+        if (k.toLowerCase() === lower) return v;
+      }
+      return "";
+    }
+
     // 微信式气泡流：渲染当前会话的往来记录（peer 左 / self 右 / 时间居中 / OCR 低置信标注）
     function renderChatStream(target) {
       const stream = document.getElementById("chatBubbleStream");
@@ -4034,7 +4113,22 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       const norm = String(target || "").toLowerCase();
       const thread = Object.values(STATE?.recentThreads || {}).find((t) => (t.target || "").toLowerCase() === norm);
       const msgs = (thread && thread.messages) || [];
-      if (headTarget) headTarget.textContent = target ? "· " + target : "";
+      const avatarUrl = avatarUrlFor(target);
+      if (headTarget) {
+        headTarget.replaceChildren();
+        if (target) {
+          if (avatarUrl) {
+            const img = document.createElement("img");
+            img.className = "chat-avatar";
+            img.src = avatarUrl;
+            img.alt = "";
+            img.style.marginRight = "4px";
+            img.onerror = function () { this.style.display = "none"; };
+            headTarget.appendChild(img);
+          }
+          headTarget.appendChild(document.createTextNode("· " + target));
+        }
+      }
       if (!msgs.length) {
         stream.replaceChildren();
         const sep = document.createElement("div");
@@ -4061,6 +4155,14 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         }
         const row = document.createElement("div");
         row.className = "bubble-row " + (m.direction === "self" ? "self" : "peer");
+        if (m.direction !== "self" && avatarUrl) {
+          const av = document.createElement("img");
+          av.className = "chat-avatar";
+          av.src = avatarUrl;
+          av.alt = "";
+          av.onerror = function () { this.style.display = "none"; };
+          row.appendChild(av);
+        }
         const bubble = document.createElement("div");
         bubble.className = "bubble " + (m.direction === "self" ? "self" : "peer") + (i === lastPeerIdx ? " latest" : "") + (m.direction === "self" && m.source === "hosting" ? " hosted" : "");
         bubble.textContent = m.text;
@@ -4196,9 +4298,13 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         const resumeBtn = takenOver
           ? `<span class="link-btn" role="button" tabindex="0" onclick="event.stopPropagation(); resumeContact('${encArg(target)}')">▶️ 恢复 AI</span>`
           : "";
+        const avatarUrl = avatarUrlFor(target);
+        const avatarImg = avatarUrl
+          ? `<img class="chat-avatar" src="${escapeHtml(avatarUrl)}" alt="" onerror="this.style.display='none'">`
+          : "";
         return `
           <button type="button" class="chat-thread-row ${selected ? "active" : ""}" aria-pressed="${selected}" data-target="${escapeHtml(target)}" onclick="selectChatThread('${encArg(target)}', '${encArg(entry.incoming)}')">
-            <span class="chat-row-top"><span>${escapeHtml(entry.title)}</span>${takenOver ? `<span class="pill danger">🤚 人工接管中</span>` : ""}${limitedPill}<span class="chat-row-meta">${escapeHtml(entry.time)}</span></span>
+            <span class="chat-row-top"><span class="chat-row-title">${avatarImg}<span>${escapeHtml(entry.title)}</span></span>${takenOver ? `<span class="pill danger">🤚 人工接管中</span>` : ""}${limitedPill}<span class="chat-row-meta">${escapeHtml(entry.time)}</span></span>
             <span class="chat-row-snippet">${escapeHtml(entry.incoming || "暂无来信 · 对方发消息后会自动记录")}</span>
             ${resumeBtn}
           </button>`;

@@ -51,8 +51,189 @@ from .safety import (
     normalize_chat_name,
 )
 
-DEFAULT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_BINARY_PATH = DEFAULT_ROOT / "bin" / "wechat-vision-ax"
+_BUNDLE_RES = Path(__file__).resolve().parent.parent
+
+
+def _resolve_default_binary_path(bundle_res: Path = _BUNDLE_RES) -> Path:
+    """解析原生 wechat-vision-ax 二进制路径：开发仓在 bin/，安装版在 Contents/MacOS 或 Resources/。"""
+    candidates = [
+        bundle_res / "bin" / "wechat-vision-ax",
+        bundle_res.parent / "MacOS" / "wechat-vision-ax",
+        bundle_res / "wechat-vision-ax",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return candidates[0]
+
+
+def _copy_file_atomic(src: Path, dst: Path) -> bool:
+    """安全复制单个文件到目标位置（SQLite 用只读 backup，普通文件写 tmp + os.replace）。"""
+    import sqlite3
+    import uuid
+
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dst.with_name(f".{dst.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        if src.suffix == ".sqlite":
+            src_conn = sqlite3.connect(f"file:{src}?mode=ro", uri=True, timeout=5.0)
+            try:
+                dst_conn = sqlite3.connect(str(tmp), timeout=5.0)
+                try:
+                    src_conn.backup(dst_conn)
+                finally:
+                    dst_conn.close()
+            finally:
+                src_conn.close()
+            for suffix in ("-wal", "-shm", "-journal"):
+                sidecar = dst.with_name(dst.name + suffix)
+                if sidecar.exists():
+                    sidecar.unlink(missing_ok=True)
+        else:
+            shutil.copy2(src, tmp)
+        os.replace(tmp, dst)
+        return True
+    except Exception:
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return False
+
+
+def _migrate_legacy_runtime_data(bundle_res: Path, target_root: Path) -> Dict[str, Any]:
+    """首次从旧源码/包内数据目录平滑迁移运行时数据到 bundle 外稳定目录。"""
+    try:
+        if target_root.resolve() == bundle_res.resolve():
+            return {"migrated": False, "reason": "same_root"}
+    except Exception:
+        if target_root == bundle_res:
+            return {"migrated": False, "reason": "same_root"}
+
+    sentinel = target_root / ".runtime_migrated_v1"
+    if (
+        sentinel.exists()
+        and (target_root / "config" / "bound_contacts.json").exists()
+        and (target_root / "config" / "studio_auth.json").exists()
+    ):
+        return {"migrated": False, "reason": "already_migrated"}
+
+    candidates: List[Path] = []
+    repo_marker = bundle_res / "repo_root.txt"
+    try:
+        if repo_marker.is_file():
+            raw_repo = repo_marker.read_text(encoding="utf-8").strip()
+            if raw_repo:
+                candidates.append(Path(raw_repo))
+    except Exception:
+        pass
+    candidates.append(bundle_res)
+
+    config_files = (
+        "studio_auth.json",
+        "bound_contacts.json",
+        "model_providers.json",
+        "personas.json",
+        "soul_memories.json",
+        "sales_crm.sqlite",
+        "wechat_knowledge.sqlite",
+    )
+    log_files = (
+        "hosting_state.json",
+        "monitor_state.json",
+        "monitor_events.jsonl",
+        "antiban_state.json",
+        "human_guard_state.json",
+        "soul_memory_profiles.json",
+        "soul_memory_report.md",
+        "contact_analytics_report.json",
+        "contact_analytics_report.md",
+        "wechat_management_report.json",
+        "wechat_management_report.md",
+        "media_link_analyses.jsonl",
+    )
+    log_subdirs = ("contacts", "media_analyses", "snapshots", "avatars")
+
+    # 若目标尚未建立有效绑定或授权（如 2.4.61 首次空跑自动生成的空库），允许首迁覆盖默认空文件
+    overwrite_seeded = (
+        not sentinel.exists()
+        and not (target_root / "config" / "bound_contacts.json").exists()
+        and not (target_root / "config" / "studio_auth.json").exists()
+    )
+    copied: List[str] = []
+    migrated_from: Optional[str] = None
+
+    for src_root in candidates:
+        try:
+            if not src_root.is_dir() or src_root.resolve() == target_root.resolve():
+                continue
+        except Exception:
+            continue
+
+        src_has_user_cfg = (
+            (src_root / "config" / "studio_auth.json").is_file()
+            or (src_root / "config" / "bound_contacts.json").is_file()
+        )
+        allow_overwrite_cfg = overwrite_seeded and src_has_user_cfg
+
+        for fname in config_files:
+            src_file = src_root / "config" / fname
+            dst_file = target_root / "config" / fname
+            if src_file.is_file() and (not dst_file.exists() or allow_overwrite_cfg):
+                if _copy_file_atomic(src_file, dst_file):
+                    copied.append(f"config/{fname}")
+                    migrated_from = migrated_from or str(src_root)
+
+        for fname in log_files:
+            src_file = src_root / "logs" / fname
+            dst_file = target_root / "logs" / fname
+            if src_file.is_file() and not dst_file.exists():
+                if _copy_file_atomic(src_file, dst_file):
+                    copied.append(f"logs/{fname}")
+                    migrated_from = migrated_from or str(src_root)
+
+        for sub in log_subdirs:
+            src_sub = src_root / "logs" / sub
+            dst_sub = target_root / "logs" / sub
+            try:
+                if src_sub.is_dir():
+                    for item in src_sub.iterdir():
+                        if item.is_file():
+                            dst_item = dst_sub / item.name
+                            if not dst_item.exists() and _copy_file_atomic(item, dst_item):
+                                copied.append(f"logs/{sub}/{item.name}")
+                                migrated_from = migrated_from or str(src_root)
+            except Exception:
+                pass
+
+        if allow_overwrite_cfg:
+            overwrite_seeded = False
+
+    try:
+        target_root.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(
+            sentinel,
+            {
+                "schema": "openbot.wechat-runtime-migration/1",
+                "migratedAt": datetime.now(timezone.utc).isoformat(),
+                "sourceRoot": migrated_from,
+                "copiedCount": len(copied),
+                "copied": copied[:80],
+            },
+        )
+    except Exception:
+        pass
+    return {"migrated": bool(copied), "copiedCount": len(copied), "sourceRoot": migrated_from}
+
+
+# 安装版（.app 内）运行时数据必须落在 bundle 外：包内写入会破坏代码签名（sealed resource），
+# 且 install_if_needed 的 rm -rf 会连用户历史数据一起删掉。开发版仍用仓库目录。
+if str(_BUNDLE_RES).endswith(".app/Contents/Resources"):
+    DEFAULT_ROOT = Path.home() / "Library" / "Application Support" / "WeChatBot"
+    _migrate_legacy_runtime_data(_BUNDLE_RES, DEFAULT_ROOT)
+else:
+    DEFAULT_ROOT = _BUNDLE_RES
+DEFAULT_BINARY_PATH = _resolve_default_binary_path(_BUNDLE_RES)
 DEFAULT_AUDIT_LOG = DEFAULT_ROOT / "logs" / "audit.jsonl"
 DEFAULT_AUTH_FILE = DEFAULT_ROOT / "config" / "studio_auth.json"
 DEFAULT_BINDINGS_FILE = DEFAULT_ROOT / "config" / "bound_contacts.json"
@@ -93,6 +274,7 @@ class WeChatControlEngine:
         allowed_groups: Optional[Iterable[str]] = None,
         jitter: Optional[HumanJitter] = None,
     ) -> None:
+        self.bundle_root = _BUNDLE_RES
         self.plugin_root = DEFAULT_ROOT
         self.binary_path = Path(binary_path or os.environ.get("WECHAT_PLUGIN_NATIVE_BINARY") or DEFAULT_BINARY_PATH)
         env_audit = os.environ.get("WECHAT_PLUGIN_AUDIT_LOG")
@@ -1651,8 +1833,12 @@ class WeChatControlEngine:
             "generatedAt": datetime.now(timezone.utc).isoformat(),
         }
         try:
-            manifest = DEFAULT_ROOT / "plugin.manifest.json"
-            report["version"] = str(json.loads(manifest.read_text()).get("version") or "?")
+            manifest_candidates = [
+                _BUNDLE_RES / "plugin.manifest.json",
+                self.plugin_root / "plugin.manifest.json",
+            ]
+            manifest = next((p for p in manifest_candidates if p.is_file()), None)
+            report["version"] = str(json.loads(manifest.read_text(encoding="utf-8")).get("version") or "?") if manifest else "?"
         except Exception:
             report["version"] = "?"
         try:
@@ -1669,7 +1855,7 @@ class WeChatControlEngine:
             report["antiban"] = {"ok": False, "error": str(exc)}
         try:
             report["knowledgeEntries"] = int(
-                self.knowledge.list_entries(include_drafts=False, limit=1).get("count") or 0
+                self.knowledge.list_entries(include_drafts=False, limit=5000).get("count") or 0
             )
         except Exception as exc:
             report["knowledgeEntries"] = {"error": str(exc)}
@@ -1691,8 +1877,14 @@ class WeChatControlEngine:
         except Exception as exc:
             report["recentEvents"] = {"error": str(exc)}
         if deep:
-            report["permissions"] = self.permissions_status()
-            report["llmGateway"] = self.llm_gateway_status()
+            try:
+                report["permissions"] = self.permissions_status()
+            except Exception as exc:
+                report["permissions"] = {"ok": False, "error": str(exc)}
+            try:
+                report["llmGateway"] = self.llm_gateway_status()
+            except Exception as exc:
+                report["llmGateway"] = {"ok": False, "error": str(exc)}
         return report
 
     def hosting_status(self) -> Dict[str, Any]:
@@ -1702,9 +1894,9 @@ class WeChatControlEngine:
     def permissions_status(self) -> Dict[str, Any]:
         """实时检查 macOS 三项关键权限（辅助功能/系统事件/屏幕录制），供启动引导面板。
 
-        每次都真实调用原生 status（不缓存），确保用户在系统设置里改完点「重新检查」立即生效。
+        属于只读系统前置体检（不依赖 Studio 插件授权门禁），每次真实调用原生 status（不缓存），
+        确保用户在系统设置里改完点「重新检查」立即生效。
         """
-        self._require("status")
         try:
             res = self._run_native(["status"], 8.0)
         except Exception as exc:
@@ -2374,6 +2566,45 @@ class WeChatControlEngine:
         self.audit.log("pending_draft_to_workbench", "ok", {"target": target, "draftId": digest[:32]})
         return {"ok": True, "draftId": digest[:32]}
 
+    def _resolve_avatar_crop(self, target: str, snap: Path) -> Dict[str, int]:
+        """从巡检报告或快照 OCR 中匹配目标会话行的 avatarRel 坐标，未命中时兜底首行头像坐标。"""
+        report_path = self.inspector.reports_dir / "wechat_management_report.json"
+        if report_path.is_file():
+            try:
+                rep = json.loads(report_path.read_text(encoding="utf-8"))
+                for s in rep.get("sessions") or []:
+                    cand = str(s.get("fullTitle") or s.get("listTitleSnippet") or "").strip()
+                    rel = s.get("avatarRel")
+                    if cand and isinstance(rel, dict) and _matches_target(cand, target):
+                        return {
+                            "x": int(round(float(rel.get("x", 70)))),
+                            "y": int(round(float(rel.get("y", 66)))),
+                            "width": max(16, int(round(float(rel.get("width", 40))))),
+                            "height": max(16, int(round(float(rel.get("height", 40))))),
+                        }
+            except Exception:
+                pass
+        try:
+            ocr_res = self._run_native(["ocr", "--image", str(snap)], 15.0)
+            if ocr_res.get("ok") and (ocr_res.get("elements") or []):
+                win_w = float(ocr_res.get("imageWidth") or 853.0)
+                win_h = float(ocr_res.get("imageHeight") or 1320.0)
+                split_x = self.inspector._split_x(win_w)
+                rows = self.inspector._cluster_session_rows(ocr_res.get("elements") or [], split_x, win_h)
+                for row in rows:
+                    cand = str(row.get("titleSnippet") or "").strip()
+                    rel = row.get("avatarRel")
+                    if cand and isinstance(rel, dict) and _matches_target(cand, target):
+                        return {
+                            "x": int(round(float(rel.get("x", 70)))),
+                            "y": int(round(float(rel.get("y", 66)))),
+                            "width": max(16, int(round(float(rel.get("width", 40))))),
+                            "height": max(16, int(round(float(rel.get("height", 40))))),
+                        }
+        except Exception:
+            pass
+        return {"x": 70, "y": 66, "width": 40, "height": 40}
+
     def avatar_capture(self, target: str, snapshot_path: str = "", crop: Optional[Dict[str, int]] = None) -> Dict[str, Any]:
         """按会话行坐标从巡检快照裁剪头像，保存到 avatars 目录，返回可访问 URL。"""
         self._require("status")
@@ -2388,7 +2619,7 @@ class WeChatControlEngine:
             snap = self.inspector.snapshots_dir / "monitor_poll_cur.png"
         if not snap.is_file():
             return {"ok": False, "error": "NO_SNAPSHOT"}
-        region = crop or {"x": 8, "y": 40, "width": 40, "height": 40}
+        region = crop if isinstance(crop, dict) else self._resolve_avatar_crop(clean, snap)
         res = self._run_native([
             "ocr", "--image", str(snap),
             "--crop", f"{int(region['x'])},{int(region['y'])},{int(region['width'])},{int(region['height'])}",
@@ -2398,7 +2629,7 @@ class WeChatControlEngine:
             return {"ok": False, "error": str(res.get("error") or res.get("error_code") or "crop_failed")}
         if not out_path.is_file() or out_path.stat().st_size < 200:
             return {"ok": False, "error": "EMPTY_AVATAR"}
-        return {"ok": True, "target": clean, "url": f"/avatars/{clean}.png", "path": str(out_path)}
+        return {"ok": True, "target": clean, "url": f"/avatars/{clean}.png", "path": str(out_path), "crop": region}
 
     def get_web_overview(self) -> Dict[str, Any]:
         """Aggregate dashboard state for the local Web Control Console."""
@@ -2466,6 +2697,13 @@ class WeChatControlEngine:
             }
         }
 
+        avatars: Dict[str, str] = {}
+        avatar_dir = self.inspector.snapshots_dir.parent / "avatars"
+        if avatar_dir.is_dir():
+            for p in sorted(avatar_dir.glob("*.png")):
+                if p.is_file():
+                    avatars[p.stem] = f"/avatars/{p.name}"
+
         return {
             "ok": True,
             "pluginId": doc.get("pluginId"),
@@ -2474,6 +2712,7 @@ class WeChatControlEngine:
             "doctor": doc,
             "wechatStatus": doc.get("status"),
             "monitor": mon,
+            "avatars": avatars,
             "latestInbound": self._latest_inbound_by_target(),
             "recentThreads": self._recent_threads_by_target(),
             "antiban": self.antiban.status(),

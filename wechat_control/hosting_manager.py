@@ -120,7 +120,7 @@ class HostingManager:
             return
         self._last_govern_at = now
         try:
-            rep = _govern_logs(Path(__file__).resolve().parent.parent)
+            rep = _govern_logs(self._engine.plugin_root)
             if rep.get("snapshots", {}).get("removed") or any(
                 (rep.get(k) or {}).get("rotated") for k in ("rotate_audit.jsonl", "rotate_monitor_events.jsonl")
             ):
@@ -161,10 +161,7 @@ class HostingManager:
     def _persist(self) -> None:
         doc = self.status()
         try:
-            self._state_path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self._state_path.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
-            tmp.replace(self._state_path)
+            atomic_write_json(self._state_path, doc)
         except OSError:
             pass
 

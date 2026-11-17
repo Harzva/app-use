@@ -102,6 +102,173 @@ class DiagnosticsTests(unittest.TestCase):
             srv.shutdown()
             srv.server_close()
 
+    def test_permissions_status_works_without_studio_auth(self):
+        import threading
+        import urllib.request
+
+        fresh_dir = self.data / "fresh_unauth"
+        fresh = WeChatControlEngine(
+            audit_log_path=fresh_dir / "audit.jsonl",
+            auth_file_path=fresh_dir / "auth.json",
+            bindings_file_path=fresh_dir / "bindings.json",
+            models_config_path=fresh_dir / "models.json",
+            model_http_requester=lambda m, u, **k: (_ for _ in ()).throw(ConnectionRefusedError),
+            knowledge_db_path=fresh_dir / "kb.sqlite",
+            personas_file_path=fresh_dir / "personas.json",
+            snapshots_dir=fresh_dir / "snap",
+            reports_dir=fresh_dir / "reports",
+        )
+        fresh._run_native = lambda args, timeout=15.0: {  # type: ignore[method-assign]
+            "ok": True,
+            "accessibilityTrusted": True,
+            "postEventTrusted": True,
+            "screenCaptureTrusted": True,
+            "wechatRunning": True,
+            "wechatPid": 999,
+        }
+        perms = fresh.permissions_status()
+        self.assertTrue(perms["ok"])
+        self.assertTrue(perms["allGranted"])
+        self.assertEqual(len(perms["items"]), 3)
+
+        rep = fresh.diagnostics(deep=True)
+        self.assertTrue(rep["ok"])
+        self.assertFalse((rep["auth"].get("authorization") or {}).get("authorized"))
+        self.assertTrue(rep["permissions"]["allGranted"])
+
+        srv = create_http_server(fresh, "127.0.0.1", 0)
+        port = srv.server_address[1]
+        thread = threading.Thread(target=srv.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/permissions", timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                self.assertTrue(json.loads(resp.read().decode("utf-8"))["allGranted"])
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/diagnostics?deep=1", timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                self.assertTrue(json.loads(resp.read().decode("utf-8"))["permissions"]["allGranted"])
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_diagnostics_knowledge_count_not_capped_at_one(self):
+        rep = self.engine.diagnostics()
+        self.assertIsInstance(rep["knowledgeEntries"], int)
+        self.assertGreater(rep["knowledgeEntries"], 1)
+
+    def test_legacy_runtime_migration_and_bundle_binary_resolution(self):
+        from wechat_control.engine import _migrate_legacy_runtime_data, _resolve_default_binary_path
+
+        bundle = self.data / "WeChat Bot.app" / "Contents" / "Resources"
+        macos = bundle.parent / "MacOS"
+        bundle.mkdir(parents=True)
+        macos.mkdir(parents=True)
+        bin_path = macos / "wechat-vision-ax"
+        bin_path.write_text("#!/bin/sh\n", encoding="utf-8")
+        self.assertEqual(_resolve_default_binary_path(bundle), bin_path)
+
+        legacy = self.data / "legacy_repo"
+        (legacy / "config").mkdir(parents=True)
+        (legacy / "logs" / "contacts").mkdir(parents=True)
+        (bundle / "repo_root.txt").write_text(str(legacy) + "\n", encoding="utf-8")
+
+        (legacy / "config" / "studio_auth.json").write_text('{"authorized": true}\n', encoding="utf-8")
+        (legacy / "config" / "bound_contacts.json").write_text('{"bindings": {"测试好友": {}}}\n', encoding="utf-8")
+        (legacy / "config" / "personas.json").write_text('{"custom": true}\n', encoding="utf-8")
+        (legacy / "logs" / "hosting_state.json").write_text('{"enabled": true}\n', encoding="utf-8")
+        (legacy / "logs" / "contacts" / "测试_history.json").write_text('{"messages": []}\n', encoding="utf-8")
+
+        target_root = self.data / "app_support"
+        (target_root / "config").mkdir(parents=True)
+        (target_root / "config" / "personas.json").write_text('{"custom": false}\n', encoding="utf-8")
+
+        res = _migrate_legacy_runtime_data(bundle, target_root)
+        self.assertTrue(res["migrated"])
+        self.assertTrue((target_root / ".runtime_migrated_v1").is_file())
+        self.assertTrue((target_root / "config" / "studio_auth.json").is_file())
+        self.assertTrue((target_root / "config" / "bound_contacts.json").is_file())
+        self.assertTrue((target_root / "logs" / "hosting_state.json").is_file())
+        self.assertTrue((target_root / "logs" / "contacts" / "测试_history.json").is_file())
+        self.assertEqual(json.loads((target_root / "config" / "personas.json").read_text()), {"custom": True})
+
+        res2 = _migrate_legacy_runtime_data(bundle, target_root)
+        self.assertFalse(res2["migrated"])
+        self.assertEqual(res2["reason"], "already_migrated")
+
+    def test_avatar_rel_coordinates_and_capture_auto_crop(self):
+        import threading
+        import urllib.request
+        from wechat_control.live_inspector import WeChatLiveInspector
+
+        elements = [
+            {"text": "openbot", "bbox": {"x": 118, "y": 70, "width": 58, "height": 12}, "center": {"x": 147, "y": 76}},
+            {"text": "测试预览", "bbox": {"x": 118, "y": 91, "width": 80, "height": 12}, "center": {"x": 158, "y": 97}},
+            {"text": "安晓心", "bbox": {"x": 116, "y": 200, "width": 44, "height": 12}, "center": {"x": 138, "y": 206}},
+            {"text": "请回复一句话", "bbox": {"x": 116, "y": 220, "width": 90, "height": 12}, "center": {"x": 161, "y": 226}},
+        ]
+        rows = WeChatLiveInspector._cluster_session_rows(elements, 310.0, 1320.0)
+        self.assertEqual(len(rows), 2)
+        self.assertGreaterEqual(rows[0]["avatarRel"]["x"], 64.0)
+        self.assertEqual(rows[0]["avatarRel"]["x"], 70.0)
+        self.assertEqual(rows[1]["avatarRel"]["x"], 68.0)
+
+        snap = self.engine.inspector.snapshots_dir / "monitor_poll_cur.png"
+        snap.parent.mkdir(parents=True, exist_ok=True)
+        snap.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 300)
+
+        recorded_crops = []
+
+        def fake_native(args, timeout=15.0):
+            if args and args[0] == "ocr" and "--crop" in args:
+                crop_str = args[args.index("--crop") + 1]
+                recorded_crops.append(crop_str)
+                out_p = Path(args[args.index("--out") + 1])
+                out_p.parent.mkdir(parents=True, exist_ok=True)
+                out_p.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 300)
+                return {"ok": True, "savedPath": str(out_p), "elements": []}
+            if args and args[0] == "ocr":
+                return {"ok": True, "imageWidth": 853, "imageHeight": 1320, "elements": elements}
+            return {
+                "ok": True,
+                "accessibilityTrusted": True,
+                "postEventTrusted": True,
+                "screenCaptureTrusted": True,
+                "wechatRunning": True,
+                "wechatPid": 123,
+                "windows": [],
+            }
+
+        self.engine._run_native = fake_native  # type: ignore[method-assign]
+        cap = self.engine.avatar_capture("安晓心")
+        self.assertTrue(cap["ok"])
+        self.assertEqual(cap["url"], "/avatars/安晓心.png")
+        self.assertEqual(recorded_crops[-1], "68,196,40,40")
+
+        ov = self.engine.get_web_overview()
+        self.assertEqual((ov.get("avatars") or {}).get("安晓心"), "/avatars/安晓心.png")
+
+        srv = create_http_server(self.engine, "127.0.0.1", 0)
+        port = srv.server_address[1]
+        thread = threading.Thread(target=srv.serve_forever, daemon=True)
+        thread.start()
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/api/avatar",
+                data=json.dumps({"target": "openbot"}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                body = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(body["ok"])
+                self.assertEqual(body["crop"]["x"], 70)
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/avatars/openbot.png", timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                self.assertGreater(len(resp.read()), 200)
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
 
 if __name__ == "__main__":
     unittest.main()

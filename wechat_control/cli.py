@@ -900,7 +900,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             return 0
         if args.command == "govern":
             from .resource_governor import govern as _govern
-            print(json.dumps(_govern(Path(__file__).resolve().parent.parent), ensure_ascii=False, indent=2))
+            print(json.dumps(_govern(engine.plugin_root), ensure_ascii=False, indent=2))
             return 0
         parser.print_help()
         return 2

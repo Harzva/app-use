@@ -264,6 +264,9 @@ class WeChatLiveInspector:
             )
             unread_badge = matching_badges[0]["text"].strip() if matching_badges else ""
 
+            title_x = float((title_el.get("bbox") or {}).get("x") or 118.0)
+            avatar_x = round(max(64.0, min(80.0, title_x - 48.0)), 1)
+
             summarized.append({
                 "rowIndex": idx,
                 "centerY": round(avg_y, 1),
@@ -273,9 +276,9 @@ class WeChatLiveInspector:
                 "previewSnippet": " | ".join(preview_lines),
                 "unreadBadge": unread_badge,
                 "rawTexts": [g["text"] for g in group_sorted],
-                # 头像裁剪区：会话行左缘、文本行中心 ±20px 的 40×40 正方形
+                # 头像裁剪区：会话列标题左侧 48px（跳过 60px 左导航栏）、文本行中心 ±20px 的 40×40 正方形
                 "avatarRel": {
-                    "x": 8.0,
+                    "x": avatar_x,
                     "y": round(avg_y - 20.0, 1),
                     "width": 40.0,
                     "height": 40.0,
@@ -647,6 +650,7 @@ class WeChatLiveInspector:
                     "visibleMessageCount": right_info["messageCountVisible"],
                     "visibleMessages": [m["text"] for m in right_info["messages"]],
                     "snapshotPath": str(snap_path),
+                    "avatarRel": row.get("avatarRel"),
                 })
 
             if page + 1 < max_session_pages:

@@ -389,18 +389,21 @@ class BotStudioBridgeManager:
         self.engine = engine
         default_root = Path(__file__).resolve().parent.parent
         self.plugin_root = Path(getattr(engine, "plugin_root", None) or default_root)
+        self.bundle_root = (
+            self.plugin_root if (self.plugin_root / "plugin.manifest.json").exists() else default_root
+        )
         inspector = getattr(engine, "inspector", None)
         self.reports_dir = Path(getattr(inspector, "reports_dir", None) or (self.plugin_root / "logs"))
-        self.dsh_manifest_path = self.plugin_root / "dsh.plugin.json"
-        self.catalog_entry_path = self.plugin_root / "market" / "dsh-agent-plugin-catalog-entry.json"
-        self.plugin_manifest_path = self.plugin_root / "plugin.manifest.json"
-        self.workbench_preset_path = self.plugin_root / "market" / "wechat-rpa-control.preset.json"
-        self.workbench_plugin_path = self.plugin_root / "market" / "wechat-rpa-control.plugin.json"
+        self.dsh_manifest_path = self.bundle_root / "dsh.plugin.json"
+        self.catalog_entry_path = self.bundle_root / "market" / "dsh-agent-plugin-catalog-entry.json"
+        self.plugin_manifest_path = self.bundle_root / "plugin.manifest.json"
+        self.workbench_preset_path = self.bundle_root / "market" / "wechat-rpa-control.preset.json"
+        self.workbench_plugin_path = self.bundle_root / "market" / "wechat-rpa-control.plugin.json"
         self.pages_dir = self.plugin_root / "dist" / "botstudio-pages" / "wechat-ecosystem"
         self.wechat_bot_app_bundle = self.plugin_root / "dist" / "WeChat Bot.app"
         self.standalone_app_bundle = self.wechat_bot_app_bundle
         self.standalone_app_bin = self.plugin_root / "bin" / "wechat-studio-app"
-        self.standalone_cli_bin = self.plugin_root / "bin" / "wechat-bot"
+        self.standalone_cli_bin = self.bundle_root / "bin" / "wechat-bot"
         self.user_apps_dir = Path("/Users/mac/Applications")
         self.installed_wechat_bot_app = self.user_apps_dir / "WeChat Bot.app"
         self.installed_studio_app = self.installed_wechat_bot_app

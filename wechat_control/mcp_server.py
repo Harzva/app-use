@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import os
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -14,6 +15,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from .auth_gate import ALL_CAPABILITIES, StudioPluginUnauthorizedError
 from .background_observer import BackgroundObserver
 from .engine import WeChatControlEngine
+from .io_utils import atomic_write_text
 from .saved_drafts import SavedDraftError, SavedDraftStore
 
 def _maybe_unquote_target(t: str) -> str:
@@ -1404,13 +1406,6 @@ def create_http_server(
                     self._send_json(200, engine.diagnostics(deep=deep))
                 elif path == "/api/llm-gateway/relaunch":
                     self._send_json(200, engine.relaunch_llm_gateway())
-                elif path == "/api/avatar":
-                    res = engine.avatar_capture(
-                        target=str(body.get("target") or ""),
-                        snapshot_path=str(body.get("snapshot_path") or ""),
-                        crop=body.get("crop") if isinstance(body.get("crop"), dict) else None,
-                    )
-                    self._send_json(200 if res.get("ok") else 400, res)
                 elif path == "/api/history-import":
                     source_dir = (query.get("source_dir") or [None])[0]
                     self._send_json(200, engine.list_history_sources(source_dir=source_dir))
@@ -1667,6 +1662,13 @@ def create_http_server(
                     self._send_json(200 if res.get("ok") else 400, res)
                 elif path == "/api/activate-wechat":
                     res = engine.activate_wechat()
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/avatar":
+                    res = engine.avatar_capture(
+                        target=str(body.get("target") or ""),
+                        snapshot_path=str(body.get("snapshot_path") or ""),
+                        crop=body.get("crop") if isinstance(body.get("crop"), dict) else None,
+                    )
                     self._send_json(200 if res.get("ok") else 400, res)
                 elif path == "/api/export-article":
                     res = engine.export_article(
@@ -1995,7 +1997,19 @@ def create_http_server(
 def serve_http(engine: WeChatControlEngine, host: str = "127.0.0.1", port: int = 18788) -> None:
     """Serve the local Web Control Console & HTTP REST JSON API indefinitely."""
     server = create_http_server(engine, host=host, port=port)
+    # pidfile：App 更新后据此停掉旧版本 console，自动切换到新代码（版本感知升级）
+    # bundle 外稳定位置：装进 App 包内会破坏签名（sealed resource）
+    pidfile = Path.home() / "Library" / "Application Support" / "WeChatBot" / "console.pid"
+    try:
+        pidfile.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(pidfile, str(os.getpid()))
+    except Exception:
+        pass
     try:
         server.serve_forever()
     finally:
+        try:
+            pidfile.unlink(missing_ok=True)
+        except Exception:
+            pass
         server.server_close()
