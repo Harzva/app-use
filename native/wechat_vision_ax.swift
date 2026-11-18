@@ -767,13 +767,84 @@ func runVisionOCR(cgImage: CGImage, languages: [String] = ["zh-Hans", "en-US"]) 
     return items
 }
 
-func captureWindowImage(_ window: WindowCandidate) -> CGImage? {
+func captureWindowImage(_ window: WindowCandidate, nominalResolution: Bool = false) -> CGImage? {
+    let options: CGWindowImageOption = nominalResolution
+        ? [.boundsIgnoreFraming, .nominalResolution]
+        : [.boundsIgnoreFraming, .bestResolution]
     return CGWindowListCreateImage(
         .null,
         .optionIncludingWindow,
         window.windowID,
-        [.boundsIgnoreFraming, .bestResolution]
+        options
     )
+}
+
+/// 缩采样为 9x8 灰度矩阵并计算 64-bit 横向差分哈希 dHash64（16 位小写 hex，纯内存计算不落盘）。
+/// 先以高质量降采样至 144x128 灰度缓冲，再按 16x16 像素块求和均化为 9x8 亮度矩阵，避免点采样漏掉细文字气泡。
+func computeDHash64(_ image: CGImage) -> String {
+    let sw = 144
+    let sh = 128
+    var buf = [UInt8](repeating: 255, count: sw * sh)
+    let colorSpace = CGColorSpaceCreateDeviceGray()
+    guard let ctx = CGContext(
+        data: &buf,
+        width: sw,
+        height: sh,
+        bitsPerComponent: 8,
+        bytesPerRow: sw,
+        space: colorSpace,
+        bitmapInfo: CGImageAlphaInfo.none.rawValue
+    ) else {
+        return "0000000000000000"
+    }
+    ctx.setFillColor(gray: 1.0, alpha: 1.0)
+    ctx.fill(CGRect(x: 0, y: 0, width: sw, height: sh))
+    ctx.interpolationQuality = .high
+    ctx.draw(image, in: CGRect(x: 0, y: 0, width: sw, height: sh))
+
+    let width = 9
+    let height = 8
+    let bx = 16
+    let by = 16
+    var grid = [Int](repeating: 0, count: width * height)
+    for gy in 0..<height {
+        for gx in 0..<width {
+            var sum = 0
+            for dy in 0..<by {
+                let rowStart = (gy * by + dy) * sw + gx * bx
+                for dx in 0..<bx {
+                    sum += Int(buf[rowStart + dx])
+                }
+            }
+            grid[gy * width + gx] = sum
+        }
+    }
+
+    var hash: UInt64 = 0
+    var bitIndex: UInt64 = 63
+    for row in 0..<height {
+        let rowOffset = row * width
+        for col in 0..<(width - 1) {
+            if grid[rowOffset + col] > grid[rowOffset + col + 1] {
+                hash |= (UInt64(1) << bitIndex)
+            }
+            if bitIndex > 0 {
+                bitIndex -= 1
+            }
+        }
+    }
+    return String(format: "%016llx", hash)
+}
+
+func captureWindowDHash(_ window: WindowCandidate) -> (dHash64: String, occluded: Bool, captureOk: Bool) {
+    guard CGPreflightScreenCaptureAccess(),
+          let cgImg = captureWindowImage(window, nominalResolution: true) else {
+        return ("", false, false)
+    }
+    if isImageFullyTransparent(cgImg) {
+        return ("", true, false)
+    }
+    return (computeDHash64(cgImg), false, true)
 }
 
 /// 检测图像是否全透明（macOS 对被其他应用完全遮挡的窗口返回 alpha=0 的空图）。
@@ -1210,7 +1281,12 @@ func cmdStatus(flags: Set<String> = [], options: [String: String] = [:]) {
     writeJSON(payload)
 }
 
-func cmdListAppWindows(options: [String: String]) {
+private func scanAppsAndWindows(options: [String: String]) -> (
+    requestedApp: String,
+    resolvedApp: String?,
+    appsOut: [[String: Any]],
+    windows: [WindowCandidate]
+) {
     let rawApp = (options["app"] ?? "all").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     let kinds: [AppKind]
     var resolvedApp: String? = nil
@@ -1233,7 +1309,7 @@ func cmdListAppWindows(options: [String: String]) {
 
     let rawList = copyOnScreenWindowInfo()
     var appsOut: [[String: Any]] = []
-    var windowsOut: [[String: Any]] = []
+    var windows: [WindowCandidate] = []
 
     for kind in kinds {
         let runningApps = findRunningApps(for: kind)
@@ -1255,19 +1331,71 @@ func cmdListAppWindows(options: [String: String]) {
             }
         }
         appsOut.append(appDict)
-        for w in wins {
-            windowsOut.append(w.toDict())
+        windows.append(contentsOf: wins)
+    }
+
+    return (rawApp.isEmpty ? "all" : rawApp, resolvedApp, appsOut, windows)
+}
+
+func cmdListAppWindows(flags: Set<String> = [], options: [String: String]) {
+    let scan = scanAppsAndWindows(options: options)
+    let withDHash = flags.contains("with-dhash")
+        || ["1", "true", "yes"].contains((options["with-dhash"] ?? "").lowercased())
+
+    let t0 = DispatchTime.now()
+    let windowsOut: [[String: Any]] = scan.windows.map { win in
+        var dict = win.toDict()
+        if withDHash {
+            let dh = captureWindowDHash(win)
+            dict["dHash64"] = dh.dHash64
+            dict["captureOk"] = dh.captureOk
+            dict["occluded"] = dh.occluded
         }
+        return dict
     }
 
     var payload: [String: Any] = [
         "ok": true,
-        "requestedApp": rawApp.isEmpty ? "all" : rawApp,
-        "apps": appsOut,
+        "requestedApp": scan.requestedApp,
+        "apps": scan.appsOut,
         "windowCount": windowsOut.count,
         "windows": windowsOut,
     ]
-    if let resolved = resolvedApp {
+    if withDHash {
+        let elapsedMs = Double(DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1_000_000.0
+        payload["withDHash"] = true
+        payload["dhashElapsedMs"] = (elapsedMs * 10.0).rounded() / 10.0
+    }
+    if let resolved = scan.resolvedApp {
+        payload["resolvedApp"] = resolved
+    }
+    writeJSON(payload)
+}
+
+func cmdDHashWindows(options: [String: String]) {
+    guard CGPreflightScreenCaptureAccess() else {
+        failJSON("Screen Recording permission (CGPreflightScreenCaptureAccess) is not granted.", code: "screen_capture_denied")
+    }
+    let t0 = DispatchTime.now()
+    let scan = scanAppsAndWindows(options: options)
+    let windowsOut: [[String: Any]] = scan.windows.map { win in
+        let dh = captureWindowDHash(win)
+        var dict = win.toDict()
+        dict["dHash64"] = dh.dHash64
+        dict["captureOk"] = dh.captureOk
+        dict["occluded"] = dh.occluded
+        return dict
+    }
+    let elapsedMs = Double(DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1_000_000.0
+    var payload: [String: Any] = [
+        "ok": true,
+        "app": scan.requestedApp,
+        "requestedApp": scan.requestedApp,
+        "count": windowsOut.count,
+        "elapsedMs": (elapsedMs * 10.0).rounded() / 10.0,
+        "windows": windowsOut,
+    ]
+    if let resolved = scan.resolvedApp {
         payload["resolvedApp"] = resolved
     }
     writeJSON(payload)
@@ -2277,7 +2405,9 @@ switch parsed.command {
 case "status":
     cmdStatus(flags: parsed.flags, options: parsed.options)
 case "list-app-windows":
-    cmdListAppWindows(options: parsed.options)
+    cmdListAppWindows(flags: parsed.flags, options: parsed.options)
+case "dhash-windows":
+    cmdDHashWindows(options: parsed.options)
 case "hid-idle":
     writeJSON([
         "ok": true,
@@ -2314,6 +2444,6 @@ case "paste-and-verify":
 default:
     writeJSON([
         "ok": true,
-        "usage": "wechat-vision-ax <status|list-app-windows|hid-idle|ax-tree|ocr|capture-ocr|set-window-frame|extract-pdf-text|extract-video-frames|render-test-image|click|right-click|scroll|activate|request-permissions|focus-input|paste-and-verify> [options]",
+        "usage": "wechat-vision-ax <status|list-app-windows|dhash-windows|hid-idle|ax-tree|ocr|capture-ocr|set-window-frame|extract-pdf-text|extract-video-frames|render-test-image|click|right-click|scroll|activate|request-permissions|focus-input|paste-and-verify> [options]",
     ])
 }

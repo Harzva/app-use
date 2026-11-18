@@ -1,4 +1,4 @@
-"""YoBot / wechat-rpa-bot-skill inspired Web Control Console HTML & UI renderer (v2.4.70)."""
+"""YoBot / wechat-rpa-bot-skill inspired Web Control Console HTML & UI renderer (v2.4.71)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any, Dict
 
 
 WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
-<!-- WeChat Bot Web Control Console v2.4.70 -->
+<!-- WeChat Bot Web Control Console v2.4.71 -->
 <html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="utf-8" />
@@ -614,14 +614,14 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       font-size: 13px;
       font-weight: 600;
       box-shadow: var(--shadow-md);
-      z-index: 1000;
+      z-index: 10050;
       opacity: 0;
       pointer-events: none;
       transform: translateY(10px);
       transition: all 0.2s ease;
     }
     .toast.show { opacity: 1; transform: translateY(0); }
-    /* ===== WeChat Bot v2.4.70 · Astryx × Uncodixfy × Modern Web Guidance ===== */
+    /* ===== WeChat Bot v2.4.71 · Astryx × Uncodixfy × Modern Web Guidance ===== */
     :root {
       color-scheme: light dark;
       --bg: #fafafa;
@@ -1687,7 +1687,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       #tab-monitor .chat-context-bar, #tab-monitor .chat-tools-drawer .grid-2 { grid-template-columns: minmax(0,1fr); }
     }
 
-    /* BotStudio-Inspired Workbench Layout, Viewport-Locked Chat & Settings Center (v2.4.70) */
+    /* BotStudio-Inspired Workbench Layout, Viewport-Locked Chat & Settings Center (v2.4.71) */
     nav.tabs {
       padding: 4px 12px !important;
       gap: 3px !important;
@@ -1978,7 +1978,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
     }
     .settings-card h3 { margin: 0; font-size: 13.5px; }
     .settings-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 10px; font-size: 13px; }
-    /* Thiflow See-Think-Act & Yingdao AI WorkOS Extensions (v2.4.70) */
+    /* Thiflow See-Think-Act & Yingdao AI WorkOS Extensions (v2.4.71) */
     #tab-monitor .workos-goal-bar {
       flex-shrink: 0;
       display: flex;
@@ -2052,7 +2052,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       line-height: 1.45;
     }
 
-    /* WeChat + WeCom Window Picker Popover (#appWindowPickerBtn / #windowPickerPopover) v2.4.70 */
+    /* WeChat + WeCom Window Picker Popover (#appWindowPickerBtn / #windowPickerPopover) v2.4.71 */
     .window-picker-wrap { position: relative; flex-shrink: 0; }
     #appWindowPickerBtn {
       max-width: 176px;
@@ -2088,8 +2088,8 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
     }
     .window-picker-popover {
       display: none;
-      width: min(440px, calc(100vw - 24px));
-      max-height: min(460px, calc(100dvh - 96px));
+      width: min(472px, calc(100vw - 24px));
+      max-height: min(560px, calc(100dvh - 80px));
       padding: 0;
       border: 1px solid var(--border-strong);
       border-radius: 12px;
@@ -2098,6 +2098,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       box-shadow: 0 14px 36px rgba(0, 0, 0, 0.18);
       z-index: 9500;
       overflow: hidden;
+      accent-color: var(--work-pine);
     }
     .window-picker-popover:is(:popover-open, .open) {
       display: flex;
@@ -2226,8 +2227,95 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       color: var(--text-muted);
       flex-shrink: 0;
     }
+    .window-picker-scheduler-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 7px 12px;
+      border-bottom: 1px solid var(--border);
+      background: color-mix(in srgb, var(--work-pine) 4%, var(--surface-soft));
+      flex-shrink: 0;
+    }
+    .border-toggle-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      cursor: pointer;
+    }
+    .border-toggle-label input[type="checkbox"] {
+      width: auto;
+      flex: none;
+      accent-color: var(--work-pine);
+      cursor: pointer;
+    }
+    .border-state-chip {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 1px 7px;
+      border-radius: 999px;
+      white-space: nowrap;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-secondary);
+    }
+    .border-state-chip.idle { background: #dcfce7; color: #166534; border-color: #86efac; }
+    .border-state-chip.thinking { background: #dbeafe; color: #1d4ed8; border-color: #93c5fd; }
+    .border-state-chip.paused { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+    html[data-theme="dark"] .border-state-chip.idle { background: rgba(16, 185, 129, 0.16); color: #6ee7b7; border-color: rgba(16, 185, 129, 0.35); }
+    html[data-theme="dark"] .border-state-chip.thinking { background: rgba(59, 130, 246, 0.18); color: #93c5fd; border-color: rgba(59, 130, 246, 0.38); }
+    html[data-theme="dark"] .border-state-chip.paused { background: rgba(245, 158, 11, 0.18); color: #fcd34d; border-color: rgba(245, 158, 11, 0.38); }
+    .scheduler-diag-panel {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      font-size: 11.5px;
+      line-height: 1.45;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 170px;
+      overflow-y: auto;
+      flex-shrink: 0;
+    }
+    .settings-card .scheduler-diag-panel {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      max-height: 220px;
+    }
+    .scheduler-metrics-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+    .scheduler-metric-pill {
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 6px;
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+    }
+    .scheduler-metric-pill b { color: var(--text); }
+    .scheduler-lane-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 5px;
+    }
+    .scheduler-lane-label {
+      font-weight: 650;
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
 
-    /* Conversational Document & PDF Knowledge Ingest Dialog (#docIngestOverlay) v2.4.70 */
+    /* Conversational Document & PDF Knowledge Ingest Dialog (#docIngestOverlay) v2.4.71 */
     dialog.doc-ingest-dialog {
       width: min(780px, calc(100vw - 32px));
       max-height: min(88dvh, 780px);
@@ -2588,6 +2676,28 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
                 </div>
               </div>
               <div class="settings-card">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+                  <h3>⚡ 多窗并发调度 &amp; 🟢 零风控透明呼吸边框</h3>
+                  <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                    <label class="border-toggle-label" for="settingsBorderOverlayToggle" title="开启后将在白名单独立聊天小窗外围叠加透明鼠标穿透光圈（100% 不注入微信）">
+                      <input type="checkbox" id="settingsBorderOverlayToggle" onchange="toggleBorderOverlay(this.checked)" />
+                      <span>透明呼吸边框</span>
+                    </label>
+                    <span id="settingsBorderStateBadge" class="border-state-chip off">⚪ 已关闭</span>
+                  </div>
+                </div>
+                <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+                  <button type="button" id="settingsRunMultiWinBtn" class="btn-solid sm" onclick="runMultiWindowScheduler(false)">⚡ 跑一轮多窗调度诊断</button>
+                  <button type="button" class="btn-outline sm" onclick="setBorderOverlayState('idle')" title="守护状态（暗绿 #10B981）">🟢 守护中</button>
+                  <button type="button" class="btn-outline sm" onclick="setBorderOverlayState('thinking')" title="思考状态（呼吸蓝 #3B82F6）">🔵 思考中</button>
+                  <button type="button" class="btn-outline sm" onclick="setBorderOverlayState('human_paused')" title="让路状态（琥珀黄 #F59E0B）">🟠 让路中</button>
+                  <button type="button" class="btn-outline sm" onclick="refreshSchedulerAndOverlay(true)">🔄 刷新状态</button>
+                </div>
+                <div id="workosSchedulerBox" class="scheduler-diag-panel">
+                  <div style="color:var(--text-muted);">点击「⚡ 跑一轮多窗调度诊断」可实时查看快车道独立小窗、主窗兜底目标、受保护只读小窗与 dHash/窗口合并指标。</div>
+                </div>
+              </div>
+              <div class="settings-card">
                 <h3>📱 手机伴侣遥控台 (/mobile)</h3>
                 <p style="margin:0; font-size:12.5px; color:var(--text-secondary);">借鉴识流AI伴侣体验：在同一局域网或本机浏览器打开 <code id="mobileRemoteUrlCode">/mobile</code>，即可远程看状态、一键开停托管、看人工待办与最近会话。</p>
                 <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -2774,6 +2884,15 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
                       </div>
                     </div>
                     <div id="windowPickerAppsSummary" class="window-picker-apps">正在检测应用状态…</div>
+                    <div class="window-picker-scheduler-bar" id="windowPickerSchedulerBar">
+                      <label class="border-toggle-label" for="borderOverlayToggle" title="开启后在白名单独立聊天小窗外围渲染透明点击穿透呼吸边框（🟢 守护中 / 🔵 思考中 / 🟠 让路中）">
+                        <input type="checkbox" id="borderOverlayToggle" onchange="toggleBorderOverlay(this.checked)" />
+                        <span>🟢 透明呼吸边框</span>
+                        <span id="popoverBorderStateBadge" class="border-state-chip off">⚪ 已关闭</span>
+                      </label>
+                      <button type="button" id="runMultiWinSchedulerBtn" class="btn-outline sm" onclick="runMultiWindowScheduler(false)" title="执行 dHash 64位初筛 + 快慢双车道分流 + 优先级老化队列诊断">⚡ 跑一轮多窗调度诊断</button>
+                    </div>
+                    <div id="popoverSchedulerSummary" class="scheduler-diag-panel" hidden></div>
                     <div id="windowPickerBody" class="window-picker-body">
                       <div class="hosting-empty">正在扫描微信与企业微信可见窗口…</div>
                     </div>
@@ -3248,7 +3367,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
         <div class="panel-card">
           <div class="section-header">
             <div>
-              <h2 class="section-title">独立桌面软件与网页控制端 (`v2.4.70`)</h2>
+              <h2 class="section-title">独立桌面软件与网页控制端 (`v2.4.71`)</h2>
               <div class="section-desc">可脱离 Bot Studio 独立运行：原生 macOS `.app` (Swift Cocoa + WKWebView) + Web Console + CLI</div>
             </div>
             <span class="pill ok" id="standaloneStatusPill"><span class="dot"></span> 检测中</span>
@@ -7083,6 +7202,20 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       lastClosedAt: 0,
     };
 
+    const MULTI_WIN_STATE = {
+      scheduler: null,
+      lastRun: null,
+      borderOverlay: {
+        enabled: false,
+        state: "idle",
+        modeColorState: "idle",
+        color: "#10B981",
+        activeWindows: [],
+        activePopoutWindowIDs: [],
+      },
+      busy: false,
+    };
+
     function _renderWorkosControls(harness) {
       if (!harness) return;
       WORKOS_STATE.harness = harness;
@@ -7094,6 +7227,13 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         WINDOW_BIND_STATE.boundWindow = gov.boundWindow;
         renderBoundWindowButton();
       }
+      if (harness.scheduler && typeof harness.scheduler === "object") {
+        MULTI_WIN_STATE.scheduler = harness.scheduler;
+      }
+      if (harness.borderOverlay && typeof harness.borderOverlay === "object") {
+        MULTI_WIN_STATE.borderOverlay = harness.borderOverlay;
+      }
+      renderMultiWindowSchedulerState();
 
       const sBtn = document.getElementById("speedModeBtn");
       if (sBtn) {
@@ -7281,6 +7421,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
     function openSettingsModal(section = "reply") {
       syncSettingsModalFromState();
       switchSettingsSection(section);
+      renderMultiWindowSchedulerState();
       loadWorkosHarness(false);
       document.getElementById("settingsOverlay")?.classList.add("visible");
     }
@@ -7312,8 +7453,8 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         return;
       }
       const rect = btn.getBoundingClientRect();
-      const popWidth = Math.min(440, window.innerWidth - 24);
-      const popHeight = Math.min(460, pop.offsetHeight || 360);
+      const popWidth = Math.min(472, window.innerWidth - 24);
+      const popHeight = Math.min(560, pop.offsetHeight || 420);
       const spaceBelow = window.innerHeight - rect.bottom - 12;
       const spaceAbove = rect.top - 12;
       let top = rect.bottom + 6;
@@ -7519,8 +7660,213 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         pop.classList.add("open");
       }
       btn.setAttribute("aria-expanded", "true");
+      renderMultiWindowSchedulerState();
       positionWindowPickerPopover();
       refreshAppWindows(false);
+      refreshSchedulerAndOverlay(false);
+    }
+
+    function _formatBorderBadge(bo) {
+      const enabled = Boolean(bo?.enabled);
+      const rawState = String(bo?.state || bo?.modeColorState || "idle").toLowerCase();
+      if (!enabled) {
+        return { cls: "off", text: "⚪ 已关闭" };
+      }
+      if (rawState === "thinking") {
+        return { cls: "thinking", text: "🔵 思考中" };
+      }
+      if (rawState === "human_paused" || rawState === "paused" || rawState === "human_guard") {
+        return { cls: "paused", text: "🟠 让路中" };
+      }
+      return { cls: "idle", text: "🟢 守护中" };
+    }
+
+    function renderMultiWindowSchedulerState() {
+      const bo = MULTI_WIN_STATE.borderOverlay || {};
+      const enabled = Boolean(bo.enabled);
+      const badgeInfo = _formatBorderBadge(bo);
+      const winCnt = Array.isArray(bo.activeWindows) ? bo.activeWindows.length : (Array.isArray(bo.activePopoutWindowIDs) ? bo.activePopoutWindowIDs.length : 0);
+
+      for (const cbId of ["borderOverlayToggle", "settingsBorderOverlayToggle"]) {
+        const cb = document.getElementById(cbId);
+        if (cb) cb.checked = enabled;
+      }
+      const popBadge = document.getElementById("popoverBorderStateBadge");
+      if (popBadge) {
+        popBadge.className = `border-state-chip ${badgeInfo.cls}`;
+        popBadge.textContent = enabled && winCnt > 0 ? `${badgeInfo.text} · ${winCnt}窗` : badgeInfo.text;
+      }
+      const cfgBadge = document.getElementById("settingsBorderStateBadge");
+      if (cfgBadge) {
+        cfgBadge.className = `border-state-chip ${badgeInfo.cls}`;
+        cfgBadge.textContent = enabled
+          ? `${badgeInfo.text}（${winCnt} 个独立小窗光圈）`
+          : "⚪ 已关闭（🟢 守护中 / 🔵 思考中 / 🟠 让路中）";
+      }
+
+      const run = MULTI_WIN_STATE.lastRun;
+      const sched = MULTI_WIN_STATE.scheduler || {};
+      const lanes = run
+        ? {
+            fastLanePopouts: run.fastLanePopouts || [],
+            mainWindowFallbackTargets: run.mainWindowFallbackTargets || [],
+            protectedReadOnlyPopouts: run.protectedReadOnlyPopouts || [],
+          }
+        : (sched.lanes || {});
+      const fastList = Array.isArray(lanes.fastLanePopouts) ? lanes.fastLanePopouts : [];
+      const fallbackList = Array.isArray(lanes.mainWindowFallbackTargets) ? lanes.mainWindowFallbackTargets : [];
+      const protectedList = Array.isArray(lanes.protectedReadOnlyPopouts) ? lanes.protectedReadOnlyPopouts : [];
+      const dhash = run?.dhash || sched.dhash || {};
+      const coalescer = run?.coalescer || sched.coalescer || {};
+      const pq = run?.priorityQueue || sched.priorityQueue || {};
+      const lastRound = run || sched.lastRound || null;
+
+      const skipped = dhash.ocrSkippedByDHash ?? lastRound?.ocrSkippedByDHash ?? 0;
+      const bursts = coalescer.coalescedBursts ?? lastRound?.coalescedBursts ?? 0;
+      const qDepth = pq.queueDepth ?? 0;
+      const hasDiagData = Boolean(
+        run || sched.lastRound || fastList.length || fallbackList.length || protectedList.length || skipped || bursts || qDepth
+      );
+
+      const renderFastChip = (w) => {
+        const title = w.target || w.title || ("#" + w.windowID);
+        const ocrTag = typeof w.shouldRunOcr === "boolean"
+          ? (w.shouldRunOcr ? " · OCR激活" : ` · dHash跳过(Δ=${w.dhashDistance ?? 0})`)
+          : "";
+        return `<span class="win-tag allow">🟢 ${escapeHtml(title)} #${escapeHtml(String(w.windowID ?? ""))}${escapeHtml(ocrTag)}</span>`;
+      };
+      const renderFallbackChip = (t) => `<span class="win-tag app">🖥️ ${escapeHtml(String(t))}</span>`;
+      const renderProtectedChip = (w) => `<span class="win-tag protected">🔒 ${escapeHtml(w.title || ("#" + w.windowID))}</span>`;
+
+      const diagHtml = `
+        <div class="scheduler-metrics-grid">
+          <span class="scheduler-metric-pill">dHash 跳过无效 OCR：<b>${escapeHtml(String(skipped))}</b></span>
+          <span class="scheduler-metric-pill">滑动窗口合并：<b>${escapeHtml(String(bursts))}</b></span>
+          <span class="scheduler-metric-pill">老化队列深度：<b>${escapeHtml(String(qDepth))}</b></span>
+          ${lastRound?.elapsedMs !== undefined ? `<span class="scheduler-metric-pill">${escapeHtml(String(lastRound.scanSource || "dhash"))} · <b>${escapeHtml(String(lastRound.elapsedMs))}ms</b></span>` : ""}
+        </div>
+        <div class="scheduler-lane-row">
+          <span class="scheduler-lane-label">⚡ 快车道小窗 (${fastList.length})：</span>
+          ${fastList.length ? fastList.map(renderFastChip).join("") : `<span style="color:var(--text-muted);">暂无已打开的白名单独立小窗</span>`}
+        </div>
+        <div class="scheduler-lane-row">
+          <span class="scheduler-lane-label">🖥️ 主窗左栏兜底去重 (${fallbackList.length})：</span>
+          ${fallbackList.length ? fallbackList.map(renderFallbackChip).join("") : `<span style="color:var(--text-muted);">全部已在快车道覆盖</span>`}
+        </div>
+        <div class="scheduler-lane-row">
+          <span class="scheduler-lane-label">🔒 受保护只读小窗 (${protectedList.length})：</span>
+          ${protectedList.length ? protectedList.map(renderProtectedChip).join("") : `<span style="color:var(--text-muted);">无外部只读小窗</span>`}
+        </div>
+      `;
+
+      const popSummary = document.getElementById("popoverSchedulerSummary");
+      if (popSummary) {
+        popSummary.hidden = !hasDiagData;
+        if (hasDiagData) popSummary.innerHTML = diagHtml;
+      }
+      const cfgBox = document.getElementById("workosSchedulerBox");
+      if (cfgBox) {
+        cfgBox.innerHTML = hasDiagData
+          ? diagHtml
+          : `<div style="color:var(--text-muted);">点击「⚡ 跑一轮多窗调度诊断」可实时查看快车道独立小窗、主窗兜底目标、受保护只读小窗与 dHash/窗口合并指标。</div>`;
+      }
+    }
+
+    async function refreshSchedulerAndOverlay(notify = false) {
+      try {
+        const [{ status: sStatus, data: sData }, { status: bStatus, data: bData }] = await Promise.all([
+          apiJson("/api/workos/scheduler").catch(() => ({ status: 0, data: null })),
+          apiJson("/api/workos/border-overlay").catch(() => ({ status: 0, data: null })),
+        ]);
+        if (sStatus === 200 && sData?.ok) {
+          MULTI_WIN_STATE.scheduler = sData;
+          if (sData.borderOverlay) MULTI_WIN_STATE.borderOverlay = sData.borderOverlay;
+        }
+        if (bStatus === 200 && bData?.ok) {
+          MULTI_WIN_STATE.borderOverlay = bData;
+        }
+        renderMultiWindowSchedulerState();
+        if (isWindowPickerOpen()) positionWindowPickerPopover();
+        if (notify) showToast("🔄 已刷新多窗调度与透明呼吸边框状态");
+      } catch (err) {
+        if (notify) showToast("刷新调度状态失败: " + (err.message || err));
+      }
+    }
+
+    async function toggleBorderOverlay(enabled) {
+      try {
+        const { status, data } = await apiJson("/api/workos/border-overlay", {
+          method: "POST",
+          body: JSON.stringify({ enabled: Boolean(enabled) }),
+        });
+        if (status !== 200 || !data.ok) throw new Error(data.error || "切换边框光圈失败");
+        MULTI_WIN_STATE.borderOverlay = data;
+        renderMultiWindowSchedulerState();
+        const badge = _formatBorderBadge(data);
+        const cnt = Array.isArray(data.activeWindows) ? data.activeWindows.length : 0;
+        showToast(
+          data.enabled
+            ? `${badge.text} · 已开启零风控透明呼吸边框（覆盖 ${cnt} 个白名单独立小窗）`
+            : "⚪ 已关闭独立小窗透明呼吸边框"
+        );
+      } catch (err) {
+        renderMultiWindowSchedulerState();
+        showToast("设置透明呼吸边框失败: " + (err.message || err));
+      }
+    }
+
+    async function setBorderOverlayState(state) {
+      try {
+        const { status, data } = await apiJson("/api/workos/border-overlay", {
+          method: "POST",
+          body: JSON.stringify({ enabled: true, state }),
+        });
+        if (status !== 200 || !data.ok) throw new Error(data.error || "切换光圈状态失败");
+        MULTI_WIN_STATE.borderOverlay = data;
+        renderMultiWindowSchedulerState();
+        const badge = _formatBorderBadge(data);
+        showToast(`已切换光圈状态：${badge.text} (${data.color || ""})`);
+      } catch (err) {
+        showToast("切换光圈状态失败: " + (err.message || err));
+      }
+    }
+
+    async function runMultiWindowScheduler(autoThink = false) {
+      if (MULTI_WIN_STATE.busy) return;
+      MULTI_WIN_STATE.busy = true;
+      const btns = [
+        document.getElementById("runMultiWinSchedulerBtn"),
+        document.getElementById("settingsRunMultiWinBtn"),
+      ].filter(Boolean);
+      btns.forEach((b) => {
+        b.disabled = true;
+        b.textContent = "⏳ 调度诊断中…";
+      });
+      try {
+        const { status, data } = await apiJson("/api/workos/scheduler/run", {
+          method: "POST",
+          body: JSON.stringify({ auto_think: Boolean(autoThink), dry_run: true, app: "all", dhash_threshold: 4 }),
+        });
+        if (status !== 200 || !data.ok) throw new Error(data.error || "多窗调度诊断失败");
+        MULTI_WIN_STATE.lastRun = data;
+        if (data.borderOverlay) MULTI_WIN_STATE.borderOverlay = data.borderOverlay;
+        renderMultiWindowSchedulerState();
+        if (isWindowPickerOpen()) positionWindowPickerPopover();
+        const fastCnt = (data.fastLanePopouts || []).length;
+        const fbCnt = (data.mainWindowFallbackTargets || []).length;
+        const protCnt = (data.protectedReadOnlyPopouts || []).length;
+        const skipped = data.dhash?.ocrSkippedByDHash ?? 0;
+        showToast(`⚡ 多窗调度完成 (${data.elapsedMs ?? "-"}ms)：快车道 ${fastCnt} 窗 · 主窗兜底 ${fbCnt} 人 · 只读保护 ${protCnt} 窗 · dHash 跳过 ${skipped} 次`);
+        loadWorkosHarness(false);
+      } catch (err) {
+        showToast("多窗调度诊断失败: " + (err.message || err));
+      } finally {
+        MULTI_WIN_STATE.busy = false;
+        btns.forEach((b) => {
+          b.disabled = false;
+          b.textContent = "⚡ 跑一轮多窗调度诊断";
+        });
+      }
     }
 
     function hideWindowPickerPopover() {
@@ -8500,6 +8846,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
     document.getElementById("sendText").addEventListener("input", () => { draftRevision++; });
     syncSendModeLabel();
     renderBoundWindowButton();
+    renderMultiWindowSchedulerState();
     renderSalesCrmTab();
     loadOverview();
     loadWorkosHarness(false);

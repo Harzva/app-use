@@ -38,6 +38,7 @@ from .knowledge_kf_engine import DEFAULT_OPENBOT_KNOWLEDGE_DB, PersonaSwitchEngi
 from .live_inspector import WeChatLiveInspector, _matches_target, _slugify_target
 from .magpie_provider_hub import MagpieProviderHub
 from .media_link_analyzer import WeChatMediaLinkAnalyzer
+from .multi_window_scheduler import MultiWindowScheduler
 from .realtime_monitor import _looks_like_timestamp, WeChatRealtimeMonitor
 from .sales_crm_hub import WeChatSalesCRMHub
 from .soul_memory_profiler import SoulMemoryProfiler
@@ -68,6 +69,12 @@ WORKOS_POST_PRESETS: Dict[str, Dict[str, str]] = {
         "label": "社群管家",
         "goal": "识别群内发言人意图，结合 @元宝/小微 深读整理干货要点并保持群内礼貌分寸",
     },
+}
+
+BORDER_OVERLAY_COLORS: Dict[str, str] = {
+    "idle": "#10B981",
+    "thinking": "#3B82F6",
+    "human_paused": "#F59E0B",
 }
 
 
@@ -461,6 +468,8 @@ class WeChatControlEngine:
         self._workos_state = self._load_workos_state()
         self.app_window_binder = AppWindowBinder(resolved_auth.parent / "app_window_binding.json")
         self.doc_ingestor = DocumentKnowledgeIngestor(self)
+        self.multi_scheduler = MultiWindowScheduler()
+        self.border_overlay_state = self._workos_state["borderOverlay"]
         # 托管自动恢复：上次异常退出（enabled=true 未走 stop）时重启引擎恢复托管。
         # fail-closed：授权被撤销则不恢复，只落审计。
         try:
@@ -3634,6 +3643,12 @@ class WeChatControlEngine:
             "taskGoal": preset["goal"],
             "reflections": [],
             "evolutions": [],
+            "borderOverlay": {
+                "enabled": False,
+                "modeColorState": "idle",
+                "activePopoutWindowIDs": [],
+                "lastUpdatedAt": datetime.now(timezone.utc).isoformat(),
+            },
         }
 
     def _load_workos_state(self) -> Dict[str, Any]:
@@ -3649,6 +3664,26 @@ class WeChatControlEngine:
                         base["reflections"] = [r for r in raw["reflections"] if isinstance(r, dict)][-30:]
                     if isinstance(raw.get("evolutions"), list):
                         base["evolutions"] = [e for e in raw["evolutions"] if isinstance(e, dict)][-50:]
+                    bo = raw.get("borderOverlay")
+                    if isinstance(bo, dict):
+                        st = str(bo.get("modeColorState") or "idle").strip().lower()
+                        if st not in BORDER_OVERLAY_COLORS:
+                            st = "idle"
+                        raw_wids = bo.get("activePopoutWindowIDs")
+                        wids: List[int] = []
+                        if isinstance(raw_wids, list):
+                            for w in raw_wids:
+                                try:
+                                    if int(w) > 0:
+                                        wids.append(int(w))
+                                except (TypeError, ValueError):
+                                    pass
+                        base["borderOverlay"] = {
+                            "enabled": bool(bo.get("enabled", False)),
+                            "modeColorState": st,
+                            "activePopoutWindowIDs": wids[:20],
+                            "lastUpdatedAt": str(bo.get("lastUpdatedAt") or base["borderOverlay"]["lastUpdatedAt"]),
+                        }
         except Exception:
             pass
         return base
@@ -3868,6 +3903,14 @@ class WeChatControlEngine:
                 "totalCount": len(evolutions),
                 "items": evolutions[:20],
             },
+            "scheduler": {
+                "dhash": self.multi_scheduler.dhash_filter.stats(),
+                "coalescer": self.multi_scheduler.coalescer.stats(),
+                "priorityQueue": self.multi_scheduler.priority_scheduler.stats(),
+                "lanes": dict(self.multi_scheduler.last_lanes),
+                "lastRound": self.multi_scheduler.last_round,
+            },
+            "borderOverlay": self.get_border_overlay_status(refresh_windows=False),
             "presets": WORKOS_POST_PRESETS,
         }
 
@@ -3997,3 +4040,343 @@ class WeChatControlEngine:
             apply_prompt_target=apply_prompt_target,
             instruction=instruction,
         )
+
+    # ------------------------------------------------------------------
+    # Multi-Window Concurrent Scheduler & Zero-Risk Border Overlay (v2.4.71)
+    # ------------------------------------------------------------------
+
+    def _resolve_scheduler_allowed_targets(self) -> List[str]:
+        if getattr(self.allowlist, "enabled", False):
+            return list(self.allowlist.list_allowed())
+        hosting_targets = [
+            str(t).strip()
+            for t in (self.hosting_manager.status().get("targets") or [])
+            if str(t).strip()
+        ]
+        if hosting_targets:
+            return hosting_targets
+        allowed_cf = {normalize_chat_name(t).casefold() for t in ALLOWED_TEST_CONTACTS}
+        bound = [
+            str(b.get("target") or "").strip()
+            for b in self.bindings.list_bindings()
+            if str(b.get("target") or "").strip()
+            and (
+                bool(b.get("autoReplyEnabled", True))
+                or normalize_chat_name(str(b.get("target") or "")).casefold() in allowed_cf
+            )
+        ]
+        return bound or list(ALLOWED_TEST_CONTACTS)
+
+    @staticmethod
+    def _normalize_overlay_state(state: Optional[str]) -> str:
+        raw = str(state or "idle").strip().lower()
+        if raw in ("idle", "guard", "guarding", "active"):
+            return "idle"
+        if raw in ("thinking", "think", "busy"):
+            return "thinking"
+        if raw in ("human_paused", "paused", "human_guard", "pause", "yield"):
+            return "human_paused"
+        raise ValueError(
+            f"Unsupported border overlay state {state!r}. Expected idle, thinking, or human_paused."
+        )
+
+    def _effective_overlay_state(self, configured_state: str) -> str:
+        eff = configured_state if configured_state in BORDER_OVERLAY_COLORS else "idle"
+        if eff == "idle":
+            hg_raw = getattr(self.human_guard, "_state", {}) or {}
+            if str(hg_raw.get("status") or "").lower() in ("cooldown", "paused", "intervened"):
+                return "human_paused"
+        return eff
+
+    def get_border_overlay_status(self, *, refresh_windows: bool = True) -> Dict[str, Any]:
+        """Return border-overlay status and active allowlisted popout window frames."""
+        with self._workos_lock:
+            bo = dict(self._workos_state.get("borderOverlay") or {})
+        enabled = bool(bo.get("enabled", False))
+        eff_state = self._effective_overlay_state(str(bo.get("modeColorState") or "idle"))
+        color_hex = BORDER_OVERLAY_COLORS[eff_state]
+        active_windows: List[Dict[str, Any]] = []
+
+        if enabled and refresh_windows:
+            scan_ok = False
+            windows: List[Dict[str, Any]] = []
+            try:
+                scan = self._run_native(["list-app-windows", "--app", "all"], timeout=6.0)
+                if isinstance(scan, dict) and scan.get("ok") and isinstance(scan.get("windows"), list):
+                    scan_ok = True
+                    windows = scan["windows"]
+            except Exception:
+                scan_ok = False
+            if scan_ok:
+                allowed_targets = self._resolve_scheduler_allowed_targets()
+                lanes = self.multi_scheduler.coordinator.plan_lanes(allowed_targets, windows)
+                popouts = lanes.get("fastLanePopouts") or []
+            else:
+                popouts = list(self.multi_scheduler.last_lanes.get("fastLanePopouts") or [])
+            for pop in popouts:
+                wid = int(pop.get("windowID") or 0)
+                if wid <= 0:
+                    continue
+                active_windows.append({
+                    "windowID": wid,
+                    "title": str(pop.get("title") or pop.get("target") or ""),
+                    "appId": str(pop.get("appId") or "wechat"),
+                    "state": eff_state,
+                    "color": color_hex,
+                    "bounds": pop.get("bounds") or {},
+                })
+            with self._workos_lock:
+                self._workos_state["borderOverlay"]["activePopoutWindowIDs"] = [w["windowID"] for w in active_windows]
+                self.border_overlay_state = self._workos_state["borderOverlay"]
+        elif enabled:
+            cached_popouts = {
+                int(p.get("windowID") or 0): p
+                for p in (self.multi_scheduler.last_lanes.get("fastLanePopouts") or [])
+                if int(p.get("windowID") or 0) > 0
+            }
+            for wid in bo.get("activePopoutWindowIDs") or []:
+                try:
+                    w_int = int(wid)
+                except (TypeError, ValueError):
+                    continue
+                if w_int > 0:
+                    cached = cached_popouts.get(w_int) or {}
+                    active_windows.append({
+                        "windowID": w_int,
+                        "title": str(cached.get("title") or cached.get("target") or ""),
+                        "appId": str(cached.get("appId") or "wechat"),
+                        "state": eff_state,
+                        "color": color_hex,
+                        "bounds": cached.get("bounds") or {},
+                    })
+
+        return {
+            "ok": True,
+            "enabled": enabled,
+            "state": eff_state,
+            "modeColorState": eff_state,
+            "color": color_hex,
+            "activePopoutWindowIDs": [w["windowID"] for w in active_windows],
+            "activeWindows": active_windows,
+            "updatedAt": str(bo.get("lastUpdatedAt") or datetime.now(timezone.utc).isoformat()),
+        }
+
+    def configure_border_overlay(
+        self,
+        *,
+        enabled: Optional[bool] = None,
+        state: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Enable/disable or switch color state of the zero-risk popout border overlay."""
+        self._require("status")
+        with self._workos_lock:
+            bo = dict(self._workos_state.get("borderOverlay") or {})
+            if enabled is not None:
+                bo["enabled"] = bool(enabled)
+            if state is not None:
+                try:
+                    bo["modeColorState"] = self._normalize_overlay_state(state)
+                except ValueError as exc:
+                    return {"ok": False, "error_code": "invalid_overlay_state", "error": str(exc)}
+            bo["lastUpdatedAt"] = datetime.now(timezone.utc).isoformat()
+            self._workos_state["borderOverlay"] = bo
+            self.border_overlay_state = self._workos_state["borderOverlay"]
+            self._save_workos_state()
+
+        status_doc = self.get_border_overlay_status(refresh_windows=bool(bo.get("enabled")))
+        with self._workos_lock:
+            self._save_workos_state()
+        self.audit.log(
+            "workos_border_overlay",
+            "ok",
+            {
+                "enabled": status_doc["enabled"],
+                "modeColorState": status_doc["modeColorState"],
+                "activeCount": len(status_doc["activeWindows"]),
+            },
+        )
+        return status_doc
+
+    def get_scheduler_status(self) -> Dict[str, Any]:
+        """Return multi-window scheduler metrics, two-tier lanes, and border overlay state."""
+        self._require("status")
+        allowed_targets = self._resolve_scheduler_allowed_targets()
+        return {
+            "ok": True,
+            "allowedTargets": allowed_targets,
+            "dhash": self.multi_scheduler.dhash_filter.stats(),
+            "coalescer": self.multi_scheduler.coalescer.stats(),
+            "priorityQueue": self.multi_scheduler.priority_scheduler.stats(),
+            "lanes": dict(self.multi_scheduler.last_lanes),
+            "lastRound": self.multi_scheduler.last_round,
+            "borderOverlay": self.get_border_overlay_status(refresh_windows=False),
+        }
+
+    def run_multi_window_schedule_round(
+        self,
+        *,
+        auto_think: bool = False,
+        dry_run: bool = True,
+        app: str = "all",
+        dhash_threshold: int = 4,
+    ) -> Dict[str, Any]:
+        """Execute one diagnostic/scheduling round across two-tier windows + dHash + aging heap."""
+        self._require("status")
+        t0 = time.perf_counter()
+        clean_app = str(app or "all").strip().lower()
+        if clean_app not in ("all", "wechat", "wecom", "auto"):
+            return {
+                "ok": False,
+                "error_code": "unsupported_app",
+                "error": f"Unsupported app filter {app!r}.",
+            }
+
+        native_res = self._run_native(["dhash-windows", "--app", clean_app], timeout=12.0)
+        scan_source = "dhash-windows"
+        if not isinstance(native_res, dict) or not native_res.get("ok") or not isinstance(native_res.get("windows"), list):
+            native_res = self.list_app_windows(app=clean_app)
+            scan_source = "list-app-windows"
+            if not isinstance(native_res, dict) or not native_res.get("ok"):
+                return {
+                    "ok": False,
+                    "error_code": (native_res or {}).get("error_code") or "window_scan_failed",
+                    "error": (native_res or {}).get("error") or "Failed to scan windows",
+                }
+
+        windows = list(native_res.get("windows") or [])
+        allowed_targets = self._resolve_scheduler_allowed_targets()
+        lanes = self.multi_scheduler.coordinator.plan_lanes(allowed_targets, windows)
+        self.multi_scheduler.last_lanes = lanes
+
+        dhash_decisions: List[Dict[str, Any]] = []
+        candidate_tasks: List[Dict[str, Any]] = []
+        for pop in lanes["fastLanePopouts"]:
+            wid = int(pop.get("windowID") or 0)
+            dhash_hex = str(pop.get("dHash64") or "")
+            should_ocr, dist = self.multi_scheduler.dhash_filter.should_run_ocr(
+                wid,
+                dhash_hex,
+                threshold=dhash_threshold,
+            )
+            pop["shouldRunOcr"] = should_ocr
+            pop["dhashDistance"] = dist
+            dhash_decisions.append({
+                "windowID": wid,
+                "target": pop["target"],
+                "dHash64": dhash_hex,
+                "distance": dist,
+                "shouldRunOcr": should_ocr,
+            })
+            binding = self.bindings.get_binding(pop["target"]) or {}
+            care_level = str(binding.get("careLevel") or ("special_care" if binding.get("specialCare") else "normal"))
+            care_weight = 2.0 if care_level == "special_care" else (1.0 if care_level == "vip" else 0.5)
+            candidate_tasks.append({
+                "target": pop["target"],
+                "windowID": wid,
+                "isPopout": True,
+                "careWeight": care_weight,
+                "urgency": 1.0 if should_ocr else 0.2,
+                "waitSeconds": 0.0,
+                "shouldRunOcr": should_ocr,
+                "priorityScore": self.multi_scheduler.priority_scheduler.compute_priority_score(
+                    urgency=1.0 if should_ocr else 0.2,
+                    care_weight=care_weight,
+                    is_popout=True,
+                    wait_seconds=0.0,
+                ),
+            })
+
+        for fb_target in lanes["mainWindowFallbackTargets"]:
+            binding = self.bindings.get_binding(fb_target) or {}
+            care_level = str(binding.get("careLevel") or ("special_care" if binding.get("specialCare") else "normal"))
+            care_weight = 2.0 if care_level == "special_care" else (1.0 if care_level == "vip" else 0.5)
+            candidate_tasks.append({
+                "target": fb_target,
+                "windowID": None,
+                "isPopout": False,
+                "careWeight": care_weight,
+                "urgency": 0.5,
+                "waitSeconds": 0.0,
+                "shouldRunOcr": True,
+                "priorityScore": self.multi_scheduler.priority_scheduler.compute_priority_score(
+                    urgency=0.5,
+                    care_weight=care_weight,
+                    is_popout=False,
+                    wait_seconds=0.0,
+                ),
+            })
+
+        candidate_tasks.sort(key=lambda t: (-float(t["priorityScore"]), t["target"]))
+        ready_bursts = self.multi_scheduler.coalescer.drain_ready()
+
+        dispatch_report: Optional[Dict[str, Any]] = None
+        if auto_think and candidate_tasks:
+            with self._workos_lock:
+                prev_state = str((self._workos_state.get("borderOverlay") or {}).get("modeColorState") or "idle")
+                if (self._workos_state.get("borderOverlay") or {}).get("enabled"):
+                    self._workos_state["borderOverlay"]["modeColorState"] = "thinking"
+
+            def _diagnostic_think(task: Dict[str, Any]) -> Dict[str, Any]:
+                res = self.preview_smart_reply(
+                    task["target"],
+                    "在吗",
+                    use_llm=False,
+                )
+                return {
+                    "ok": bool(res.get("ok")),
+                    "replyText": res.get("replyText", ""),
+                    "dryRun": bool(dry_run),
+                }
+
+            try:
+                dispatch_report = self.multi_scheduler.priority_scheduler.dispatch_concurrent_replies(
+                    candidate_tasks,
+                    think_fn=_diagnostic_think,
+                    send_fn=None,
+                    max_workers=5,
+                )
+            finally:
+                with self._workos_lock:
+                    if (self._workos_state.get("borderOverlay") or {}).get("enabled"):
+                        self._workos_state["borderOverlay"]["modeColorState"] = prev_state
+
+        with self._workos_lock:
+            bo = dict(self._workos_state.get("borderOverlay") or {})
+            bo["activePopoutWindowIDs"] = [w["windowID"] for w in lanes["fastLanePopouts"] if w.get("windowID")]
+            bo["lastUpdatedAt"] = datetime.now(timezone.utc).isoformat()
+            self._workos_state["borderOverlay"] = bo
+            self.border_overlay_state = self._workos_state["borderOverlay"]
+            self._save_workos_state()
+
+        round_doc = {
+            "ok": True,
+            "scanSource": scan_source,
+            "dryRun": bool(dry_run),
+            "autoThink": bool(auto_think),
+            "elapsedMs": round((time.perf_counter() - t0) * 1000.0, 2),
+            "allowedTargets": allowed_targets,
+            "fastLanePopouts": lanes["fastLanePopouts"],
+            "mainWindowFallbackTargets": lanes["mainWindowFallbackTargets"],
+            "protectedReadOnlyPopouts": lanes["protectedReadOnlyPopouts"],
+            "mainWindows": lanes["mainWindows"],
+            "dhashDecisions": dhash_decisions,
+            "dhash": self.multi_scheduler.dhash_filter.stats(),
+            "coalescer": self.multi_scheduler.coalescer.stats(),
+            "readyBursts": ready_bursts,
+            "priorityQueue": self.multi_scheduler.priority_scheduler.stats(),
+            "priorityPlan": candidate_tasks,
+            "dispatchReport": dispatch_report,
+            "borderOverlay": self.get_border_overlay_status(refresh_windows=False),
+        }
+        self.multi_scheduler.last_round = {
+            "scanSource": scan_source,
+            "elapsedMs": round_doc["elapsedMs"],
+            "fastLaneCount": len(lanes["fastLanePopouts"]),
+            "fallbackCount": len(lanes["mainWindowFallbackTargets"]),
+            "protectedCount": len(lanes["protectedReadOnlyPopouts"]),
+            "ocrSkippedByDHash": round_doc["dhash"]["ocrSkippedByDHash"],
+            "coalescedBursts": round_doc["coalescer"]["coalescedBursts"],
+            "updatedAt": bo["lastUpdatedAt"],
+        }
+        self.audit.log("workos_scheduler_round", "ok", self.multi_scheduler.last_round)
+        return round_doc

@@ -1340,6 +1340,289 @@ class DiagnosticsTests(unittest.TestCase):
             for c in native_cmds
         ))
 
+    def test_multi_window_dhash_coalesce_priority_heap_and_two_tier_coordinator(self):
+        import threading
+        import time
+        import urllib.error
+        import urllib.request
+        from wechat_control.multi_window_scheduler import (
+            AgingPriorityScheduler,
+            PerceptualDHashFilter,
+            SlidingWindowCoalescer,
+            TwoTierWindowCoordinator,
+        )
+        from wechat_control.web_console import render_web_console_html
+
+        # 1) LC 461 PerceptualDHashFilter: 静止窗口跳过 OCR，变化窗口放行
+        dhash_filter = PerceptualDHashFilter(default_threshold=4)
+        self.assertEqual(dhash_filter.hamming_distance("0000000000000000", "000000000000000f"), 4)
+        self.assertEqual(dhash_filter.hamming_distance("0000000000000000", "0000000000000003"), 2)
+
+        run1, dist1 = dhash_filter.should_run_ocr(11503, "031af0c060343853")
+        self.assertTrue(run1)
+        self.assertEqual(dist1, 64)
+
+        run2, dist2 = dhash_filter.should_run_ocr(11503, "031af0c060343850")  # distance=2 < 4
+        self.assertFalse(run2)
+        self.assertEqual(dist2, 2)
+
+        run3, dist3 = dhash_filter.should_run_ocr(11503, "031af0c06034385c")  # distance from 031af0c060343853 = 4
+        self.assertTrue(run3)
+        self.assertGreaterEqual(dist3, 4)
+        self.assertEqual(dhash_filter.stats()["ocrSkippedByDHash"], 1)
+        self.assertEqual(dhash_filter.stats()["ocrTriggered"], 2)
+
+        # 2) LC 56 SlidingWindowCoalescer: 1.8s 内连发短消息合并，跨窗拆段
+        coalescer = SlidingWindowCoalescer(window_seconds=1.8)
+        self.assertEqual(
+            coalescer.merge_intervals([(1.0, 2.8), (1.8, 3.6), (5.0, 6.8)]),
+            [(1.0, 3.6), (5.0, 6.8)],
+        )
+        self.assertIsNone(coalescer.push("安晓心", "在吗", now_ts=100.0))
+        self.assertIsNone(coalescer.push("安晓心", "猫乱尿怎么喷", now_ts=100.9))
+        # 未过 1.8s 窗暂不 drain
+        self.assertEqual(coalescer.drain_ready(now_ts=102.0), [])
+        # 超过 1.8s 窗自动合并输出
+        ready = coalescer.drain_ready(now_ts=103.0)
+        self.assertEqual(len(ready), 1)
+        self.assertEqual(ready[0]["target"], "安晓心")
+        self.assertEqual(ready[0]["mergedText"], "在吗 猫乱尿怎么喷")
+        self.assertEqual(ready[0]["messageCount"], 2)
+        self.assertTrue(ready[0]["coalesced"])
+        self.assertEqual(coalescer.stats()["coalescedBursts"], 1)
+
+        # 3) LC 1834 AgingPriorityScheduler: VIP+紧急优先 + 老化防饿死 + 并发思考 + 单写锁串行发消息
+        scheduler = AgingPriorityScheduler(min_send_interval_seconds=0.0)
+        scheduler.enqueue({"target": "普通新消息", "urgency": 0.3, "careWeight": 0.5, "isPopout": False}, now_ts=200.0)
+        scheduler.enqueue({"target": "VIP紧急小窗", "urgency": 1.0, "careWeight": 2.0, "isPopout": True}, now_ts=200.0)
+        scheduler.enqueue({"target": "久等防饿死好友", "urgency": 0.2, "careWeight": 0.5, "isPopout": False}, now_ts=100.0)
+
+        ordered = scheduler.peek_ordered(now_ts=200.0)
+        # 久等防饿死好友 wait=100s -> +250 老化分 (> VIP紧急小窗 215 分 > 普通新消息 55 分)
+        self.assertEqual([o["target"] for o in ordered], ["久等防饿死好友", "VIP紧急小窗", "普通新消息"])
+
+        # 验证并发 think_fn 与单写锁串行 send_fn
+        think_barrier = threading.Barrier(3, timeout=3.0)
+        concurrent_think_peak = 0
+        concurrent_send_peak = 0
+        active_thinks = 0
+        active_sends = 0
+        counter_lock = threading.Lock()
+        send_log = []
+
+        def fake_think(task):
+            nonlocal active_thinks, concurrent_think_peak
+            with counter_lock:
+                active_thinks += 1
+                concurrent_think_peak = max(concurrent_think_peak, active_thinks)
+            think_barrier.wait()
+            time.sleep(0.02)
+            with counter_lock:
+                active_thinks -= 1
+            return f"reply:{task['target']}"
+
+        def fake_send(task, draft):
+            nonlocal active_sends, concurrent_send_peak
+            with counter_lock:
+                active_sends += 1
+                concurrent_send_peak = max(concurrent_send_peak, active_sends)
+            time.sleep(0.01)
+            send_log.append((task["target"], draft))
+            with counter_lock:
+                active_sends -= 1
+            return {"sent": True}
+
+        dispatch_res = scheduler.dispatch_concurrent_replies(
+            None,
+            think_fn=fake_think,
+            send_fn=fake_send,
+            max_workers=3,
+            now_ts=200.0,
+        )
+        self.assertTrue(dispatch_res["ok"])
+        self.assertEqual(dispatch_res["taskCount"], 3)
+        self.assertGreaterEqual(concurrent_think_peak, 2)
+        self.assertEqual(concurrent_send_peak, 1)
+        self.assertEqual(
+            dispatch_res["dispatchedOrder"],
+            ["久等防饿死好友", "VIP紧急小窗", "普通新消息"],
+        )
+        self.assertEqual([x[0] for x in send_log], ["久等防饿死好友", "VIP紧急小窗", "普通新消息"])
+
+        # 4) TwoTierWindowCoordinator: 快车道只收白名单独立小窗，主窗兜底严格去重，非白名单独立小窗只读隔离
+        sample_windows = [
+            {
+                "windowID": 3258,
+                "appId": "wechat",
+                "appLabel": "微信",
+                "title": "微信",
+                "isMainWindow": True,
+                "dHash64": "94a4848c84841481",
+                "bounds": {"x": 0, "y": 30, "width": 853, "height": 1320},
+            },
+            {
+                "windowID": 11503,
+                "appId": "wechat",
+                "appLabel": "微信",
+                "title": "安晓心",
+                "isMainWindow": False,
+                "dHash64": "031af0c060343853",
+                "bounds": {"x": 1380, "y": 484, "width": 598, "height": 640},
+            },
+            {
+                "windowID": 11509,
+                "appId": "wechat",
+                "appLabel": "微信",
+                "title": "苏文璐",
+                "isMainWindow": False,
+                "dHash64": "abcdef0123456789",
+                "bounds": {"x": 1804, "y": 699, "width": 598, "height": 640},
+            },
+            {
+                "windowID": 3776,
+                "appId": "wecom",
+                "appLabel": "企业微信",
+                "title": "企业微信",
+                "isMainWindow": True,
+                "dHash64": "000000080c404040",
+                "bounds": {"x": 853, "y": 30, "width": 960, "height": 1320},
+            },
+        ]
+        lanes = TwoTierWindowCoordinator.plan_lanes(["安晓心", "心安", "openbot"], sample_windows)
+        self.assertEqual([p["target"] for p in lanes["fastLanePopouts"]], ["安晓心"])
+        self.assertEqual(lanes["fastLanePopouts"][0]["windowID"], 11503)
+        self.assertTrue(lanes["fastLanePopouts"][0]["zeroSwitch"])
+        self.assertEqual(lanes["mainWindowFallbackTargets"], ["心安", "openbot"])
+        self.assertEqual([p["title"] for p in lanes["protectedReadOnlyPopouts"]], ["苏文璐"])
+        self.assertTrue(lanes["protectedReadOnlyPopouts"][0]["readOnly"])
+
+        # 5) web_console.py 新增 v2.4.71 DOM 标记校验
+        html = render_web_console_html()
+        for marker in (
+            "borderOverlayToggle",
+            "runMultiWinSchedulerBtn",
+            "settingsBorderOverlayToggle",
+            "popoverSchedulerSummary",
+            "workosSchedulerBox",
+        ):
+            self.assertIn(marker, html, f"web_console.py 缺少 v2.4.71 标记: {marker}")
+
+        # 6) HTTP 端到端验证 /api/workos/scheduler、/api/workos/scheduler/run、/api/workos/border-overlay
+        sched_dir = self.data / "v2471_http_engine"
+        sched_engine = WeChatControlEngine(
+            audit_log_path=sched_dir / "audit.jsonl",
+            auth_file_path=sched_dir / "auth.json",
+            bindings_file_path=sched_dir / "bindings.json",
+            models_config_path=sched_dir / "models.json",
+            model_http_requester=lambda m, u, **k: (_ for _ in ()).throw(ConnectionRefusedError),
+            knowledge_db_path=sched_dir / "kb.sqlite",
+            personas_file_path=sched_dir / "personas.json",
+            snapshots_dir=sched_dir / "snap",
+            reports_dir=sched_dir / "reports",
+        )
+        sched_engine.auth_grant(ALL_CAPABILITIES, authorized_by="diag-v2471-test")
+        sched_engine.bind_contact("安晓心", role="friend", ai_persona="wecom-kf-pro", auto_reply_enabled=True, special_care=True)
+        sched_engine.bind_contact("心安", role="friend", ai_persona="wecom-kf-pro", auto_reply_enabled=True)
+        sched_engine.bind_contact("openbot", role="group", ai_persona="wecom-kf-pro", auto_reply_enabled=True)
+
+        def fake_native_sched(args, timeout=15.0):
+            cmd = args[0] if args else ""
+            if cmd in ("dhash-windows", "list-app-windows"):
+                return {
+                    "ok": True,
+                    "app": "all",
+                    "count": len(sample_windows),
+                    "elapsedMs": 12.4,
+                    "windows": sample_windows,
+                }
+            return {"ok": True}
+
+        sched_engine._run_native = fake_native_sched  # type: ignore[method-assign]
+
+        srv = create_http_server(sched_engine, "127.0.0.1", 0)
+        port = srv.server_address[1]
+        t = threading.Thread(target=srv.serve_forever, daemon=True)
+        t.start()
+        try:
+            base = f"http://127.0.0.1:{port}"
+            with urllib.request.urlopen(f"{base}/api/workos/scheduler", timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                st = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(st["ok"])
+                self.assertIn("dhash", st)
+                self.assertIn("coalescer", st)
+                self.assertIn("priorityQueue", st)
+                self.assertIn("borderOverlay", st)
+
+            # Round 1: 首次执行，快车道触发 OCR，主窗兜底去重，非白名单隔离
+            r1_req = urllib.request.Request(
+                f"{base}/api/workos/scheduler/run",
+                data=json.dumps({"auto_think": True, "dry_run": True, "app": "all"}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(r1_req, timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                r1 = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(r1["ok"])
+                self.assertEqual(r1["scanSource"], "dhash-windows")
+                self.assertEqual([p["target"] for p in r1["fastLanePopouts"]], ["安晓心"])
+                self.assertTrue(r1["fastLanePopouts"][0]["shouldRunOcr"])
+                self.assertEqual(set(r1["mainWindowFallbackTargets"]), {"心安", "openbot"})
+                self.assertEqual([p["title"] for p in r1["protectedReadOnlyPopouts"]], ["苏文璐"])
+                self.assertIsNotNone(r1["dispatchReport"])
+                self.assertEqual(r1["dispatchReport"]["taskCount"], 3)
+
+            # Round 2: dHash 未变化 -> 直接跳过无效 OCR
+            r2_req = urllib.request.Request(
+                f"{base}/api/workos/scheduler/run",
+                data=json.dumps({"auto_think": False, "dry_run": True}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(r2_req, timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                r2 = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(r2["ok"])
+                self.assertFalse(r2["fastLanePopouts"][0]["shouldRunOcr"])
+                self.assertGreaterEqual(r2["dhash"]["ocrSkippedByDHash"], 1)
+
+            # 透明呼吸边框配置与读取（idle / thinking / human_paused + 非法态 400）
+            for state_name, expected_color in (
+                ("idle", "#10B981"),
+                ("thinking", "#3B82F6"),
+                ("human_paused", "#F59E0B"),
+            ):
+                bo_req = urllib.request.Request(
+                    f"{base}/api/workos/border-overlay",
+                    data=json.dumps({"enabled": True, "state": state_name}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(bo_req, timeout=10) as resp:
+                    self.assertEqual(resp.status, 200)
+                    bo = json.loads(resp.read().decode("utf-8"))
+                    self.assertTrue(bo["ok"])
+                    self.assertTrue(bo["enabled"])
+                    self.assertEqual(bo["state"], state_name)
+                    self.assertEqual(bo["color"], expected_color)
+                    self.assertEqual([w["windowID"] for w in bo["activeWindows"]], [11503])
+
+            with urllib.request.urlopen(f"{base}/api/workos/border-overlay", timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                bo_get = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(bo_get["enabled"])
+                self.assertEqual(bo_get["color"], "#F59E0B")
+
+            bad_bo_req = urllib.request.Request(
+                f"{base}/api/workos/border-overlay",
+                data=json.dumps({"state": "invalid_color_state"}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                urllib.request.urlopen(bad_bo_req, timeout=10)
+            self.assertEqual(ctx.exception.code, 400)
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
 
 if __name__ == "__main__":
     unittest.main()

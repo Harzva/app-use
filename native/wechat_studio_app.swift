@@ -1,6 +1,7 @@
 import ApplicationServices
 import Cocoa
 import Foundation
+import QuartzCore
 import WebKit
 
 private func resolveRepoRoot() -> URL {
@@ -358,6 +359,379 @@ struct WeChatDockGeometry {
     }
 }
 
+// MARK: - Zero-Risk External Click-Through Breathing Border Overlay
+
+private struct BorderOverlayStyle {
+    let stateKey: String
+    let hexColor: String
+    let color: NSColor
+    let minOpacity: Float
+    let maxOpacity: Float
+    let pulseDuration: CFTimeInterval
+
+    static func resolve(state: String, hexColor: String?) -> BorderOverlayStyle {
+        let normState = state.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let defaultHex: String
+        let minOp: Float
+        let maxOp: Float
+        let duration: CFTimeInterval
+
+        switch normState {
+        case "thinking", "processing", "replying":
+            defaultHex = "#3B82F6"
+            minOp = 0.42
+            maxOp = 1.00
+            duration = 1.0
+        case "paused", "human_guard", "human_paused":
+            defaultHex = "#F59E0B"
+            minOp = 0.52
+            maxOp = 0.94
+            duration = 1.6
+        default: // idle / guarding / active
+            defaultHex = "#10B981"
+            minOp = 0.68
+            maxOp = 0.96
+            duration = 2.4
+        }
+
+        let trimmedHex = (hexColor ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let chosenHex = trimmedHex.isEmpty ? defaultHex : trimmedHex
+        let parsedColor = parseHexColor(chosenHex) ?? parseHexColor(defaultHex) ?? NSColor.systemGreen
+        return BorderOverlayStyle(
+            stateKey: normState.isEmpty ? "idle" : normState,
+            hexColor: chosenHex.uppercased(),
+            color: parsedColor,
+            minOpacity: minOp,
+            maxOpacity: maxOp,
+            pulseDuration: duration
+        )
+    }
+
+    static func parseHexColor(_ raw: String) -> NSColor? {
+        var hex = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if hex.hasPrefix("#") { hex.removeFirst() }
+        guard hex.count == 6, let val = UInt64(hex, radix: 16) else { return nil }
+        let r = CGFloat((val >> 16) & 0xFF) / 255.0
+        let g = CGFloat((val >> 8) & 0xFF) / 255.0
+        let b = CGFloat(val & 0xFF) / 255.0
+        return NSColor(srgbRed: r, green: g, blue: b, alpha: 1.0)
+    }
+}
+
+private final class BorderOverlayWindow: NSWindow {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+
+    init(contentRect: NSRect) {
+        super.init(
+            contentRect: contentRect,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        isOpaque = false
+        backgroundColor = .clear
+        ignoresMouseEvents = true
+        hasShadow = false
+        level = .floating
+        sharingType = .none
+        collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
+        isReleasedWhenClosed = false
+    }
+}
+
+private final class BorderOverlayView: NSView {
+    private let borderLayer = CAShapeLayer()
+    private var currentSignature = ""
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        borderLayer.fillColor = NSColor.clear.cgColor
+        borderLayer.lineWidth = 2.5
+        borderLayer.lineJoin = .round
+        layer?.addSublayer(borderLayer)
+        updateBorderPath()
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func layout() {
+        super.layout()
+        updateBorderPath()
+    }
+
+    private func updateBorderPath() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        borderLayer.frame = bounds
+        let strokeRect = bounds.insetBy(dx: 2.0, dy: 2.0)
+        if strokeRect.width > 4, strokeRect.height > 4 {
+            borderLayer.path = CGPath(roundedRect: strokeRect, cornerWidth: 11.0, cornerHeight: 11.0, transform: nil)
+        } else {
+            borderLayer.path = nil
+        }
+        CATransaction.commit()
+    }
+
+    func applyStyle(_ style: BorderOverlayStyle) {
+        let sig = "\(style.stateKey)|\(style.hexColor)"
+        borderLayer.strokeColor = style.color.cgColor
+        guard sig != currentSignature else { return }
+        currentSignature = sig
+        borderLayer.removeAnimation(forKey: "breathingPulse")
+        let anim = CABasicAnimation(keyPath: "opacity")
+        anim.fromValue = style.maxOpacity
+        anim.toValue = style.minOpacity
+        anim.duration = style.pulseDuration
+        anim.autoreverses = true
+        anim.repeatCount = .infinity
+        anim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        borderLayer.add(anim, forKey: "breathingPulse")
+    }
+}
+
+final class PopoutBorderOverlayManager {
+    private struct ActiveOverlaySpec {
+        let windowID: CGWindowID
+        let title: String
+        let state: String
+        let color: String?
+    }
+
+    private let consoleUrl: String
+    private var pollTimer: Timer?
+    private var frameTimer: Timer?
+    private var notificationToken: NSObjectProtocol?
+    private var overlayWindows: [CGWindowID: BorderOverlayWindow] = [:]
+    private var enabled = false
+    private var activeSpecs: [ActiveOverlaySpec] = []
+    private var isPolling = false
+
+    private static let outerPadding: CGFloat = 4.0
+
+    init(consoleUrl: String) {
+        self.consoleUrl = consoleUrl
+    }
+
+    func start() {
+        pollTimer?.invalidate()
+        let timer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: true) { [weak self] _ in
+            self?.pollOverlayState()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        pollTimer = timer
+
+        notificationToken = DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.openbot.wechatstudio.borderOverlayRefresh"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.pollOverlayState()
+        }
+        pollOverlayState()
+    }
+
+    func stop() {
+        pollTimer?.invalidate()
+        pollTimer = nil
+        frameTimer?.invalidate()
+        frameTimer = nil
+        if let token = notificationToken {
+            DistributedNotificationCenter.default().removeObserver(token)
+            notificationToken = nil
+        }
+        enabled = false
+        activeSpecs = []
+        closeAllOverlays()
+    }
+
+    private func updateFrameTimer() {
+        let needTracking = enabled && !activeSpecs.isEmpty
+        if needTracking && frameTimer == nil {
+            let timer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in
+                self?.syncOverlayWindows()
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            frameTimer = timer
+        } else if !needTracking, let timer = frameTimer {
+            timer.invalidate()
+            frameTimer = nil
+        }
+    }
+
+    private func closeAllOverlays() {
+        for (_, win) in overlayWindows {
+            win.orderOut(nil)
+            win.close()
+        }
+        overlayWindows.removeAll()
+    }
+
+    private func pollOverlayState() {
+        guard !isPolling else { return }
+        let base = consoleUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let url = URL(string: "\(base)/api/workos/border-overlay") else { return }
+        isPolling = true
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 1.5
+        URLSession.shared.dataTask(with: req) { [weak self] data, resp, _ in
+            defer {
+                DispatchQueue.main.async { self?.isPolling = false }
+            }
+            guard let http = resp as? HTTPURLResponse, http.statusCode == 200,
+                  let data,
+                  let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+                return
+            }
+            let isEnabled = (obj["enabled"] as? Bool) ?? false
+            var parsedSpecs: [ActiveOverlaySpec] = []
+            if isEnabled {
+                if let list = obj["activeWindows"] as? [[String: Any]] {
+                    for item in list {
+                        guard let widNum = item["windowID"] as? NSNumber else { continue }
+                        let wid = widNum.uint32Value
+                        guard wid > 0 else { continue }
+                        let title = (item["title"] as? String) ?? ""
+                        let state = (item["state"] as? String)
+                            ?? (obj["modeColorState"] as? String)
+                            ?? (obj["state"] as? String)
+                            ?? "idle"
+                        let color = item["color"] as? String
+                        parsedSpecs.append(ActiveOverlaySpec(windowID: wid, title: title, state: state, color: color))
+                    }
+                } else if let widList = obj["activePopoutWindowIDs"] as? [NSNumber] {
+                    let fallbackState = (obj["modeColorState"] as? String) ?? (obj["state"] as? String) ?? "idle"
+                    for widNum in widList where widNum.uint32Value > 0 {
+                        parsedSpecs.append(ActiveOverlaySpec(
+                            windowID: widNum.uint32Value,
+                            title: "",
+                            state: fallbackState,
+                            color: nil
+                        ))
+                    }
+                }
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.enabled = isEnabled
+                self.activeSpecs = parsedSpecs
+                self.syncOverlayWindows()
+                self.updateFrameTimer()
+            }
+        }.resume()
+    }
+
+    private func liveOnScreenQuartzFrames() -> [CGWindowID: CGRect] {
+        guard let rows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return [:]
+        }
+        var frames: [CGWindowID: CGRect] = [:]
+        for row in rows {
+            guard (row[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
+                  (row[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue != false,
+                  let num = row[kCGWindowNumber as String] as? NSNumber,
+                  let boundsDict = row[kCGWindowBounds as String] as? NSDictionary,
+                  let qRect = CGRect(dictionaryRepresentation: boundsDict),
+                  qRect.width >= 100, qRect.height >= 100 else {
+                continue
+            }
+            frames[CGWindowID(num.uint32Value)] = qRect
+        }
+        return frames
+    }
+
+    private func syncOverlayWindows() {
+        guard enabled && !activeSpecs.isEmpty else {
+            closeAllOverlays()
+            return
+        }
+        let liveFrames = liveOnScreenQuartzFrames()
+        let top = WeChatDockGeometry.mainDisplayTop
+        var keepIDs = Set<CGWindowID>()
+
+        for spec in activeSpecs {
+            guard let qFrame = liveFrames[spec.windowID] else { continue }
+            keepIDs.insert(spec.windowID)
+            let akFrame = WeChatDockGeometry.appKitFrame(
+                quartzOrigin: qFrame.origin,
+                size: qFrame.size,
+                mainDisplayTop: top
+            )
+            let targetFrame = akFrame.insetBy(dx: -Self.outerPadding, dy: -Self.outerPadding)
+            let style = BorderOverlayStyle.resolve(state: spec.state, hexColor: spec.color)
+
+            let win: BorderOverlayWindow
+            if let existing = overlayWindows[spec.windowID] {
+                win = existing
+            } else {
+                win = BorderOverlayWindow(contentRect: targetFrame)
+                let view = BorderOverlayView(frame: NSRect(origin: .zero, size: targetFrame.size))
+                view.autoresizingMask = [.width, .height]
+                win.contentView = view
+                overlayWindows[spec.windowID] = win
+            }
+
+            let cur = win.frame
+            if abs(cur.minX - targetFrame.minX) > 1.0 || abs(cur.minY - targetFrame.minY) > 1.0
+                || abs(cur.width - targetFrame.width) > 1.0 || abs(cur.height - targetFrame.height) > 1.0 {
+                win.setFrame(targetFrame, display: true)
+            }
+            (win.contentView as? BorderOverlayView)?.applyStyle(style)
+            if !win.isVisible {
+                win.orderFrontRegardless()
+            }
+        }
+
+        let staleIDs = overlayWindows.keys.filter { !keepIDs.contains($0) }
+        for wid in staleIDs {
+            overlayWindows[wid]?.orderOut(nil)
+            overlayWindows[wid]?.close()
+            overlayWindows.removeValue(forKey: wid)
+        }
+    }
+
+    static func runSelfVerification() -> [String: Any] {
+        let _ = NSApplication.shared
+        let testRect = NSRect(x: -5000, y: -5000, width: 606, height: 648)
+        let win = BorderOverlayWindow(contentRect: testRect)
+        let view = BorderOverlayView(frame: NSRect(origin: .zero, size: testRect.size))
+        win.contentView = view
+        let idleStyle = BorderOverlayStyle.resolve(state: "guarding", hexColor: nil)
+        let thinkStyle = BorderOverlayStyle.resolve(state: "thinking", hexColor: nil)
+        let pauseStyle = BorderOverlayStyle.resolve(state: "human_guard", hexColor: nil)
+        view.applyStyle(idleStyle)
+        let checks: [String: Bool] = [
+            "borderless": win.styleMask == [.borderless],
+            "nonOpaque": !win.isOpaque,
+            "clearBackground": win.backgroundColor == .clear,
+            "ignoresMouseEvents": win.ignoresMouseEvents,
+            "noShadow": !win.hasShadow,
+            "floatingLevel": win.level == .floating,
+            "sharingNone": win.sharingType == .none,
+            "neverBecomesKey": !win.canBecomeKey && !win.canBecomeMain,
+            "idleGreen": idleStyle.hexColor == "#10B981",
+            "thinkingBlue": thinkStyle.hexColor == "#3B82F6",
+            "pausedAmber": pauseStyle.hexColor == "#F59E0B",
+        ]
+        win.close()
+        return [
+            "ok": checks.values.allSatisfy { $0 },
+            "checks": checks,
+            "borderLineWidth": 2.5,
+            "outerPadding": outerPadding,
+            "stateColors": [
+                "guarding": idleStyle.hexColor,
+                "thinking": thinkStyle.hexColor,
+                "human_guard": pauseStyle.hexColor,
+            ],
+        ]
+    }
+}
+
 private func wechatAXDockCallback(
     observer _: AXObserver,
     element _: AXUIElement,
@@ -409,6 +783,7 @@ final class StudioAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
     private var hasDockedFrame = false
     private var explicitStandalone = false
     private var dockStatus = "独立窗口"
+    private lazy var borderOverlayManager = PopoutBorderOverlayManager(consoleUrl: consoleUrl)
 
     private let regularStyleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
 
@@ -611,6 +986,7 @@ final class StudioAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
                 self?.enableWeChatDock(animate: false)
             }
         }
+        borderOverlayManager.start()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -635,6 +1011,7 @@ final class StudioAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
     func applicationWillTerminate(_ notification: Notification) {
         stopDockTimer()
         stopAXObserver()
+        borderOverlayManager.stop()
         serviceTimer?.invalidate()
         if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
     }
@@ -1305,6 +1682,18 @@ private func mainEntry() {
         return
     }
 
+    if args.contains("--verify-border-overlay") {
+        let payload = PopoutBorderOverlayManager.runSelfVerification()
+        let ok = (payload["ok"] as? Bool) == true
+        if let jsonData = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]),
+           let text = String(data: jsonData, encoding: .utf8) {
+            print(text)
+        } else {
+            print("{\"ok\":\(ok)}")
+        }
+        exit(ok ? 0 : 1)
+    }
+
     if args.contains("--verify-headless") {
         let bundledAxExists = resolveVisionAxBinary(repoRoot: repoRoot) != nil
         let exeUrl = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL
@@ -1327,6 +1716,7 @@ private func mainEntry() {
             "defaultConsoleUrl": consoleUrl,
             "repoRoot": repoRoot.path,
             "supportsWeChatSidebarDock": true,
+            "supportsPopoutBorderOverlay": true,
             "bundledVisionAxExists": bundledAxExists,
             "consoleHealthy": consoleHealthy,
             "backendScriptExists": backendScriptExists,

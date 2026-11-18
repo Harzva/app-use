@@ -1402,6 +1402,10 @@ def create_http_server(
                     res = engine.list_app_windows(app=app_filter)
                     status_code = 400 if res.get("error_code") == "unsupported_app" else 200
                     self._send_json(status_code, res)
+                elif path == "/api/workos/scheduler":
+                    self._send_json(200, engine.get_scheduler_status())
+                elif path == "/api/workos/border-overlay":
+                    self._send_json(200, engine.get_border_overlay_status(refresh_windows=True))
                 elif path == "/health":
                     self._send_json(200, {"ok": True, "service": SERVER_INFO["name"], "version": SERVER_INFO.get("version")})
                 elif path == "/auth/status":
@@ -1966,6 +1970,34 @@ def create_http_server(
                             body.get("apply_prompt_target", body.get("applyPromptTarget", False))
                         ),
                         instruction=str(body.get("instruction") or ""),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/workos/scheduler/run":
+                    res = engine.run_multi_window_schedule_round(
+                        auto_think=bool(body.get("auto_think", body.get("autoThink", False))),
+                        dry_run=bool(body.get("dry_run", body.get("dryRun", True))),
+                        app=str(body.get("app") or "all"),
+                        dhash_threshold=int(
+                            body.get("dhash_threshold")
+                            if "dhash_threshold" in body
+                            else (body.get("dhashThreshold") or 4)
+                        ),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/workos/border-overlay":
+                    raw_enabled = body.get("enabled") if "enabled" in body else None
+                    raw_state = (
+                        body.get("state")
+                        if "state" in body
+                        else (
+                            body.get("modeColorState")
+                            if "modeColorState" in body
+                            else body.get("mode_color_state")
+                        )
+                    )
+                    res = engine.configure_border_overlay(
+                        enabled=bool(raw_enabled) if raw_enabled is not None else None,
+                        state=str(raw_state) if raw_state is not None else None,
                     )
                     self._send_json(200 if res.get("ok") else 400, res)
                 elif path == "/api/kb-search":
