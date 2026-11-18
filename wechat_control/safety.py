@@ -147,6 +147,23 @@ class GroupAllowlistGuard:
         norm_target = normalize_chat_name(target)
         return norm_target in self._normalized
 
+    def add_allowed(self, target: str) -> bool:
+        """Dynamically add a normalized chat target when allowlist is active."""
+        norm = normalize_chat_name(target)
+        if not norm:
+            return False
+        added = norm not in self._normalized
+        self._normalized.add(norm)
+        return added
+
+    def remove_allowed(self, target: str) -> bool:
+        """Remove a dynamically added target from the normalized allowlist."""
+        norm = normalize_chat_name(target)
+        if not norm or norm not in self._normalized:
+            return False
+        self._normalized.remove(norm)
+        return True
+
     def list_allowed(self) -> list[str]:
         return sorted(self._normalized)
 

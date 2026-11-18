@@ -1748,6 +1748,191 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       display: block;
     }
     #tab-monitor .chat-thread-list > summary { padding: 7px 12px; font-size: 12.5px; }
+    #tab-monitor .chat-thread-list > summary.thread-summary-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      list-style: none;
+      cursor: pointer;
+    }
+    #tab-monitor .chat-thread-list > summary.thread-summary-row::-webkit-details-marker { display: none; }
+    .thread-plus-btn {
+      width: 22px;
+      height: 22px;
+      min-height: 22px !important;
+      padding: 0 !important;
+      border-radius: 6px !important;
+      border: 1px solid color-mix(in srgb, var(--work-pine) 35%, var(--border)) !important;
+      background: color-mix(in srgb, var(--work-pine) 10%, var(--surface)) !important;
+      color: var(--work-pine) !important;
+      font-size: 14px !important;
+      font-weight: 700 !important;
+      line-height: 1 !important;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .thread-plus-btn:hover {
+      background: var(--work-pine) !important;
+      color: #fff !important;
+    }
+    .sidebar-watch-panel {
+      flex-shrink: 0;
+      margin: 4px 8px 4px;
+      padding: 8px 9px;
+      border: 1px solid var(--work-divider);
+      border-radius: 9px;
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .sidebar-watch-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 650;
+      color: var(--text);
+    }
+    .sidebar-add-watch-btn {
+      padding: 2px 8px !important;
+      min-height: 24px !important;
+      font-size: 11.5px !important;
+      font-weight: 600 !important;
+      border-radius: 6px !important;
+      border-color: color-mix(in srgb, var(--work-pine) 40%, var(--border)) !important;
+      color: var(--work-pine) !important;
+      background: color-mix(in srgb, var(--work-pine) 9%, var(--surface)) !important;
+      white-space: nowrap;
+    }
+    .sidebar-add-watch-btn:hover,
+    .sidebar-add-watch-btn[aria-expanded="true"] {
+      background: var(--work-pine) !important;
+      color: #fff !important;
+      border-color: var(--work-pine) !important;
+    }
+    .sidebar-watched-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      max-height: 74px;
+      overflow-y: auto;
+    }
+    .watch-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      max-width: 100%;
+      padding: 2px 6px;
+      border-radius: 999px;
+      border: 1px solid color-mix(in srgb, var(--ok) 38%, var(--border));
+      background: color-mix(in srgb, var(--ok) 11%, var(--surface));
+      color: var(--text);
+      font-size: 11.5px;
+      line-height: 1.3;
+    }
+    .watch-chip-name {
+      background: transparent !important;
+      border: 0 !important;
+      padding: 0 !important;
+      min-height: 0 !important;
+      color: inherit !important;
+      font-size: 11.5px !important;
+      font-weight: 500 !important;
+      max-width: 145px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .watch-chip-remove {
+      background: transparent !important;
+      border: 0 !important;
+      padding: 0 2px !important;
+      min-height: 0 !important;
+      color: var(--text-muted) !important;
+      font-size: 12px !important;
+      line-height: 1 !important;
+      cursor: pointer;
+      border-radius: 999px !important;
+    }
+    .watch-chip-remove:hover { color: var(--danger) !important; }
+    .sidebar-watch-drawer {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding-top: 6px;
+      border-top: 1px dashed var(--work-divider);
+    }
+    .sidebar-watch-input-row {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .sidebar-watch-input-row input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 5px 8px !important;
+      font-size: 12px !important;
+      min-height: 28px !important;
+      border-radius: 6px !important;
+    }
+    .sidebar-watch-input-row button {
+      width: 100%;
+      min-height: 28px !important;
+      padding: 4px 8px !important;
+      font-size: 12px !important;
+    }
+    .sidebar-watch-autostart {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      cursor: pointer;
+    }
+    .sidebar-watch-autostart input { width: auto !important; margin: 0; }
+    .sidebar-watch-candidates-label { font-size: 11px; color: var(--text-muted); margin-bottom: 3px; }
+    .sidebar-watch-candidates { display: flex; flex-wrap: wrap; gap: 4px; max-height: 62px; overflow-y: auto; }
+    .watch-cand-btn {
+      padding: 2px 7px !important;
+      min-height: 22px !important;
+      font-size: 11px !important;
+      border-radius: 999px !important;
+      border: 1px solid var(--border) !important;
+      background: var(--surface-soft) !important;
+      color: var(--text-secondary) !important;
+    }
+    .watch-cand-btn:hover {
+      border-color: var(--work-pine) !important;
+      color: var(--work-pine) !important;
+      background: color-mix(in srgb, var(--work-pine) 8%, var(--surface)) !important;
+    }
+    .hosting-quick-add {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 6px 0 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .hosting-quick-add input {
+      flex: 1 1 auto;
+      min-width: 0;
+      padding: 5px 8px !important;
+      font-size: 12px !important;
+      min-height: 29px !important;
+    }
+    .hosting-quick-add button {
+      flex-shrink: 0;
+      padding: 4px 10px !important;
+      font-size: 12px !important;
+      min-height: 29px !important;
+    }
     #tab-monitor #monitorEventsList {
       padding: 4px 6px;
     }
@@ -2827,8 +3012,35 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
             <button type="button" class="bs-view-tab" aria-selected="false" onclick="switchTab('knowledge')">知识库</button>
             <button type="button" class="bs-view-tab" aria-selected="false" onclick="location.href='/workbench'">待办</button>
           </div>
+          <div id="sidebarWatchPanel" class="sidebar-watch-panel" aria-label="关注与监视好友">
+            <div class="sidebar-watch-head">
+              <span>👁️ 关注好友 <span id="watchedCountBadge" class="conversation-count"></span></span>
+              <span style="display:inline-flex; align-items:center; gap:4px; flex-shrink:0;">
+                <button type="button" id="sidebarPopoutAllBtn" class="btn-outline sm sidebar-add-watch-btn" onclick="openWatchedPopoutWindows()" title="一键将所有已关注好友弹出独立微信/企微聊天小窗">🪟 小窗</button>
+                <button type="button" id="sidebarAddWatchBtn" class="btn-outline sm sidebar-add-watch-btn" onclick="toggleSidebarWatchDrawer()" aria-expanded="false" aria-controls="sidebarWatchDrawer" title="添加关注 / 监视好友（对方发消息时自动回复）">＋ 关注</button>
+              </span>
+            </div>
+            <div id="sidebarWatchedChips" class="sidebar-watched-chips" aria-live="polite"></div>
+            <div id="sidebarWatchDrawer" class="sidebar-watch-drawer" hidden>
+              <div class="sidebar-watch-input-row">
+                <input type="text" id="sidebarWatchInput" placeholder="输入微信/企微好友或机器人名（如 clawBOT）" aria-label="关注的好友或机器人名称" onkeydown="if(event.key==='Enter'){event.preventDefault();submitSidebarWatchContact();}" />
+                <button type="button" id="sidebarWatchSubmitBtn" class="btn-solid sm" onclick="submitSidebarWatchContact()">＋ 关注并自动回复</button>
+              </div>
+              <label class="sidebar-watch-autostart">
+                <input type="checkbox" id="sidebarWatchAutoStart" checked />
+                <span>对方发消息时立即自动回复</span>
+              </label>
+              <div>
+                <div class="sidebar-watch-candidates-label">快捷添加推荐（点击即关注）：</div>
+                <div id="sidebarWatchCandidates" class="sidebar-watch-candidates"></div>
+              </div>
+            </div>
+          </div>
           <details class="chat-thread-list" id="conversationThreads" open>
-            <summary>最近会话 <span id="conversationCount" class="conversation-count"></span></summary>
+            <summary class="thread-summary-row">
+              <span>最近会话 <span id="conversationCount" class="conversation-count"></span></span>
+              <button type="button" id="threadListPlusBtn" class="thread-plus-btn" onclick="event.preventDefault(); event.stopPropagation(); toggleSidebarWatchDrawer(true)" title="添加关注/监视好友（对方发消息时自动回复）" aria-label="添加关注或监视好友">＋</button>
+            </summary>
             <div id="monitorEventsList"><p class="home-empty">正在读取最近会话…</p></div>
           </details>
           <div class="chat-list-head">
@@ -2865,7 +3077,11 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
                       <button type="button" class="link-btn" onclick="hostingSelectAll(true)">全选</button>
                       <button type="button" class="link-btn" onclick="hostingSelectAll(false)">清空</button>
                       <button type="button" class="link-btn" onclick="refreshHostingFriends()">刷新好友列表</button>
-                      <span class="hosting-hint">勾选即托管对象；未绑定过的好友开启托管时会自动创建绑定。</span>
+                      <span class="hosting-hint">勾选即托管对象；也可在下方直接新增关注好友。</span>
+                    </div>
+                    <div class="hosting-quick-add">
+                      <input type="text" id="hostingQuickAddInput" placeholder="新增关注好友名（如 clawBOT）" aria-label="新增关注好友名" onkeydown="if(event.key==='Enter'){event.preventDefault();quickAddWatchFromHostingPicker();}" />
+                      <button type="button" id="hostingQuickAddBtn" class="btn-solid sm" onclick="quickAddWatchFromHostingPicker()">＋ 添加关注</button>
                     </div>
                     <ul class="hosting-friend-list" id="hostingFriendList"><li class="hosting-empty">正在读取好友列表…</li></ul>
                   </div>
@@ -2899,6 +3115,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
                     <div class="window-picker-foot">🔒 非白名单独立小窗仅作只读保护，禁止一键开启发送托管</div>
                   </div>
                 </div>
+                <button type="button" id="popoutWatchedWindowsBtn" class="btn-outline sm" onclick="openWatchedPopoutWindows()" title="为所有已关注/托管好友自动双击弹出独立聊天小窗">🪟 弹出小窗</button>
                 <button type="button" id="hostingEnableBtn" class="btn-solid hosting-btn" onclick="applyHosting(true)">🚀 一键托管</button>
                 <button type="button" id="hostingDisableBtn" class="btn-outline sm" onclick="applyHosting(false)">⏹ 停止</button>
                 <button type="button" id="speedModeBtn" class="btn-outline sm" onclick="toggleWorkosSpeedMode()" title="在「⚡ 极速」低延迟与「🔬 深思」深度推理档位间切换">⚡ 极速</button>
@@ -4048,8 +4265,267 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       }
     }
 
-    /* ---------- 首页「一键托管好友」 ---------- */
-    const HOSTING_STATE = { hosting: null, friends: [], checked: new Set() };
+    /* ---------- 首页「一键托管好友」 & 左侧「+ 关注/监视好友」 ---------- */
+    const HOSTING_STATE = { hosting: null, friends: [], checked: new Set(), dirty: false };
+    const WATCH_STATE = { watchedTargets: [], loaded: false, drawerOpen: false, busy: false };
+
+    function _syncWatchedTargetsFromStates() {
+      const merged = [];
+      const seen = new Set();
+      const push = (raw) => {
+        const clean = String(raw || "").trim();
+        if (!clean) return;
+        const key = clean.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        merged.push(clean);
+      };
+      const h = HOSTING_STATE.hosting || {};
+      for (const t of (h.targets || [])) push(t);
+      for (const f of (HOSTING_STATE.friends || [])) {
+        if (f && f.bound && f.autoReplyEnabled) push(f.target);
+      }
+      if (!HOSTING_STATE.friends?.length && Array.isArray(STATE?.bindings)) {
+        for (const b of STATE.bindings) {
+          if (b && b.autoReplyEnabled !== false) push(b.target);
+        }
+      }
+      if (!merged.length && WATCH_STATE.loaded) {
+        for (const t of (WATCH_STATE.watchedTargets || [])) push(t);
+      }
+      WATCH_STATE.watchedTargets = merged;
+      return merged;
+    }
+
+    function getWatchedTargets() {
+      return _syncWatchedTargetsFromStates();
+    }
+
+    async function loadWatchContacts() {
+      try {
+        const { status, data } = await apiJson("/api/watch-contacts");
+        if (status !== 200 || !data.ok) return;
+        WATCH_STATE.loaded = true;
+        if (Array.isArray(data.watchedTargets)) WATCH_STATE.watchedTargets = data.watchedTargets;
+        if (data.hosting) HOSTING_STATE.hosting = data.hosting;
+        if (Array.isArray(data.friends)) HOSTING_STATE.friends = data.friends;
+        renderSidebarWatchPanel();
+      } catch (err) { /* 静默等待下次刷新 */ }
+    }
+
+    function toggleSidebarWatchDrawer(forceOpen) {
+      const drawer = document.getElementById("sidebarWatchDrawer");
+      const btn = document.getElementById("sidebarAddWatchBtn");
+      if (!drawer) return;
+      const next = (typeof forceOpen === "boolean") ? forceOpen : drawer.hidden;
+      WATCH_STATE.drawerOpen = next;
+      drawer.hidden = !next;
+      if (btn) btn.setAttribute("aria-expanded", String(next));
+      if (next) {
+        renderSidebarWatchPanel();
+        const inp = document.getElementById("sidebarWatchInput");
+        if (inp) setTimeout(() => inp.focus(), 20);
+      }
+    }
+
+    function renderSidebarWatchPanel() {
+      const chipsBox = document.getElementById("sidebarWatchedChips");
+      const badge = document.getElementById("watchedCountBadge");
+      const candBox = document.getElementById("sidebarWatchCandidates");
+      if (!chipsBox) return;
+      const watched = getWatchedTargets();
+      const watchedLower = new Set(watched.map((t) => String(t).trim().toLowerCase()));
+      if (badge) badge.textContent = watched.length ? `(${watched.length})` : "";
+
+      if (!watched.length) {
+        chipsBox.innerHTML = `<span class="home-empty" style="padding:2px 0; font-size:11.5px;">暂无关注好友，点右上角「＋ 关注」添加</span>`;
+      } else {
+        chipsBox.innerHTML = watched.map((t) => {
+          const enc = encArg(t);
+          return `<span class="watch-chip" title="${escapeHtml(t)} · 对方发消息将自动回复"><button type="button" class="watch-chip-name" onclick="selectChatThread('${enc}', '')">🟢 ${escapeHtml(t)}</button><button type="button" class="watch-chip-remove" onclick="event.stopPropagation(); openWatchedPopoutWindows(['${enc}'])" title="弹出 ${escapeHtml(t)} 独立聊天小窗" aria-label="弹出 ${escapeHtml(t)} 独立小窗">🪟</button><button type="button" class="watch-chip-remove" onclick="event.stopPropagation(); unwatchContact('${enc}')" title="取消关注 ${escapeHtml(t)}" aria-label="取消关注 ${escapeHtml(t)}">×</button></span>`;
+        }).join("");
+      }
+
+      if (candBox) {
+        const candidates = [];
+        const candSeen = new Set(watchedLower);
+        const addCand = (raw) => {
+          const clean = String(raw || "").trim();
+          if (!clean) return;
+          const k = clean.toLowerCase();
+          if (candSeen.has(k)) return;
+          candSeen.add(k);
+          candidates.push(clean);
+        };
+        addCand("微信ClawBot");
+        addCand("clawBOT");
+        for (const f of (HOSTING_STATE.friends || [])) {
+          if (f && f.target) addCand(f.target);
+        }
+        for (const p of (STATE?.analytics?.profiles || []).slice(0, 10)) {
+          if (p && !p.isFolderContainer) addCand(p.target || p.matchedTitle);
+        }
+        candBox.innerHTML = candidates.length
+          ? candidates.slice(0, 12).map((c) => {
+              const enc = encArg(c);
+              return `<button type="button" class="watch-cand-btn" onclick="watchContact('${enc}', document.getElementById('sidebarWatchAutoStart')?.checked !== false)">＋ ${escapeHtml(c)}</button>`;
+            }).join("")
+          : `<span style="font-size:11px; color:var(--text-muted);">已在上方输入名称即可添加</span>`;
+      }
+    }
+
+    async function watchContact(encOrRawTarget, autoStart = true) {
+      const target = (() => {
+        const raw = String(encOrRawTarget || "").trim();
+        try { return decodeURIComponent(raw); } catch (e) { return raw; }
+      })().trim();
+      if (!target) {
+        showToast("请输入要关注的好友或机器人名称（如 微信ClawBot）");
+        document.getElementById("sidebarWatchInput")?.focus();
+        return;
+      }
+      if (WATCH_STATE.busy) return;
+      WATCH_STATE.busy = true;
+      const subBtn = document.getElementById("sidebarWatchSubmitBtn");
+      if (subBtn) subBtn.disabled = true;
+      try {
+        const { status, data } = await apiJson("/api/watch-contacts", {
+          method: "POST",
+          body: JSON.stringify({
+            action: "watch",
+            target,
+            auto_start_hosting: Boolean(autoStart),
+          }),
+        });
+        if (status !== 200 || !data.ok) throw new Error(data.error || "关注失败");
+        WATCH_STATE.loaded = true;
+        if (Array.isArray(data.watchedTargets)) WATCH_STATE.watchedTargets = data.watchedTargets;
+        if (data.hosting) HOSTING_STATE.hosting = data.hosting;
+        HOSTING_STATE.dirty = false;
+        HOSTING_STATE.checked.add(data.target || target);
+        renderHosting();
+        renderSidebarWatchPanel();
+        renderMonitorEvents();
+        selectChatThread(encArg(data.target || target), "");
+        showToast(`👁️ 已关注「${data.target || target}」${autoStart ? "，对方发消息将自动回复" : ""}`);
+        await Promise.all([loadHosting(), loadOverview(false)]);
+      } catch (err) {
+        showToast("关注好友失败: " + (err.message || err));
+      } finally {
+        WATCH_STATE.busy = false;
+        if (subBtn) subBtn.disabled = false;
+      }
+    }
+
+    async function unwatchContact(encTarget) {
+      const target = (() => {
+        const raw = String(encTarget || "").trim();
+        try { return decodeURIComponent(raw); } catch (e) { return raw; }
+      })().trim();
+      if (!target || WATCH_STATE.busy) return;
+      WATCH_STATE.busy = true;
+      try {
+        const { status, data } = await apiJson("/api/watch-contacts", {
+          method: "POST",
+          body: JSON.stringify({ action: "unwatch", target }),
+        });
+        if (status !== 200 || !data.ok) throw new Error(data.error || "取消关注失败");
+        WATCH_STATE.loaded = true;
+        if (Array.isArray(data.watchedTargets)) WATCH_STATE.watchedTargets = data.watchedTargets;
+        if (data.hosting) HOSTING_STATE.hosting = data.hosting;
+        HOSTING_STATE.dirty = false;
+        HOSTING_STATE.checked.delete(target);
+        for (const f of (HOSTING_STATE.friends || [])) {
+          if (String(f.target || "").trim().toLowerCase() === target.toLowerCase()) {
+            f.autoReplyEnabled = false;
+          }
+        }
+        renderHosting();
+        renderSidebarWatchPanel();
+        renderMonitorEvents();
+        showToast(`已取消关注「${target}」`);
+        await Promise.all([loadHosting(), loadOverview(false)]);
+      } catch (err) {
+        showToast("取消关注失败: " + (err.message || err));
+      } finally {
+        WATCH_STATE.busy = false;
+      }
+    }
+
+    async function openWatchedPopoutWindows(specificTargets = null) {
+      const btnIds = ["sidebarPopoutAllBtn", "popoutWatchedWindowsBtn"];
+      const btns = btnIds.map((id) => document.getElementById(id)).filter(Boolean);
+      const targets = Array.isArray(specificTargets)
+        ? specificTargets.map((t) => {
+            try { return decodeURIComponent(String(t || "")); } catch (e) { return String(t || ""); }
+          }).filter(Boolean)
+        : null;
+      btns.forEach((b) => { b.disabled = true; });
+      try {
+        const payload = targets && targets.length ? { targets } : {};
+        const { status, data } = await apiJson("/api/workos/popout-windows", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        if (status !== 200 || !data.ok) throw new Error(data.error || "弹出独立小窗失败");
+        const opened = Number(data.openedCount || 0);
+        const already = Number(data.alreadyPopoutCount || 0);
+        const ready = opened + already;
+        const missing = (data.notFoundTargets || []).length;
+        showToast(
+          `🪟 已就绪 ${ready} 个独立小窗（新弹出 ${opened} 个 · 已存在 ${already} 个${missing ? ` · 未找到 ${missing} 个` : ""}）`
+        );
+        if (typeof refreshAppWindows === "function") await refreshAppWindows(false);
+        if (typeof loadWorkosHarness === "function") loadWorkosHarness(false);
+      } catch (err) {
+        showToast("弹出独立小窗失败: " + (err.message || err));
+      } finally {
+        btns.forEach((b) => { b.disabled = false; });
+      }
+    }
+
+    function submitSidebarWatchContact() {
+      const inp = document.getElementById("sidebarWatchInput");
+      const target = (inp?.value || "").trim();
+      if (!target) {
+        showToast("请输入要关注的好友或机器人名称（如 微信ClawBot）");
+        inp?.focus();
+        return;
+      }
+      const autoStart = document.getElementById("sidebarWatchAutoStart")?.checked !== false;
+      if (inp) inp.value = "";
+      watchContact(target, autoStart);
+    }
+
+    function quickAddWatchFromHostingPicker() {
+      const inp = document.getElementById("hostingQuickAddInput");
+      const target = (inp?.value || "").trim();
+      if (!target) {
+        showToast("请输入新增关注好友名（如 微信ClawBot）");
+        inp?.focus();
+        return;
+      }
+      if (inp) inp.value = "";
+      watchContact(target, true);
+    }
+
+    function _syncHostingCheckedFromState() {
+      if (HOSTING_STATE.dirty) return;
+      const next = new Set();
+      const h = HOSTING_STATE.hosting || {};
+      const activeTargets = Array.isArray(h.targets) ? h.targets : [];
+      if (activeTargets.length > 0) {
+        for (const t of activeTargets) {
+          const clean = String(t || "").trim();
+          if (clean) next.add(clean);
+        }
+      } else {
+        for (const f of (HOSTING_STATE.friends || [])) {
+          if (f && f.target && f.autoReplyEnabled) next.add(f.target);
+        }
+      }
+      HOSTING_STATE.checked = next;
+    }
 
     async function loadHosting() {
       try {
@@ -4057,7 +4533,10 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         if (status !== 200 || !data.ok) return;
         HOSTING_STATE.hosting = data.hosting || {};
         HOSTING_STATE.friends = data.friends || [];
+        _syncHostingCheckedFromState();
         renderHosting();
+        renderSidebarWatchPanel();
+        renderMonitorEvents();
       } catch (err) { /* 轮询静默：下一次 loadOverview 会再试 */ }
     }
 
@@ -4153,8 +4632,9 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         const cb = document.createElement("input");
         cb.type = "checkbox";
         cb.dataset.target = f.target;
-        cb.checked = HOSTING_STATE.checked.has(f.target) || Boolean(f.autoReplyEnabled);
+        cb.checked = HOSTING_STATE.checked.has(f.target);
         cb.addEventListener("change", () => {
+          HOSTING_STATE.dirty = true;
           if (cb.checked) HOSTING_STATE.checked.add(f.target);
           else HOSTING_STATE.checked.delete(f.target);
           updateHostingCheckedCount();
@@ -4196,6 +4676,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
     }
 
     function hostingSelectAll(flag) {
+      HOSTING_STATE.dirty = true;
       for (const cb of document.querySelectorAll("#hostingFriendList input[type=checkbox]")) {
         cb.checked = flag;
         if (flag) HOSTING_STATE.checked.add(cb.dataset.target);
@@ -4215,9 +4696,12 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
     }
 
     async function applyHosting(enable) {
-      const targets = [...HOSTING_STATE.checked];
+      const domChecked = Array.from(document.querySelectorAll("#hostingFriendList input[type=checkbox]:checked"))
+        .map((cb) => cb.dataset.target)
+        .filter(Boolean);
+      const targets = [...new Set([...HOSTING_STATE.checked, ...domChecked])];
       if (enable && targets.length === 0) {
-        showToast("请先在「选择托管好友」里勾选要托管的好友");
+        showToast("请先在「托管好友」里勾选要托管的好友，或在左侧点「＋ 关注」");
         return;
       }
       const btn = document.getElementById(enable ? "hostingEnableBtn" : "hostingDisableBtn");
@@ -4230,10 +4714,11 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         });
         if (status !== 200 || !data.ok) throw new Error(data.error || "操作失败");
         if (data.hosting) HOSTING_STATE.hosting = data.hosting;
+        HOSTING_STATE.dirty = false;
+        HOSTING_STATE.checked = enable ? new Set(targets) : new Set();
         showToast(enable
           ? "已开启托管：" + targets.length + " 位好友 · 机器人真发送回复"
           : "已停止托管" + (targets.length ? "，并关闭所选好友的自动回复" : ""));
-        HOSTING_STATE.checked = new Set();
         await loadHosting();
         await loadOverview();
       } catch (err) {
@@ -5388,14 +5873,23 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
           .map((b) => String(b.target || "").trim().toLowerCase())
           .filter(Boolean)
       );
+      const watchedSet = new Set(getWatchedTargets().map((t) => String(t).trim().toLowerCase()).filter(Boolean));
       for (const profile of (STATE?.analytics?.profiles || []).slice(0, 12)) {
         const target = (profile.target || profile.matchedTitle || "").trim();
         if (!target) continue;
         if (!conversations.has(target)) {
-          if (disabledTargets.has(target.toLowerCase()) && !profile.messageCount) continue;
+          if (disabledTargets.has(target.toLowerCase()) && !watchedSet.has(target.toLowerCase()) && !profile.messageCount) continue;
           conversations.set(target, {title: target, incoming: "", time: "", sortTs: 0, fromProfileOnly: true});
         }
         conversations.get(target).title = profile.matchedTitle || target;
+      }
+      for (const wt of getWatchedTargets()) {
+        const target = String(wt || "").trim();
+        if (!target) continue;
+        const exists = [...conversations.keys()].some((k) => k.toLowerCase() === target.toLowerCase());
+        if (!exists) {
+          conversations.set(target, {title: target, incoming: "", time: "关注中", sortTs: 0, isWatchedOnly: true});
+        }
       }
       // 历史来信兜底：事件流里没有 incomingText 的会话，从联系人历史（含导入+实时回写）取最近一条客户来信
       const inboundByTarget = {};
@@ -5452,10 +5946,13 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         const avatarImg = avatarUrl
           ? `<img class="chat-avatar" src="${escapeHtml(avatarUrl)}" alt="" onerror="this.style.display='none'">`
           : "";
+        const isWatched = watchedSet.has(target.toLowerCase());
+        const watchBadge = isWatched ? `<span class="pill ok" style="font-size:10.5px; padding:1px 6px;">🟢 监视中</span>` : "";
+        const fallbackSnippet = isWatched ? "已关注监视 · 对方发消息将自动回复" : "暂无来信 · 对方发消息后会自动记录";
         return `
           <button type="button" class="chat-thread-row ${selected ? "active" : ""}" aria-pressed="${selected}" data-target="${escapeHtml(target)}" onclick="selectChatThread('${encArg(target)}', '${encArg(entry.incoming)}')">
-            <span class="chat-row-top"><span class="chat-row-title">${avatarImg}<span>${escapeHtml(entry.title)}</span></span>${takenOver ? `<span class="pill danger">🤚 人工接管中</span>` : ""}${limitedPill}<span class="chat-row-meta">${escapeHtml(entry.time)}</span></span>
-            <span class="chat-row-snippet">${escapeHtml(entry.incoming || "暂无来信 · 对方发消息后会自动记录")}</span>
+            <span class="chat-row-top"><span class="chat-row-title">${avatarImg}<span>${escapeHtml(entry.title)}</span></span>${watchBadge}${takenOver ? `<span class="pill danger">🤚 人工接管中</span>` : ""}${limitedPill}<span class="chat-row-meta">${escapeHtml(entry.time)}</span></span>
+            <span class="chat-row-snippet">${escapeHtml(entry.incoming || fallbackSnippet)}</span>
             ${resumeBtn}
           </button>`;
       }).join("");
@@ -8847,8 +9344,10 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
     syncSendModeLabel();
     renderBoundWindowButton();
     renderMultiWindowSchedulerState();
+    renderSidebarWatchPanel();
     renderSalesCrmTab();
     loadOverview();
+    loadWatchContacts();
     loadWorkosHarness(false);
     loadPermissions();
     loadBackgroundObservation();

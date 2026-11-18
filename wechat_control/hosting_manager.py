@@ -32,11 +32,11 @@ class HostingManager:
         self,
         engine: "WeChatControlEngine",
         state_path: Path,
-        interval_seconds: float = 45.0,
+        interval_seconds: float = 8.0,
     ) -> None:
         self._engine = engine
         self._state_path = Path(state_path)
-        self._interval = max(5.0, float(interval_seconds))
+        self._interval = max(4.0, float(interval_seconds))
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -63,6 +63,58 @@ class HostingManager:
                 self._thread.start()
         self._persist()
         return {"ok": True, **self.status()}
+
+    def add_target(self, target: str, *, auto_start: bool = True) -> Dict[str, Any]:
+        """将单个联系人增量加入托管目标列表；默认若未运行则启动托管循环。"""
+        clean = str(target or "").strip()
+        if not clean:
+            return {"ok": False, "error": "HOSTING_TARGET_REQUIRED"}
+        from .safety import normalize_chat_name
+
+        norm_new = normalize_chat_name(clean).casefold()
+        with self._lock:
+            existing_keys = {normalize_chat_name(t).casefold() for t in self._targets if str(t).strip()}
+            if norm_new not in existing_keys:
+                self._targets = [*self._targets, clean]
+            already_running = bool(self._enabled and self._thread and self._thread.is_alive())
+            if auto_start:
+                self._enabled = True
+                if not self._started_at:
+                    self._started_at = self._utc_now()
+                if not already_running:
+                    self._stop.clear()
+                    self._thread = threading.Thread(target=self._run, name="wechat-hosting-loop", daemon=True)
+                    self._thread.start()
+        self._persist()
+        return {"ok": True, "added": clean, **self.status()}
+
+    def remove_target(self, target: str) -> Dict[str, Any]:
+        """从托管目标列表移除单个联系人；列表清空时自动停止托管循环。"""
+        clean = str(target or "").strip()
+        if not clean:
+            return {"ok": False, "error": "HOSTING_TARGET_REQUIRED"}
+        from .safety import normalize_chat_name
+
+        norm_rm = normalize_chat_name(clean).casefold()
+        thread_to_join: Optional[threading.Thread] = None
+        with self._lock:
+            kept: List[str] = []
+            removed = False
+            for item in self._targets:
+                if normalize_chat_name(item).casefold() == norm_rm:
+                    removed = True
+                else:
+                    kept.append(item)
+            self._targets = kept
+            if not self._targets and self._enabled:
+                self._enabled = False
+                self._started_at = None
+                self._stop.set()
+                thread_to_join = self._thread
+        if thread_to_join and thread_to_join.is_alive():
+            thread_to_join.join(timeout=5.0)
+        self._persist()
+        return {"ok": True, "removed": clean, "wasPresent": removed, **self.status()}
 
     def stop(self) -> Dict[str, Any]:
         with self._lock:

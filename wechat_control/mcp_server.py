@@ -1440,6 +1440,8 @@ def create_http_server(
                         "friends": friends_doc.get("friends", []),
                     }
                     self._send_json(200, res)
+                elif path == "/api/watch-contacts":
+                    self._send_json(200, engine.list_watched_contacts())
                 elif path == "/api/permissions":
                     self._send_json(200, engine.permissions_status())
                 elif path == "/api/diagnostics":
@@ -1647,6 +1649,21 @@ def create_http_server(
                     else:
                         res = {"ok": False, "error": "UNSUPPORTED_HOSTING_ACTION"}
                         status = 400
+                    self._send_json(status, res)
+                elif path == "/api/watch-contacts":
+                    action = str(body.get("action") or "watch").strip().lower()
+                    target = str(body.get("target") or "").strip()
+                    if action in ("unwatch", "remove", "disable", "stop"):
+                        res = engine.unwatch_contact(target)
+                    else:
+                        res = engine.watch_contact(
+                            target,
+                            alias=str(body.get("alias") or ""),
+                            role=str(body.get("role") or "friend"),
+                            care_level=body.get("care_level"),
+                            auto_start_hosting=bool(body.get("auto_start_hosting", True)),
+                        )
+                    status = 400 if res.get("error_code") == "missing_target" else (200 if res.get("ok") else 400)
                     self._send_json(status, res)
                 elif path == "/api/history-import":
                     res = engine.import_histories(
@@ -1922,6 +1939,16 @@ def create_http_server(
                             body.get("followUpIsolation", body.get("follow_up_isolation", True))
                         ),
                     )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/workos/popout-windows":
+                    raw_targets = body.get("targets")
+                    if isinstance(raw_targets, list):
+                        targets = [str(t) for t in raw_targets if str(t).strip()]
+                    elif str(body.get("target") or "").strip():
+                        targets = [str(body.get("target") or "").strip()]
+                    else:
+                        targets = None
+                    res = engine.open_watched_popout_windows(targets=targets)
                     self._send_json(200 if res.get("ok") else 400, res)
                 elif path == "/api/workos/doc-ingest/preview":
                     raw_use_llm = body.get("use_llm") if "use_llm" in body else body.get("useLlm")

@@ -2,7 +2,7 @@
   "schema": "openbot.codex-workbench-plugin/1",
   "pluginId": "dsh2codex:dsh-plugin-wechat-ecosystem",
   "packageName": "@dsh-market/wechat-ecosystem",
-  "version": "2.4.71",
+  "version": "2.4.72",
   "origin": "dsh2codex-adapter",
   "sourceOrigin": "local-dsh-plugin",
   "adapter": {
@@ -847,5 +847,5 @@
       }
     ]
   },
-  "sha256": "dcf0c4b0cc11627e9bf3aaaa847f46050bed79ec763d6f8b455f2a000229376b"
+  "sha256": "555896fbada369006a9e83fbf4a7781f9cd72c7a3d5ba9947ad1dd22cb1dc6be"
 }

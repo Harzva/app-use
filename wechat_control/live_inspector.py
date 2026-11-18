@@ -61,6 +61,8 @@ def _clean_title_for_match(text: str) -> str:
         "",
         nfkc,
     )
+    # Strip trailing WeChat native "AI" badge suffix (e.g. "微信 ClawBot AI")
+    nfkc = re.sub(r"\s+AI$", "", nfkc, flags=re.IGNORECASE)
     return re.sub(r"\s+", " ", nfkc).strip()
 
 
@@ -77,14 +79,16 @@ def _matches_target(target: str, candidate: str) -> bool:
     # Prevent 1-on-1 friend name from matching multi-person group chat title containing "、"
     if "、" in c_clean and "、" not in t_norm:
         return False
-    if t_norm == c_clean:
+    t_compact = re.sub(r"\s+", "", t_norm)
+    c_compact = re.sub(r"\s+", "", c_clean)
+    if t_norm == c_clean or (t_compact and t_compact == c_compact):
         return True
     for marker in ("...", "⋯", "…", ".."):
         if marker in c_clean:
             prefix = c_clean.split(marker, 1)[0].strip()
-            if len(prefix) >= 2 and t_norm.startswith(prefix):
+            if len(prefix) >= 2 and (t_norm.startswith(prefix) or t_compact.startswith(re.sub(r"\s+", "", prefix))):
                 return True
-    if len(t_norm) >= 4 and len(c_clean) >= 4 and (t_norm in c_clean or c_clean in t_norm):
+    if len(t_compact) >= 4 and len(c_compact) >= 4 and (t_compact in c_compact or c_compact in t_compact):
         return True
     return False
 
@@ -663,10 +667,20 @@ class WeChatLiveInspector:
             "detailItems": [el["text"].strip() for el in right_els if el["text"].strip()],
         }
 
-    def _click_rel(self, bounds: Dict[str, Any], rel_x: float, rel_y: float) -> None:
+    def _click_rel(
+        self,
+        bounds: Dict[str, Any],
+        rel_x: float,
+        rel_y: float,
+        *,
+        double: bool = False,
+    ) -> None:
         abs_x = float(bounds["x"]) + rel_x
         abs_y = float(bounds["y"]) + rel_y
-        self._run_native(["click", "--x", f"{abs_x:.1f}", "--y", f"{abs_y:.1f}"], 5.0)
+        cmd = ["click", "--x", f"{abs_x:.1f}", "--y", f"{abs_y:.1f}"]
+        if double:
+            cmd.append("--double")
+        self._run_native(cmd, 5.0)
 
     def _scroll_rel(self, bounds: Dict[str, Any], rel_x: float, rel_y: float, dy: int) -> None:
         abs_x = float(bounds["x"]) + rel_x
@@ -681,19 +695,164 @@ class WeChatLiveInspector:
         joined = " ".join(r["titleSnippet"] for r in rows[:3])
         return "返回" in joined or ("服务号" in rows[0]["titleSnippet"] and len(rows) <= 4 and "文件传输" not in joined)
 
+    def _persist_contact_history(
+        self,
+        target: str,
+        matched_title: str,
+        bubbles: List[Dict[str, Any]],
+        snapshot_path: Optional[str] = None,
+    ) -> Optional[Path]:
+        """Merge pop-out or live observed bubbles into `<reports>/contacts/<slug>_history.json`."""
+        clean_target = str(target or "").strip()
+        if not clean_target:
+            return None
+        contacts_dir = self.reports_dir / "contacts"
+        contacts_dir.mkdir(parents=True, exist_ok=True)
+        slug = _slugify_target(clean_target)
+        history_path = contacts_dir / f"{slug}_history.json"
+        prior_records: List[Dict[str, Any]] = []
+        if history_path.exists():
+            try:
+                old = json.loads(history_path.read_text(encoding="utf-8"))
+                prior_records = list(old.get("records") or [])
+            except Exception:
+                prior_records = []
+        observed_items: List[Dict[str, Any]] = []
+        for idx, b in enumerate(bubbles):
+            txt = str(b.get("text") or "").strip()
+            if not txt:
+                continue
+            observed_items.append({
+                "page": 0,
+                "index": idx,
+                "kind": "message",
+                "direction": str(b.get("direction") or "peer"),
+                "text": txt,
+                "sender": str(b.get("sender") or ""),
+                "timeMarker": str(b.get("timeMarker") or ""),
+                "ts": datetime.now(timezone.utc).isoformat(),
+            })
+        merged: List[Dict[str, Any]] = []
+        seen_keys: set[str] = set()
+        for rec in prior_records + observed_items:
+            dedup_key = f"{rec.get('kind')}||{rec.get('direction')}||{rec.get('text')}"
+            if dedup_key in seen_keys:
+                continue
+            seen_keys.add(dedup_key)
+            merged.append(rec)
+        if len(merged) > 500:
+            merged = merged[-500:]
+        payload: Dict[str, Any] = {
+            "ok": True,
+            "target": clean_target,
+            "matchedTitle": str(matched_title or clean_target),
+            "slug": slug,
+            "observedAt": datetime.now(timezone.utc).isoformat(),
+            "pagesCaptured": 1,
+            "pages": [{"page": 0, "snapshotPath": str(snapshot_path or "")}],
+            "recordCount": len(merged),
+            "records": merged,
+            "historyPath": str(history_path),
+        }
+        atomic_write_json(history_path, payload)
+        return history_path
+
+    def _inspect_live_popouts_only(
+        self,
+        *,
+        status: Dict[str, Any],
+        win: Dict[str, Any],
+        ax_trusted: bool,
+        post_event_trusted: bool,
+    ) -> Dict[str, Any]:
+        """Inspect only standalone pop-out windows when main WeChat window is closed."""
+        popouts = self.list_popout_windows(app="all")
+        if not popouts:
+            popouts = [w for w in (status.get("windows") or []) if w.get("isMainWindow") is False]
+        sessions_summary: List[Dict[str, Any]] = []
+        seen_titles: set[str] = set()
+        for pw in popouts:
+            pw_title = _clean_title_for_match(str(pw.get("title") or "").strip())
+            if not pw_title:
+                continue
+            norm_key = normalize_chat_name(pw_title).casefold()
+            if norm_key in seen_titles:
+                continue
+            seen_titles.add(norm_key)
+            insp = self.inspect_popout_window(pw, target=pw_title, snapshot_prefix="inspect_popout")
+            structured = insp.get("structured") or {}
+            bubbles = list(structured.get("bubbles") or [])
+            snap_path = insp.get("snapshotPath") or ""
+            raw_header = _clean_title_for_match(str(structured.get("headerTitle") or pw_title)) or pw_title
+            header_title = (
+                pw_title
+                if re.sub(r"\s+", "", raw_header).casefold() == re.sub(r"\s+", "", pw_title).casefold()
+                else raw_header
+            )
+            self._persist_contact_history(pw_title, header_title, bubbles, snap_path)
+            sessions_summary.append({
+                "index": len(sessions_summary) + 1,
+                "page": 0,
+                "listTitleSnippet": pw_title,
+                "listPreviewSnippet": str((bubbles[-1].get("text") if bubbles else "") or "")[:80],
+                "fullTitle": header_title,
+                "enteredFolder": False,
+                "visibleMessageCount": len(bubbles),
+                "visibleMessages": [str(b.get("text") or "") for b in bubbles],
+                "snapshotPath": str(snap_path),
+                "windowID": pw.get("windowID"),
+                "popoutWindow": True,
+            })
+
+        report: Dict[str, Any] = {
+            "ok": True,
+            "inspectedAt": datetime.now(timezone.utc).isoformat(),
+            "window": win,
+            "popoutOnlyMode": True,
+            "permissions": {
+                "accessibilityTrusted": ax_trusted,
+                "postEventTrusted": post_event_trusted,
+                "screenCaptureTrusted": bool(status.get("screenCaptureTrusted")),
+            },
+            "interactiveNavigationGranted": post_event_trusted,
+            "accountProfileOCR": [],
+            "sessionCount": len(sessions_summary),
+            "sessions": sessions_summary,
+            "contactItemCount": len(sessions_summary),
+            "contacts": [s["listTitleSnippet"] for s in sessions_summary],
+            "contactPages": [],
+        }
+        json_path = self.reports_dir / "wechat_management_report.json"
+        md_path = self.reports_dir / "wechat_management_report.md"
+        atomic_write_json(json_path, report)
+        md_path.write_text(self._format_markdown_report(report), encoding="utf-8")
+        report["reportJsonPath"] = str(json_path)
+        report["reportMarkdownPath"] = str(md_path)
+        return report
+
     def inspect_live(self, *, max_session_pages: int = 2, max_contact_pages: int = 4) -> Dict[str, Any]:
         """Run a full read-only walkthrough of the currently open WeChat window."""
         self.snapshots_dir.mkdir(parents=True, exist_ok=True)
         self.reports_dir.mkdir(parents=True, exist_ok=True)
 
         status = self._activate_and_get_status()
-        win = status["windows"][0]
+        all_windows = list(status.get("windows") or [])
+        main_win = next((w for w in all_windows if w.get("isMainWindow") is True), None)
+        win = main_win or all_windows[0]
         bounds = win["bounds"]
         win_w = float(bounds["width"])
         win_h = float(bounds["height"])
         split_x = self._split_x(win_w)
         post_event_trusted = bool(status.get("postEventTrusted"))
         ax_trusted = bool(status.get("accessibilityTrusted"))
+
+        if win.get("isMainWindow") is False or (main_win is None and self._is_popout_window(win, [])):
+            return self._inspect_live_popouts_only(
+                status=status,
+                win=win,
+                ax_trusted=ax_trusted,
+                post_event_trusted=post_event_trusted,
+            )
 
         if not post_event_trusted:
             overview_path = self.snapshots_dir / "sessions_overview_p0.png"
@@ -1090,6 +1249,95 @@ class WeChatLiveInspector:
             "error_code": "target_not_found",
             "target": target,
             "error": f"Could not navigate to or verify right-pane header matching target {target!r} within {max_pages} session pages.",
+        }
+
+    def open_popout_window(self, target: str, *, max_pages: int = 3) -> Dict[str, Any]:
+        """Ensure an independent pop-out chat window is open for `target` (double-click main session row)."""
+        clean_target = str(target or "").strip()
+        if not clean_target:
+            return {"ok": False, "error_code": "missing_target", "error": "Target contact name is required."}
+
+        existing = self.find_popout_window(clean_target, app="all")
+        if existing:
+            return {
+                "ok": True,
+                "target": clean_target,
+                "matchedTitle": str(existing.get("title") or clean_target),
+                "alreadyPopout": True,
+                "opened": False,
+                "windowID": existing.get("windowID"),
+                "window": existing,
+            }
+
+        self.snapshots_dir.mkdir(parents=True, exist_ok=True)
+        status = self._activate_and_get_status()
+        if not status.get("postEventTrusted"):
+            return {
+                "ok": False,
+                "error_code": "post_event_permission_denied",
+                "target": clean_target,
+                "error": "macOS Accessibility/PostEvent permission is not granted; cannot double-click session.",
+            }
+        all_windows = list(status.get("windows") or [])
+        main_win = next((w for w in all_windows if w.get("isMainWindow", True)), None)
+        if not main_win or main_win.get("isMainWindow") is False:
+            return {
+                "ok": False,
+                "error_code": "no_main_window",
+                "target": clean_target,
+                "error": "WeChat main window is not open; double-click cannot open pop-out window.",
+            }
+
+        bounds = main_win["bounds"]
+        win_w = float(bounds["width"])
+        win_h = float(bounds["height"])
+        split_x = self._split_x(win_w)
+        rail_x = 30.0
+        chat_tab_y = 122.0
+        safe_session_x = min(split_x - 30.0, 145.0)
+        slug = _slugify_target(clean_target)
+
+        self._click_rel(bounds, rail_x, chat_tab_y)
+        self._sleep(0.30)
+
+        seen_pages: set[str] = set()
+        for page in range(max_pages):
+            page_snap = self.snapshots_dir / f"popout_nav_{slug}_p{page}.png"
+            cap = self._capture_wechat_ocr(page_snap)
+            page_els = cap.get("elements") or []
+            if self._is_popout_window(main_win, page_els):
+                break
+            page_split_x = self._infer_split_x(page_els, win_w)
+            page_rows = self._cluster_session_rows(page_els, page_split_x, win_h, image_path=page_snap)
+            digest = "|".join(f"{r['titleSnippet']}::{r['previewSnippet']}" for r in page_rows)
+            if page > 0 and digest in seen_pages:
+                break
+            seen_pages.add(digest)
+
+            for row in page_rows:
+                if _matches_target(clean_target, row["titleSnippet"]):
+                    self._click_rel(bounds, row["clickRelX"], row["clickRelY"], double=True)
+                    self._sleep(0.45)
+                    popped = self.find_popout_window(clean_target, app="all")
+                    return {
+                        "ok": True,
+                        "target": clean_target,
+                        "matchedTitle": row["titleSnippet"],
+                        "alreadyPopout": False,
+                        "opened": bool(popped),
+                        "windowID": popped.get("windowID") if popped else None,
+                        "window": popped,
+                    }
+
+            if page + 1 < max_pages:
+                self._scroll_rel(bounds, safe_session_x, min(win_h - 80.0, 320.0), dy=-8)
+                self._sleep(0.40)
+
+        return {
+            "ok": False,
+            "error_code": "target_not_found",
+            "target": clean_target,
+            "error": f"Session {clean_target!r} not found in visible list.",
         }
 
     def observe_contact_history(self, target: str, *, scroll_pages: int = 4) -> Dict[str, Any]:

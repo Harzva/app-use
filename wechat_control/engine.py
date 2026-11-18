@@ -77,6 +77,40 @@ BORDER_OVERLAY_COLORS: Dict[str, str] = {
     "human_paused": "#F59E0B",
 }
 
+_BOGUS_OCR_FRAGMENTS: Tuple[str, ...] = (
+    "~/",
+    ".json",
+    "orkbuddy",
+    "直接提问示例",
+    "不用记工具名",
+    "床头朝哪边",
+    "语音输入",
+    "做一条短视频",
+    "botstudio 频道做",
+    "挪了下床头",
+    "睡得不太踏实",
+    "整理成表格",
+    "独立复核一下",
+    "报错是什么原因",
+    "@*、",
+    "©*",
+)
+
+
+def _is_bogus_ocr_target(name: Any) -> bool:
+    """Reject chat-bubble fragments that leaked into session lists when inspecting pop-outs."""
+    raw = str(name or "").strip()
+    if not raw:
+        return True
+    low = raw.casefold()
+    if any(tok in low for tok in _BOGUS_OCR_FRAGMENTS):
+        return True
+    if raw.endswith(("?", "？", "。", "!", "！")) and len(raw) >= 5:
+        return True
+    if raw.startswith(("把 ", "用 ", "给 ", "有具体", "长按鼠标", "哟，", "©", "@*")):
+        return True
+    return False
+
 
 def _resolve_default_binary_path(bundle_res: Path = _BUNDLE_RES) -> Path:
     """解析原生 wechat-vision-ax 二进制路径：开发仓在 bin/，安装版在 Contents/MacOS 或 Resources/。"""
@@ -317,6 +351,7 @@ class WeChatControlEngine:
         self.profiler = ContactStyleProfiler()
         self.dedup = OutgoingMessageRegistry(dedup_window_seconds=dedup_window_seconds)
         self.allowlist = GroupAllowlistGuard(allowed_groups)
+        self._runtime_allowlist_targets: set[str] = set()
         self.jitter = jitter or HumanJitter()
         self.importer = WeChatBridgeImporter()
         resolved_snapshots = Path(snapshots_dir) if snapshots_dir else DEFAULT_SNAPSHOTS_DIR
@@ -461,7 +496,7 @@ class WeChatControlEngine:
         self.hosting_manager = HostingManager(
             self,
             state_path=resolved_mon_state.parent / "hosting_state.json",
-            interval_seconds=max(5.0, float(os.environ.get("WECHAT_PLUGIN_HOSTING_INTERVAL", "45") or 45)),
+            interval_seconds=max(4.0, float(os.environ.get("WECHAT_PLUGIN_HOSTING_INTERVAL", "8") or 8)),
         )
         self._workos_lock = threading.RLock()
         self.workos_state_path = resolved_auth.parent / "workos_state.json"
@@ -916,6 +951,7 @@ class WeChatControlEngine:
         simulate_readback: Optional[str] = None,
         skip_navigation: bool = False,
         expected_window_id: Optional[int] = None,
+        target_window_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Safely execute or dry-run the WeChat send state machine.
 
@@ -1019,8 +1055,26 @@ class WeChatControlEngine:
 
         # Live or silent-UI verification via native binary
         native_args = ["paste-and-verify", "--text", text]
+        effective_wid: Optional[int] = None
         if expected_window_id is not None:
             native_args += ["--review-window", str(expected_window_id), "--review-title", clean_target]
+            effective_wid = int(expected_window_id)
+        else:
+            popout_win = None
+            if target_window_id is not None:
+                effective_wid = int(target_window_id)
+            elif skip_navigation and hasattr(self, "inspector"):
+                try:
+                    popout_win = self.inspector.find_popout_window(clean_target, app="all")
+                    if popout_win and popout_win.get("windowID"):
+                        effective_wid = int(popout_win["windowID"])
+                except Exception:
+                    popout_win = None
+            if effective_wid is not None:
+                native_args += ["--window-id", str(effective_wid)]
+                pw_title = str((popout_win or {}).get("title") or "").strip()
+                if pw_title:
+                    native_args += ["--window-title", pw_title]
         if will_send:
             native_args.append("--send")
         else:
@@ -1037,7 +1091,10 @@ class WeChatControlEngine:
             slug = _slugify_target(clean_target)
             snap_file = self.inspector.snapshots_dir / f"sent_{slug}_{int(time.time() * 1000)}.png"
             self.inspector.snapshots_dir.mkdir(parents=True, exist_ok=True)
-            cap = self._run_native(["capture-ocr", "--out", str(snap_file)], timeout=15.0)
+            cap_args = ["capture-ocr", "--out", str(snap_file)]
+            if effective_wid is not None:
+                cap_args += ["--window-id", str(effective_wid)]
+            cap = self._run_native(cap_args, timeout=15.0)
             if cap.get("ok"):
                 post_send_snapshot = str(snap_file)
 
@@ -1426,6 +1483,12 @@ class WeChatControlEngine:
             reports_dir=self.inspector.reports_dir,
             focus_target=target,
         )
+        filtered_profiles = [
+            p for p in (analytics.get("profiles") or [])
+            if not _is_bogus_ocr_target(p.get("target") or p.get("matchedTitle"))
+        ]
+        analytics["profiles"] = filtered_profiles
+        analytics["profileCount"] = len(filtered_profiles)
         self.audit.log(
             "profile_contacts",
             "ok",
@@ -2224,7 +2287,7 @@ class WeChatControlEngine:
             profiles = []
         for p in profiles:
             target = str(p.get("target") or "")
-            if not target or p.get("isFolderContainer"):
+            if not target or p.get("isFolderContainer") or _is_bogus_ocr_target(target):
                 continue
             key = normalize_chat_name(target).casefold()
             seen.add(key)
@@ -2239,7 +2302,7 @@ class WeChatControlEngine:
         # 已绑定但暂无画像样本的联系人也要出现在列表里
         for b in self.bindings.list_bindings():
             target = str(b.get("target") or "")
-            if not target:
+            if not target or _is_bogus_ocr_target(target):
                 continue
             key = normalize_chat_name(target).casefold()
             if key in seen:
@@ -2253,8 +2316,158 @@ class WeChatControlEngine:
                 "takenOver": _taken_over(target),
                 "careLevel": b.get("careLevel") or "normal",
             })
+        # 已打开的独立聊天小窗（如 微信ClawBot / openbot）自动列入可选好友
+        if hasattr(self, "inspector") and hasattr(self.inspector, "list_popout_windows"):
+            try:
+                popouts = self.inspector.list_popout_windows(app="all") or []
+            except Exception:
+                popouts = []
+            for pw in popouts:
+                raw_title = str(pw.get("title") or "").strip()
+                if not raw_title or _is_bogus_ocr_target(raw_title):
+                    continue
+                key = normalize_chat_name(raw_title).casefold()
+                if key in seen or any(_matches_target(raw_title, f["target"]) for f in friends):
+                    continue
+                seen.add(key)
+                friends.append({
+                    "target": raw_title,
+                    "matchedTitle": raw_title,
+                    "bound": False,
+                    "autoReplyEnabled": False,
+                    "takenOver": _taken_over(raw_title),
+                    "careLevel": "normal",
+                    "popoutWindowID": pw.get("windowID"),
+                })
         friends.sort(key=lambda f: (not f["autoReplyEnabled"], not f["bound"], f["target"].casefold()))
         return {"ok": True, "friends": friends, "hosting": self.hosting_manager.status()}
+
+    def list_watched_contacts(self) -> Dict[str, Any]:
+        """Return currently watched/auto-reply contacts alongside full hosting friends list."""
+        friends_doc = self.hosting_friends()
+        hosting = friends_doc.get("hosting") or {}
+        watched: List[str] = []
+        seen: set[str] = set()
+
+        def _push(raw: Any) -> None:
+            clean = str(raw or "").strip()
+            if not clean or _is_bogus_ocr_target(clean):
+                return
+            key = normalize_chat_name(clean).casefold()
+            if key in seen:
+                return
+            seen.add(key)
+            watched.append(clean)
+
+        for item in (hosting.get("targets") or []):
+            _push(item)
+        for item in (friends_doc.get("friends") or []):
+            if bool(item.get("bound")) and bool(item.get("autoReplyEnabled")):
+                _push(item.get("target"))
+        return {
+            "ok": True,
+            "watchedTargets": watched,
+            "friends": friends_doc.get("friends", []),
+            "hosting": hosting,
+        }
+
+    def watch_contact(
+        self,
+        target: str,
+        *,
+        alias: str = "",
+        role: str = "friend",
+        ai_persona: str = "warm-companion",
+        care_level: Optional[str] = None,
+        auto_start_hosting: bool = True,
+    ) -> Dict[str, Any]:
+        """Bind a contact for automatic monitoring & reply, and enroll in active hosting."""
+        self._require("status")
+        clean_target = str(target or "").strip()
+        if not clean_target:
+            return {
+                "ok": False,
+                "error_code": "missing_target",
+                "error": "Target contact name is required.",
+            }
+        if auto_start_hosting:
+            self._require("read_sessions")
+            self._require("read_messages")
+            self._require("ocr")
+            self._require("send_text_live")
+
+        existing = self.bindings.get_binding(clean_target) or {}
+        bind_res = self.bind_contact(
+            clean_target,
+            alias=alias or str(existing.get("alias") or ""),
+            role=role or str(existing.get("role") or "friend"),
+            ai_persona=ai_persona or str(existing.get("aiPersona") or "warm-companion"),
+            care_level=care_level if care_level is not None else existing.get("careLevel"),
+            auto_reply_enabled=True,
+        )
+        if getattr(self.allowlist, "enabled", False):
+            added_to_allowlist = self.allowlist.add_allowed(clean_target)
+            if added_to_allowlist:
+                self._runtime_allowlist_targets.add(normalize_chat_name(clean_target).casefold())
+        hosting_res = self.hosting_manager.add_target(clean_target, auto_start=bool(auto_start_hosting))
+        self.audit.log(
+            "watch_contact",
+            "ok",
+            {
+                "target": clean_target,
+                "autoStartHosting": bool(auto_start_hosting),
+                "hostingRunning": bool(hosting_res.get("running")),
+            },
+        )
+        watched = self.list_watched_contacts()
+        return {
+            "ok": True,
+            "target": clean_target,
+            "watched": True,
+            "autoReplyEnabled": True,
+            "binding": bind_res.get("binding"),
+            "hosting": self.hosting_manager.status(),
+            "watchedTargets": watched.get("watchedTargets", []),
+        }
+
+    def unwatch_contact(self, target: str) -> Dict[str, Any]:
+        """Disable auto-reply watch on a contact and remove it from active hosting targets."""
+        self._require("status")
+        clean_target = str(target or "").strip()
+        if not clean_target:
+            return {
+                "ok": False,
+                "error_code": "missing_target",
+                "error": "Target contact name is required.",
+            }
+        existing = self.bindings.get_binding(clean_target)
+        if existing:
+            self.bind_contact(
+                str(existing.get("target") or clean_target),
+                alias=str(existing.get("alias") or ""),
+                role=str(existing.get("role") or "friend"),
+                ai_persona=str(existing.get("aiPersona") or "warm-companion"),
+                auto_reply_enabled=False,
+            )
+        norm_key = normalize_chat_name(clean_target).casefold()
+        if (
+            getattr(self.allowlist, "enabled", False)
+            and norm_key in self._runtime_allowlist_targets
+            and len(self.allowlist.list_allowed()) > 1
+        ):
+            self.allowlist.remove_allowed(clean_target)
+            self._runtime_allowlist_targets.discard(norm_key)
+        self.hosting_manager.remove_target(clean_target)
+        self.audit.log("unwatch_contact", "ok", {"target": clean_target})
+        watched = self.list_watched_contacts()
+        return {
+            "ok": True,
+            "target": clean_target,
+            "watched": False,
+            "autoReplyEnabled": False,
+            "hosting": self.hosting_manager.status(),
+            "watchedTargets": watched.get("watchedTargets", []),
+        }
 
     # ------------------------------------------------------------------
     # 历史聊天导入：扫描 *_history.json（含外部盘旧数据目录），勾选导入或一键全部导入
@@ -3941,11 +4154,7 @@ class WeChatControlEngine:
             res = {"ok": False, "error": "Invalid native response", "windows": [], "apps": []}
         res.setdefault("windows", [])
         res.setdefault("apps", [])
-        allowed_targets = (
-            list(self.allowlist.list_allowed())
-            if getattr(self.allowlist, "enabled", False)
-            else list(ALLOWED_TEST_CONTACTS)
-        )
+        allowed_targets = self._collect_effective_allowed_targets()
         enriched_windows: List[Dict[str, Any]] = []
         for win in res.get("windows") or []:
             if not isinstance(win, dict):
@@ -4045,27 +4254,94 @@ class WeChatControlEngine:
     # Multi-Window Concurrent Scheduler & Zero-Risk Border Overlay (v2.4.71)
     # ------------------------------------------------------------------
 
-    def _resolve_scheduler_allowed_targets(self) -> List[str]:
+    def _collect_effective_allowed_targets(self) -> List[str]:
+        """Collect allowlisted contacts dynamically combined with active watched/hosted targets."""
         if getattr(self.allowlist, "enabled", False):
             return list(self.allowlist.list_allowed())
-        hosting_targets = [
-            str(t).strip()
-            for t in (self.hosting_manager.status().get("targets") or [])
-            if str(t).strip()
-        ]
-        if hosting_targets:
-            return hosting_targets
-        allowed_cf = {normalize_chat_name(t).casefold() for t in ALLOWED_TEST_CONTACTS}
-        bound = [
-            str(b.get("target") or "").strip()
-            for b in self.bindings.list_bindings()
-            if str(b.get("target") or "").strip()
-            and (
-                bool(b.get("autoReplyEnabled", True))
-                or normalize_chat_name(str(b.get("target") or "")).casefold() in allowed_cf
-            )
-        ]
-        return bound or list(ALLOWED_TEST_CONTACTS)
+        merged: List[str] = []
+        seen: set[str] = set()
+
+        def _push(raw: Any) -> None:
+            clean = str(raw or "").strip()
+            if not clean or _is_bogus_ocr_target(clean):
+                return
+            key = normalize_chat_name(clean).casefold()
+            if key in seen:
+                return
+            seen.add(key)
+            merged.append(clean)
+
+        for item in ALLOWED_TEST_CONTACTS:
+            _push(item)
+        try:
+            hosting_targets = self.hosting_manager.status().get("targets") or []
+        except Exception:
+            hosting_targets = []
+        for item in hosting_targets:
+            _push(item)
+        for b in self.bindings.list_bindings():
+            if bool(b.get("autoReplyEnabled", True)):
+                _push(b.get("target"))
+        return merged
+
+    def open_watched_popout_windows(self, targets: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Open independent WeChat/WeCom pop-out windows for allowed watched contacts."""
+        self._require("status")
+        if targets:
+            requested = [str(t).strip() for t in targets if str(t).strip()]
+        else:
+            requested = list(self.list_watched_contacts().get("watchedTargets") or [])
+        allowed_targets = self._collect_effective_allowed_targets()
+
+        for req in requested:
+            if not any(_matches_target(req, allowed) for allowed in allowed_targets):
+                return {
+                    "ok": False,
+                    "error_code": "target_not_allowed",
+                    "target": req,
+                    "allowedTargets": allowed_targets,
+                    "error": f"Refusing to open pop-out window for non-allowlisted target {req!r}.",
+                }
+
+        results: List[Dict[str, Any]] = []
+        opened_count = 0
+        already_count = 0
+        not_found: List[str] = []
+        for req in requested:
+            try:
+                res = self.inspector.open_popout_window(req)
+            except Exception as exc:
+                res = {"ok": False, "target": req, "error_code": "popout_error", "error": str(exc)}
+            results.append(res)
+            if res.get("ok"):
+                if res.get("alreadyPopout"):
+                    already_count += 1
+                elif res.get("opened"):
+                    opened_count += 1
+            elif res.get("error_code") == "target_not_found":
+                not_found.append(req)
+        self.audit.log(
+            "open_watched_popout_windows",
+            "ok",
+            {
+                "requestedCount": len(requested),
+                "openedCount": opened_count,
+                "alreadyPopoutCount": already_count,
+                "notFoundCount": len(not_found),
+            },
+        )
+        return {
+            "ok": True,
+            "requestedTargets": requested,
+            "openedCount": opened_count,
+            "alreadyPopoutCount": already_count,
+            "notFoundTargets": not_found,
+            "results": results,
+            "popoutWindows": self.inspector.list_popout_windows(app="all"),
+        }
+
+    def _resolve_scheduler_allowed_targets(self) -> List[str]:
+        return self._collect_effective_allowed_targets()
 
     @staticmethod
     def _normalize_overlay_state(state: Optional[str]) -> str:

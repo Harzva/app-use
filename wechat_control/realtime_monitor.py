@@ -38,6 +38,11 @@ _PREFIX_TS_RE = re.compile(
 )
 
 
+def _is_ai_bot_sandbox_target(target: str) -> bool:
+    """Return True for explicit AI test-bot contacts (e.g. ClawBot / 微信ClawBot) allowed rapid sandbox dialogue."""
+    return "clawbot" in normalize_chat_name(str(target or "")).casefold()
+
+
 def _utc_iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -597,30 +602,67 @@ class WeChatRealtimeMonitor:
     ) -> Dict[str, Any]:
         """Run one incremental scan & optional guarded auto-reply cycle across bound contacts."""
         state = self._load_state()
+        popout_windows: List[Dict[str, Any]] = []
+        if hasattr(self.engine, "inspector") and hasattr(self.engine.inspector, "list_popout_windows"):
+            popout_windows = self.engine.inspector.list_popout_windows()
+
+        all_bindings = self.engine.bindings.list_bindings()
+        hosting_targets = None
+        try:
+            hosting_status = self.engine.hosting_manager.status()
+            if hosting_status.get("running") or hosting_status.get("enabled"):
+                ht = hosting_status.get("targets") or []
+                hosting_targets = {normalize_chat_name(str(t)).casefold() for t in ht if str(t).strip()}
+        except Exception:
+            hosting_targets = None
+
+        targets: List[Dict[str, Any]] = []
+        for b in all_bindings:
+            if not b.get("autoReplyEnabled", True) and not target_filter:
+                continue
+            if target_filter and not _matches_target(target_filter, b["target"]):
+                continue
+            if hosting_targets is not None and normalize_chat_name(str(b.get("target") or "")).casefold() not in hosting_targets:
+                continue
+            targets.append(b)
+
+        has_sandbox_bot = any(_is_ai_bot_sandbox_target(str(b.get("target") or "")) for b in targets)
+        guard_can_operate = True
+        guard_kb_idle: Optional[float] = None
+        guard_state: Dict[str, Any] = {}
         if not ignore_human_guard and hasattr(self.engine, "human_guard"):
             guard_state = self.engine.human_guard.check_can_operate()
-            if not guard_state.get("canOperate", True):
-                state["daemon"]["pausedByHumanGuard"] = True
-                state["daemon"]["lastPollAt"] = _utc_iso_now()
-                state["daemon"]["humanGuard"] = guard_state
-                self._save_state(state)
-                self._append_event(
-                    "human_active_paused",
-                    {
-                        "status": guard_state.get("status"),
-                        "remainingCooldownSeconds": guard_state.get("remainingCooldownSeconds", 0.0),
-                        "anyInputIdleSeconds": guard_state.get("anyInputIdleSeconds"),
-                        "triggerReason": guard_state.get("triggerReason", ""),
-                    },
-                )
-                return {
-                    "ok": True,
-                    "pausedByHumanGuard": True,
-                    "humanGuard": guard_state,
-                    "repliesDispatched": 0,
-                    "cyclesCompleted": state["daemon"].get("cyclesCompleted", 0),
-                }
-            if state["daemon"].get("pausedByHumanGuard"):
+            guard_can_operate = bool(guard_state.get("canOperate", True))
+            if guard_state.get("keyboardIdleSeconds") is not None:
+                try:
+                    guard_kb_idle = float(guard_state.get("keyboardIdleSeconds"))
+                except (TypeError, ValueError):
+                    guard_kb_idle = None
+            if not guard_can_operate:
+                kb_busy = guard_kb_idle is not None and guard_kb_idle < 1.2
+                is_security_agent = str(guard_state.get("status") or "") == "security_agent_paused"
+                if (not has_sandbox_bot) or is_security_agent or kb_busy:
+                    state["daemon"]["pausedByHumanGuard"] = True
+                    state["daemon"]["lastPollAt"] = _utc_iso_now()
+                    state["daemon"]["humanGuard"] = guard_state
+                    self._save_state(state)
+                    self._append_event(
+                        "human_active_paused",
+                        {
+                            "status": guard_state.get("status"),
+                            "remainingCooldownSeconds": guard_state.get("remainingCooldownSeconds", 0.0),
+                            "anyInputIdleSeconds": guard_state.get("anyInputIdleSeconds"),
+                            "triggerReason": guard_state.get("triggerReason", ""),
+                        },
+                    )
+                    return {
+                        "ok": True,
+                        "pausedByHumanGuard": True,
+                        "humanGuard": guard_state,
+                        "repliesDispatched": 0,
+                        "cyclesCompleted": state["daemon"].get("cyclesCompleted", 0),
+                    }
+            if guard_can_operate and state["daemon"].get("pausedByHumanGuard"):
                 state["daemon"]["pausedByHumanGuard"] = False
                 state["daemon"]["humanGuard"] = guard_state
                 self._append_event(
@@ -630,9 +672,6 @@ class WeChatRealtimeMonitor:
                         "idleResumeSeconds": guard_state.get("idleResumeSeconds"),
                     },
                 )
-        popout_windows: List[Dict[str, Any]] = []
-        if hasattr(self.engine, "inspector") and hasattr(self.engine.inspector, "list_popout_windows"):
-            popout_windows = self.engine.inspector.list_popout_windows()
 
         cap = self._capture_live_window()
         if not cap.get("ok"):
@@ -660,8 +699,12 @@ class WeChatRealtimeMonitor:
             else:
                 split_x = self.engine.inspector._infer_split_x(elements, win_w)
 
-            rows = self.engine.inspector._cluster_session_rows(
-                elements, split_x, win_h, image_path=cap["snapshotPath"],
+            rows = (
+                []
+                if split_x <= 0.0
+                else self.engine.inspector._cluster_session_rows(
+                    elements, split_x, win_h, image_path=cap["snapshotPath"],
+                )
             )
             active_structured = self.engine.inspector.extract_structured_bubbles(
                 cap["ocrPayload"],
@@ -669,27 +712,6 @@ class WeChatRealtimeMonitor:
                 bounds=bounds,
             )
             active_header = str(active_structured.get("headerTitle") or "")
-
-        all_bindings = self.engine.bindings.list_bindings()
-        # 托管范围过滤：首页「一键托管」勾选的好友列表（hosting targets）是唯一的自动回复范围——
-        # 「只关注这些好友」。未勾选的好友即使 autoReplyEnabled=True 也不扫不回。
-        hosting_targets = None
-        try:
-            hosting_status = self.engine.hosting_manager.status()
-            if hosting_status.get("running") or hosting_status.get("enabled"):
-                ht = hosting_status.get("targets") or []
-                hosting_targets = {normalize_chat_name(str(t)).casefold() for t in ht if str(t).strip()}
-        except Exception:
-            hosting_targets = None
-        targets: List[Dict[str, Any]] = []
-        for b in all_bindings:
-            if not b.get("autoReplyEnabled", True) and not target_filter:
-                continue
-            if target_filter and not _matches_target(target_filter, b["target"]):
-                continue
-            if hosting_targets is not None and normalize_chat_name(str(b.get("target") or "")).casefold() not in hosting_targets:
-                continue
-            targets.append(b)
 
         # Priority scanning: Special Care (P0) -> VIP (P1) -> Normal (P2)
         targets.sort(
@@ -703,22 +725,26 @@ class WeChatRealtimeMonitor:
         replies_this_cycle = 0
 
         for binding in targets:
-            if not ignore_human_guard and hasattr(self.engine, "human_guard"):
+            target = str(binding["target"])
+            is_sandbox_bot = _is_ai_bot_sandbox_target(target)
+            if not ignore_human_guard and hasattr(self.engine, "human_guard") and not is_sandbox_bot:
                 mid_guard = self.engine.human_guard.check_can_operate()
                 if not mid_guard.get("canOperate", True):
-                    state["daemon"]["pausedByHumanGuard"] = True
-                    state["daemon"]["humanGuard"] = mid_guard
-                    self._append_event(
-                        "human_active_paused",
-                        {
-                            "status": mid_guard.get("status"),
-                            "remainingCooldownSeconds": mid_guard.get("remainingCooldownSeconds", 0.0),
-                            "anyInputIdleSeconds": mid_guard.get("anyInputIdleSeconds"),
-                            "triggerReason": mid_guard.get("triggerReason", ""),
-                        },
-                    )
-                    break
-            target = str(binding["target"])
+                    if not has_sandbox_bot:
+                        state["daemon"]["pausedByHumanGuard"] = True
+                        state["daemon"]["humanGuard"] = mid_guard
+                        self._append_event(
+                            "human_active_paused",
+                            {
+                                "status": mid_guard.get("status"),
+                                "remainingCooldownSeconds": mid_guard.get("remainingCooldownSeconds", 0.0),
+                                "anyInputIdleSeconds": mid_guard.get("anyInputIdleSeconds"),
+                                "triggerReason": mid_guard.get("triggerReason", ""),
+                            },
+                        )
+                        break
+                    actions.append({"target": target, "status": "paused_by_human_guard"})
+                    continue
             care_level = normalize_care_level(binding.get("careLevel"), binding.get("specialCare"))
             is_special_care = care_level in ("special_care", "vip") or bool(binding.get("specialCare"))
             c_state = self._contact_entry(state, target)
@@ -807,7 +833,7 @@ class WeChatRealtimeMonitor:
             # 转人工意图：客户明确要真人时，自动切换到「人工接管」状态（机器人停答，
             # 后续消息只出草稿供人工审阅；人工处理完在控制台恢复）。此前转人工会被
             # persona 引擎当普通消息循环回复——客服正确性缺口。
-            if _is_human_handoff_request(incoming_text):
+            if (not is_sandbox_bot) and _is_human_handoff_request(incoming_text):
                 # 直接在主流程 state 上置接管（勿调 takeover_contact——其独立 load/save
                 # 会被本循环尾部的 _save_state(state) 用旧副本覆盖回去，竞态丢状态）
                 c_state["takenOver"] = True
@@ -822,12 +848,15 @@ class WeChatRealtimeMonitor:
                 )
                 takeover_res = {"ok": True, "contactState": dict(c_state)}
                 try:
+                    if hasattr(self.engine, "human_guard"):
+                        self.engine.human_guard.record_rpa_action(action="paste-and-verify")
                     send_res = self.engine.send_text(
                         target, handoff_line,
                         dry_run=not auto_reply or not confirm_send,
                         silent_mode=not (auto_reply and confirm_send),
                         confirm_send=bool(auto_reply and confirm_send),
                         skip_navigation=True,
+                        target_window_id=popout_meta.get("popoutWindowID"),
                     )
                 except Exception:
                     send_res = {"ok": False}
@@ -1028,7 +1057,11 @@ class WeChatRealtimeMonitor:
             # AntiBan 频控闸门：真发送前四道检查（联系人/小时、回复间隔、全局小时/日）。
             # contact_gap 属于短暂冷却（默认 90s）：只延后重检、不吞消息签名；
             # 小时/日硬配额超限时记录签名避免重复扫描——宁可不回，不可轰炸。
-            can_send, limit_reason = self.engine.antiban.check_can_send(target)
+            # 对显式 AI 对话测试目标（如 微信ClawBot / clawBOT）豁免 90s 冷却与配额计数，支持连续对话测试。
+            if is_sandbox_bot:
+                can_send, limit_reason = True, "sandbox_bot_exempt"
+            else:
+                can_send, limit_reason = self.engine.antiban.check_can_send(target)
             if not can_send:
                 c_state["lastRateLimitReason"] = limit_reason
                 if str(limit_reason).startswith("contact_gap"):
@@ -1051,6 +1084,8 @@ class WeChatRealtimeMonitor:
                 })
                 continue
 
+            if hasattr(self.engine, "human_guard"):
+                self.engine.human_guard.record_rpa_action(action="paste-and-verify")
             send_res = self.engine.send_text(
                 target,
                 reply_text,
@@ -1058,9 +1093,13 @@ class WeChatRealtimeMonitor:
                 silent_mode=False,
                 confirm_send=True,
                 skip_navigation=True,
+                target_window_id=popout_meta.get("popoutWindowID"),
             )
             if send_res.get("ok") and send_res.get("status") == "sent":
-                self.engine.antiban.record_sent(target)
+                if hasattr(self.engine, "human_guard"):
+                    self.engine.human_guard.record_rpa_action(action="paste-and-verify")
+                if not is_sandbox_bot:
+                    self.engine.antiban.record_sent(target)
                 c_state["lastProcessedPeerSig"] = msg_sig
                 c_state["lastProcessedPeerText"] = incoming_text
                 c_state["lastOutboundText"] = reply_text

@@ -1623,6 +1623,212 @@ class DiagnosticsTests(unittest.TestCase):
             srv.shutdown()
             srv.server_close()
 
+    def test_v2472_sidebar_watch_contact_and_clawbot_flow(self):
+        import threading
+        import urllib.error
+        import urllib.request
+        from wechat_control.web_console import render_web_console_html
+
+        # 1) HTML DOM 标记覆盖左侧「+ 关注」「🪟 弹出小窗」与弹窗快捷添加
+        html = render_web_console_html()
+        for marker in (
+            "sidebarWatchPanel",
+            "sidebarAddWatchBtn",
+            "sidebarPopoutAllBtn",
+            "sidebarWatchDrawer",
+            "sidebarWatchInput",
+            "threadListPlusBtn",
+            "hostingQuickAddInput",
+            "popoutWatchedWindowsBtn",
+        ):
+            self.assertIn(marker, html, f"web_console.py 缺少 v2.4.72 标记: {marker}")
+
+        # 2) 验证微信独立小窗标题匹配（微信 ClawBot AI <-> clawBOT）与防脏气泡污染
+        w_dir = self.data / "v2472_watch_engine"
+        w_engine = WeChatControlEngine(
+            audit_log_path=w_dir / "audit.jsonl",
+            auth_file_path=w_dir / "auth.json",
+            bindings_file_path=w_dir / "bindings.json",
+            models_config_path=w_dir / "models.json",
+            model_http_requester=lambda m, u, **k: (_ for _ in ()).throw(ConnectionRefusedError),
+            knowledge_db_path=w_dir / "kb.sqlite",
+            personas_file_path=w_dir / "personas.json",
+            snapshots_dir=w_dir / "snap",
+            reports_dir=w_dir / "reports",
+        )
+        w_engine.auth_grant(ALL_CAPABILITIES, authorized_by="diag-v2472-test")
+        w_engine.bind_contact("安晓心", role="friend", auto_reply_enabled=True)
+        # 写入一个历史误采气泡，验证 profile_contacts/hosting_friends 自动过滤脏片段
+        w_engine.bind_contact("家床头朝哪边啊?", role="friend", auto_reply_enabled=False)
+
+        popout_windows = [
+            {
+                "windowID": 3258,
+                "appId": "wechat",
+                "appLabel": "微信",
+                "bundleID": "com.tencent.xinWeChat",
+                "pid": 60968,
+                "title": "微信",
+                "isMainWindow": True,
+                "bounds": {"x": 0, "y": 30, "width": 853, "height": 1320},
+            },
+            {
+                "windowID": 14013,
+                "appId": "wechat",
+                "appLabel": "微信",
+                "bundleID": "com.tencent.xinWeChat",
+                "pid": 60968,
+                "title": "微信ClawBot",
+                "isMainWindow": False,
+                "bounds": {"x": 1591, "y": 96, "width": 598, "height": 640},
+            },
+            {
+                "windowID": 11509,
+                "appId": "wechat",
+                "appLabel": "微信",
+                "bundleID": "com.tencent.xinWeChat",
+                "pid": 60968,
+                "title": "苏文璐",
+                "isMainWindow": False,
+                "bounds": {"x": 1804, "y": 699, "width": 598, "height": 640},
+            },
+        ]
+        native_calls = []
+
+        def fake_native_watch(args, timeout=15.0):
+            native_calls.append(list(args))
+            cmd = args[0] if args else ""
+            if cmd == "list-app-windows":
+                return {
+                    "ok": True,
+                    "app": "all",
+                    "count": len(popout_windows),
+                    "windows": popout_windows,
+                }
+            if cmd == "status":
+                return {
+                    "ok": True,
+                    "wechatRunning": True,
+                    "accessibilityTrusted": True,
+                    "postEventTrusted": True,
+                    "screenCaptureTrusted": True,
+                    "windows": [popout_windows[1]],  # 测试主窗关闭时只剩独立小窗
+                }
+            if cmd == "capture-ocr":
+                return {
+                    "ok": True,
+                    "imageWidth": 598,
+                    "imageHeight": 640,
+                    "elements": [
+                        {"text": "微信 ClawBot AI", "center": {"x": 110, "y": 30}, "bbox": {"x": 30, "y": 16, "width": 160, "height": 26}, "confidence": 0.99},
+                        {"text": "你家床头朝哪边啊？", "center": {"x": 200, "y": 240}, "bbox": {"x": 40, "y": 225, "width": 260, "height": 28}, "confidence": 0.98},
+                    ],
+                }
+            return {"ok": True}
+
+        w_engine._run_native = fake_native_watch  # type: ignore[method-assign]
+
+        # 仅剩独立小窗时执行 inspect_live：绝不把聊天句子当好友，只收录真实独立小窗标题
+        insp = w_engine.inspector.inspect_live()
+        self.assertTrue(insp["ok"])
+        self.assertTrue(insp.get("popoutOnlyMode"))
+        session_titles = [s["listTitleSnippet"] for s in insp["sessions"]]
+        self.assertIn("微信ClawBot", session_titles)
+        self.assertNotIn("你家床头朝哪边啊？", session_titles)
+        self.assertNotIn("家床头朝哪边啊?", session_titles)
+
+        # hosting_friends 自动收录独立小窗 微信ClawBot，并过滤掉脏片段 "家床头朝哪边啊?"
+        hf = w_engine.hosting_friends()
+        targets_in_friends = [f["target"] for f in hf["friends"]]
+        self.assertIn("微信ClawBot", targets_in_friends)
+        self.assertNotIn("家床头朝哪边啊?", targets_in_friends)
+
+        srv = create_http_server(w_engine, "127.0.0.1", 0)
+        port = srv.server_address[1]
+        t = threading.Thread(target=srv.serve_forever, daemon=True)
+        t.start()
+        try:
+            base = f"http://127.0.0.1:{port}"
+
+            # 空 target -> 400 missing_target
+            empty_req = urllib.request.Request(
+                f"{base}/api/watch-contacts",
+                data=json.dumps({"action": "watch", "target": "   "}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                urllib.request.urlopen(empty_req, timeout=10)
+            self.assertEqual(ctx.exception.code, 400)
+            self.assertEqual(json.loads(ctx.exception.read().decode("utf-8"))["error_code"], "missing_target")
+
+            # 添加关注 clawBOT（auto_start_hosting=False），动态进入白名单并匹配「微信ClawBot」独立小窗
+            w_req = urllib.request.Request(
+                f"{base}/api/watch-contacts",
+                data=json.dumps({"action": "watch", "target": "clawBOT", "auto_start_hosting": False}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(w_req, timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                w_res = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(w_res["ok"])
+                self.assertTrue(w_res["watched"])
+                self.assertIn("clawBOT", w_res["watchedTargets"])
+                self.assertIn("clawBOT", w_res["hosting"]["targets"])
+
+            with urllib.request.urlopen(f"{base}/api/workos/windows?app=all", timeout=10) as resp:
+                wins_doc = json.loads(resp.read().decode("utf-8"))
+                by_id = {w["windowID"]: w for w in wins_doc["windows"]}
+                self.assertTrue(by_id[14013]["isPopout"])
+                self.assertTrue(by_id[14013]["isAllowlistedTarget"])
+                self.assertTrue(by_id[11509]["isPopout"])
+                self.assertFalse(by_id[11509]["isAllowlistedTarget"])
+
+            # POST /api/workos/popout-windows：对已打开小窗「clawBOT」命中 alreadyPopout，对陌生人拒绝 400
+            pop_ok_req = urllib.request.Request(
+                f"{base}/api/workos/popout-windows",
+                data=json.dumps({"targets": ["clawBOT"]}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(pop_ok_req, timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                pop_res = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(pop_res["ok"])
+                self.assertEqual(pop_res["alreadyPopoutCount"], 1)
+                self.assertEqual(pop_res["results"][0]["windowID"], 14013)
+
+            pop_bad_req = urllib.request.Request(
+                f"{base}/api/workos/popout-windows",
+                data=json.dumps({"targets": ["陌生人"]}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with self.assertRaises(urllib.error.HTTPError) as ctx_bad:
+                urllib.request.urlopen(pop_bad_req, timeout=10)
+            self.assertEqual(ctx_bad.exception.code, 400)
+            self.assertEqual(json.loads(ctx_bad.exception.read().decode("utf-8"))["error_code"], "target_not_allowed")
+
+            # 取消关注 clawBOT：移除出 watchedTargets/hosting，并将 autoReplyEnabled 置 False
+            uw_req = urllib.request.Request(
+                f"{base}/api/watch-contacts",
+                data=json.dumps({"action": "unwatch", "target": "clawBOT"}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(uw_req, timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                uw_res = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(uw_res["ok"])
+                self.assertFalse(uw_res["watched"])
+                self.assertNotIn("clawBOT", uw_res["watchedTargets"])
+                self.assertNotIn("clawBOT", uw_res["hosting"]["targets"])
+
+            with urllib.request.urlopen(f"{base}/api/watch-contacts", timeout=10) as resp:
+                lst = json.loads(resp.read().decode("utf-8"))
+                self.assertNotIn("clawBOT", lst["watchedTargets"])
+                b_after = w_engine.bindings.get_binding("clawBOT")
+                self.assertFalse(b_after["autoReplyEnabled"])
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
 
 if __name__ == "__main__":
     unittest.main()
