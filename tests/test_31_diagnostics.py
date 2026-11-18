@@ -798,6 +798,119 @@ class DiagnosticsTests(unittest.TestCase):
         diag = self.engine.diagnostics()
         self.assertEqual(diag["recentEvents"][0]["event"], "newer_evt")
 
+    def test_thiflow_see_think_act_and_yingdao_workos_harness(self):
+        import threading
+        import urllib.request
+
+        self.engine.bind_contact("安晓心", role="friend", ai_persona="wecom-kf-pro", auto_reply_enabled=True)
+
+        # 1) AI 员工岗位与极速/深思档位设置 + seeThinkAct 三步推理注入
+        recorded = []
+
+        class _MockDeepHub:
+            def is_llm_enabled(self):
+                return True
+
+            def generate_chat_reply(self, messages, *, model_id=None, contact_name=None):
+                recorded.append(messages)
+                return {
+                    "ok": True,
+                    "replyText": "结合售前技术目标，支持离线私有部署与标准 SLA 保障。",
+                    "modelId": "mock-deep",
+                    "providerId": "mock",
+                    "latencyMs": 12,
+                }
+
+        self.engine.models = _MockDeepHub()  # type: ignore[assignment]
+        g_res = self.engine.configure_workos_post(
+            speed_mode="deep",
+            post_preset="tech_consultant",
+            task_goal="专注技术方案与部署边界解答",
+        )
+        self.assertTrue(g_res["ok"])
+        self.assertEqual(g_res["speedMode"], "deep")
+
+        novel_q = "请问下周三杭州西湖畔科技沙龙几点签到？"
+        p1 = self.engine.preview_smart_reply("安晓心", f"安晓心: {novel_q}", use_llm=True)
+        self.assertTrue(p1["ok"])
+        self.assertEqual(p1["matchedCount"], 0)
+        self.assertIn("seeThinkAct", p1)
+        sta = p1["seeThinkAct"]
+        self.assertIn("see", sta)
+        self.assertIn("think", sta)
+        self.assertIn("act", sta)
+        self.assertEqual(sta["think"]["speedMode"], "deep")
+        self.assertEqual(sta["think"]["taskGoal"], "专注技术方案与部署边界解答")
+        self.assertEqual(sta["see"]["speaker"], "安晓心")
+        self.assertIn("专注技术方案与部署边界解答", recorded[0][0]["content"])
+        self.assertIn("深思模式", recorded[0][0]["content"])
+
+        # 未命中固定条款的来信已进入 WorkOS 反思队列
+        h0 = self.engine.get_workos_harness_summary()
+        self.assertTrue(any(novel_q in item["incomingText"] for item in h0["reflection"]["items"]))
+
+        # 2) HTTP 接口闭环：/api/reply-preview、/api/workos/learn-correction、/api/workos/harness、/mobile
+        srv = create_http_server(self.engine, "127.0.0.1", 0)
+        port = srv.server_address[1]
+        t = threading.Thread(target=srv.serve_forever, daemon=True)
+        t.start()
+        try:
+            # 人工纠偏沉淀为 SOP
+            learn_req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/api/workos/learn-correction",
+                data=json.dumps({
+                    "target": "安晓心",
+                    "incoming_text": f"安晓心: {novel_q}",
+                    "corrected_reply": "下周三杭州西湖畔科技沙龙 14:00 开始签到，14:30 准时开场，凭报名码入场。",
+                    "original_draft": p1["replyText"],
+                }).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(learn_req, timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                learned = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(learned["ok"])
+                self.assertGreaterEqual(learned["evolutionCount"], 1)
+
+            # 同一问题再次预览，直接命中新沉淀的 SOP
+            prev_req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/api/reply-preview",
+                data=json.dumps({
+                    "target": "安晓心",
+                    "incoming_text": novel_q,
+                    "use_llm": False,
+                    "speed_mode": "deep",
+                }).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(prev_req, timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                p2 = json.loads(resp.read().decode("utf-8"))
+                self.assertGreaterEqual(p2["matchedCount"], 1)
+                self.assertIn("14:00 开始签到", p2["replyText"])
+                self.assertEqual(p2["seeThinkAct"]["think"]["speedMode"], "deep")
+
+            # GET /api/workos/harness 验证四维结构（治理/评估/反思/进化）
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/workos/harness", timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                harness = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(harness["ok"])
+                for pillar in ("governance", "evaluation", "reflection", "evolution"):
+                    self.assertIn(pillar, harness)
+                self.assertGreaterEqual(harness["evaluation"]["selfLearnedCount"], 1)
+                self.assertGreaterEqual(harness["evolution"]["totalCount"], 1)
+
+            # GET /mobile 手机伴侣遥控页
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/mobile", timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                mobile_html = resp.read().decode("utf-8")
+                self.assertIn("WeChat Bot 遥控台", mobile_html)
+                self.assertIn("/api/hosting", mobile_html)
+                self.assertIn("/api/workos/harness", mobile_html)
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
 
 if __name__ == "__main__":
     unittest.main()

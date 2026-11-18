@@ -1686,7 +1686,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       #tab-monitor .chat-context-bar, #tab-monitor .chat-tools-drawer .grid-2 { grid-template-columns: minmax(0,1fr); }
     }
 
-    /* BotStudio-Inspired Workbench Layout, Viewport-Locked Chat & Settings Center (v2.4.68) */
+    /* BotStudio-Inspired Workbench Layout, Viewport-Locked Chat & Settings Center (v2.4.69) */
     nav.tabs {
       padding: 4px 12px !important;
       gap: 3px !important;
@@ -1888,7 +1888,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
     #tab-monitor .composer-actions button { min-block-size: 31px !important; padding: 4px 11px !important; font-size: 12.5px !important; }
     #tab-monitor #quickAiAssistResult:not([hidden]),
     #tab-monitor #replyPreviewResult:not([hidden]) {
-      max-height: 106px;
+      max-height: 152px;
       overflow-y: auto;
       font-size: 12.5px;
       line-height: 1.5;
@@ -1977,6 +1977,69 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
     }
     .settings-card h3 { margin: 0; font-size: 13.5px; }
     .settings-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 10px; font-size: 13px; }
+    /* Thiflow See-Think-Act & Yingdao AI WorkOS Extensions (v2.4.69) */
+    #tab-monitor .workos-goal-bar {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 4px 10px;
+      background: color-mix(in srgb, var(--work-pine) 6%, var(--surface));
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 12px;
+      flex-wrap: wrap;
+    }
+    .workos-presets { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+    .workos-preset-btn {
+      padding: 2px 8px !important;
+      min-height: 24px !important;
+      font-size: 11.5px !important;
+      border-radius: 999px !important;
+      border: 1px solid var(--border) !important;
+      background: var(--surface) !important;
+      color: var(--text-secondary) !important;
+    }
+    .workos-preset-btn.active {
+      background: var(--work-pine) !important;
+      color: #fff !important;
+      border-color: var(--work-pine) !important;
+    }
+    .workos-goal-input-wrap { display: flex; align-items: center; gap: 5px; flex: 1 1 220px; min-width: 180px; }
+    .workos-goal-input-wrap input {
+      padding: 3px 8px !important;
+      min-height: 24px !important;
+      font-size: 12px !important;
+      background: var(--surface) !important;
+    }
+    .workos-esc-hint { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+    .see-think-act-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+    .sta-step {
+      padding: 5px 8px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: var(--surface-soft);
+      font-size: 11.5px;
+      line-height: 1.4;
+    }
+    .sta-step strong { display: block; font-size: 11px; color: var(--work-pine); margin-bottom: 2px; }
+    .workos-pillars { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .workos-pillar-box {
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .workos-pillar-box h4 { margin: 0 0 4px; font-size: 12.5px; color: var(--work-pine); }
+    .workos-list { margin: 4px 0 0; padding-left: 16px; max-height: 125px; overflow-y: auto; font-size: 11.5px; }
     @media (max-width: 900px) {
       #tab-monitor .chat-workspace { height: auto; min-height: auto; overflow: visible; }
       #tab-monitor .home-conversations { height: auto; max-height: 270px; }
@@ -2101,6 +2164,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
             <button type="button" class="settings-nav-btn active" data-settings-sec="reply" onclick="switchSettingsSection('reply')">💬 回复与 AI 助手</button>
             <button type="button" class="settings-nav-btn" data-settings-sec="models" onclick="switchSettingsSection('models')">🧠 模型与网关</button>
             <button type="button" class="settings-nav-btn" data-settings-sec="guard" onclick="switchSettingsSection('guard')">🛡️ 防抢鼠标与安全</button>
+            <button type="button" class="settings-nav-btn" data-settings-sec="workos" onclick="switchSettingsSection('workos')">🔄 评估与自学习</button>
             <button type="button" class="settings-nav-btn" data-settings-sec="window" onclick="switchSettingsSection('window')">🪟 窗口与系统权限</button>
             <button type="button" class="settings-nav-btn" data-settings-sec="bridge" onclick="switchSettingsSection('bridge')">🔌 BotStudio 接入</button>
           </nav>
@@ -2165,6 +2229,28 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
                 </div>
               </div>
             </div>
+            <div class="settings-section" data-settings-panel="workos">
+              <div class="settings-card">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                  <h3>🔄 AI WorkOS 四维闭环（治理 · 评估 · 反思 · 进化）</h3>
+                  <button type="button" class="btn-outline sm" onclick="loadWorkosHarness(true)">刷新指标</button>
+                </div>
+                <div class="workos-pillars" id="workosHarnessGrid">
+                  <div class="workos-pillar-box"><h4>🛡️ 治理 (Governance)</h4><div id="workosGovBox">加载中…</div></div>
+                  <div class="workos-pillar-box"><h4>📊 评估 (Evaluation)</h4><div id="workosEvalBox">加载中…</div></div>
+                  <div class="workos-pillar-box"><h4>🔍 反思 (Reflection · 未命中盲区)</h4><div id="workosReflectBox">暂无待补盲区</div></div>
+                  <div class="workos-pillar-box"><h4>🧬 进化 (Evolution · 纠偏沉淀 SOP)</h4><div id="workosEvolveBox">暂无自学习条目</div></div>
+                </div>
+              </div>
+              <div class="settings-card">
+                <h3>📱 手机伴侣遥控台 (/mobile)</h3>
+                <p style="margin:0; font-size:12.5px; color:var(--text-secondary);">借鉴识流AI伴侣体验：在同一局域网或本机浏览器打开 <code id="mobileRemoteUrlCode">/mobile</code>，即可远程看状态、一键开停托管、看人工待办与最近会话。</p>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                  <button type="button" class="btn-solid sm" onclick="hideSettingsModal(); openMobileRemoteOverlay()">📱 打开手机遥控台预览</button>
+                  <a class="btn-outline sm" href="/mobile" target="_blank" style="text-decoration:none;">在新标签打开 /mobile ↗</a>
+                </div>
+              </div>
+            </div>
             <div class="settings-section" data-settings-panel="window">
               <div class="settings-card">
                 <h3>窗口贴靠与 macOS 系统权限</h3>
@@ -2194,6 +2280,20 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Mobile Companion Remote Overlay (/mobile) -->
+    <div class="perm-overlay" id="mobileRemoteOverlay" role="dialog" aria-modal="true" aria-labelledby="mobileRemoteModalTitle" onclick="if(event.target===this)hideMobileRemoteOverlay()">
+      <div class="perm-modal" style="max-width:440px; padding:14px !important;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <h2 id="mobileRemoteModalTitle" style="margin:0; font-size:15px;">📱 手机伴侣遥控台 (/mobile)</h2>
+          <div style="display:flex; gap:6px;">
+            <a class="btn-outline sm" href="/mobile" target="_blank" style="text-decoration:none;">独立窗口 ↗</a>
+            <button type="button" class="btn-outline sm" onclick="hideMobileRemoteOverlay()">关闭</button>
+          </div>
+        </div>
+        <iframe id="mobileRemoteFrame" title="手机伴侣遥控台" style="width:100%; height:520px; border:1px solid var(--border); border-radius:16px; background:#f8fafc;"></iframe>
       </div>
     </div>
 
@@ -2252,10 +2352,26 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
                 </details>
                 <button type="button" id="hostingEnableBtn" class="btn-solid hosting-btn" onclick="applyHosting(true)">🚀 一键托管</button>
                 <button type="button" id="hostingDisableBtn" class="btn-outline sm" onclick="applyHosting(false)">⏹ 停止</button>
+                <button type="button" id="speedModeBtn" class="btn-outline sm" onclick="toggleWorkosSpeedMode()" title="在「⚡ 极速」低延迟与「🔬 深思」深度推理档位间切换">⚡ 极速</button>
+                <button type="button" id="workosModalBtn" class="btn-outline sm" onclick="openSettingsModal('workos')" title="查看 AI WorkOS 治理、评估、反思与进化面板">🔄 进化</button>
+                <button type="button" id="mobileRemoteBtn" class="btn-outline sm" onclick="openMobileRemoteOverlay()" title="打开手机伴侣遥控台 (/mobile)">📱 遥控</button>
                 <button type="button" id="llmFixBtn" class="btn-outline sm" onclick="relaunchLlmGateway()" hidden>🔧 启动 Magpie（修复 LLM 网关）</button>
                 <button type="button" id="diagBtn" class="btn-outline sm" onclick="loadDiagnostics(true)">🩺 诊断</button>
               </div>
             </div>
+          </div>
+          <div class="workos-goal-bar" id="workosGoalBar" aria-label="AI 员工岗位目标">
+            <div class="workos-presets" role="group" aria-label="AI 员工岗位模板">
+              <button type="button" class="workos-preset-btn active" data-workos-preset="private_ops" onclick="selectWorkosPreset('private_ops')">私域运营</button>
+              <button type="button" class="workos-preset-btn" data-workos-preset="tech_consultant" onclick="selectWorkosPreset('tech_consultant')">售前顾问</button>
+              <button type="button" class="workos-preset-btn" data-workos-preset="community_steward" onclick="selectWorkosPreset('community_steward')">社群管家</button>
+            </div>
+            <div class="workos-goal-input-wrap">
+              <label for="workosGoalInput" style="white-space:nowrap; font-weight:600; color:var(--text-secondary);">🎯 目标</label>
+              <input type="text" id="workosGoalInput" value="接待咨询，回答产品与技术问题，收集客户需求并沉淀常见问答 SOP" placeholder="一句话设定 AI 员工任务目标…" />
+              <button type="button" class="btn-outline sm" style="padding:2px 8px !important; min-height:24px !important; font-size:11.5px !important;" onclick="saveWorkosGoal()">应用</button>
+            </div>
+            <span class="workos-esc-hint" title="在工作台任一位置连按两次 Esc 键可立即暂停托管">⌨️ 双击 Esc 暂停</span>
           </div>
           <div class="chat-pane-head">
             <div style="display:flex; align-items:baseline; gap:8px; min-width:0;">
@@ -2298,6 +2414,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
                 <button type="button" id="quickXiaoweiBtn" class="btn-outline" onclick="runQuickWeChatAiAssist('relay_xiaowei')" title="转发给微信小微/腾讯元宝解析链接、视频与文章并自动生成回复草稿">转发小微</button>
                 <button type="button" id="saveDraftBtn" class="btn-outline" aria-describedby="saveDraftHint" onclick="saveConversationDraft()">加入待办</button>
                 <button type="button" id="sendActionLabel" class="btn-outline" onclick="executeSafeSend()" aria-describedby="sendModeHint">模拟检查</button>
+                <button type="button" id="learnCorrectionBtn" class="btn-outline" onclick="learnFromDraftCorrection()" title="将当前来信与修改后定稿一键沉淀进知识库 SOP，越用越懂你的业务">✨ 纠偏沉淀 SOP</button>
                 <button type="button" id="composerSettingsBtn" class="btn-outline" onclick="openSettingsModal('reply')" title="打开回复性格、模型与发送安全设置">⚙️ 设置</button>
               </div>
               <div class="saved-draft-feedback">
@@ -5118,9 +5235,11 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       setDraftStatus("正在生成回复草稿，可继续查看会话。");
       let data;
       try {
+        const speed_mode = WORKOS_STATE?.speedMode || "fast";
+        const task_goal = (document.getElementById("workosGoalInput")?.value || WORKOS_STATE?.taskGoal || "").trim();
         ({ data } = await apiJson("/api/reply-preview", {
           method: "POST",
-          body: JSON.stringify({ target, incoming_text, persona_override, model_id, use_llm }),
+          body: JSON.stringify({ target, incoming_text, persona_override, model_id, use_llm, speed_mode, task_goal }),
         }));
       } catch (err) {
         if (request === draftRequest) setDraftStatus("生成失败，请重试。已保留你的输入。", "error");
@@ -5140,25 +5259,37 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       const el = document.getElementById("replyPreviewResult");
       el.hidden = false;
       el.dataset.lastReply = data.replyText || "";
+      el.dataset.lastIncoming = rawIncoming || "";
+      el.dataset.lastOriginalDraft = data.replyText || "";
       const sendBox = document.getElementById("sendText");
       const edited = revision !== draftRevision || originalDraft !== draftInput.value;
       if (!edited) sendBox.value = data.replyText;
       const refs = data.basis?.documentRefs || data.matchedEntries || [];
       const personaLabel = data.persona?.name || "默认人格";
       const personaMeta = data.persona?.mbti ? `${personaLabel} · ${data.persona.mbti}` : personaLabel;
+      const sta = data.seeThinkAct || null;
+      const staHtml = sta ? `
+        <div class="see-think-act-grid" id="seeThinkActBar">
+          <div class="sta-step"><strong>👁️ 看 · 感知</strong>${escapeHtml(sta.see?.summary || "")}</div>
+          <div class="sta-step"><strong>🧠 想 · 推理</strong>${escapeHtml(sta.think?.summary || "")}</div>
+          <div class="sta-step"><strong>✍️ 做 · 执行</strong>${escapeHtml(sta.act?.summary || "")}</div>
+        </div>
+      ` : "";
       const modelMeta = data.generationMode === "llm_magpie"
         ? `${data.modelUsed || "Magpie"} · ${data.latencyMs ?? "-"}ms`
         : "知识库规则匹配";
       el.innerHTML = `
         <div>
+          ${staHtml}
           ${edited ? `<div class="draft-suggestion"><strong>新建议</strong><p>${escapeHtml(data.replyText)}</p></div>` : ""}
           <details class="chat-thinking-details">
             <summary>草稿依据 · ${escapeHtml(personaMeta)} · ${escapeHtml(modelMeta)} · 引用 ${data.matchedCount ?? refs.length ?? 0} 条</summary>
-            ${refs.length ? `<ul style="margin:8px 0 0; padding-left:18px;">${refs.map((r) => `<li>${escapeHtml(r.title)}</li>`).join("")}</ul>` : `<div style="margin-top:6px;">无额外知识条目命中。</div>`}
+            ${refs.length ? `<ul style="margin:8px 0 0; padding-left:18px;">${refs.map((r) => `<li>${escapeHtml(r.title)}</li>`).join("")}</ul>` : `<div style="margin-top:6px;">无额外知识条目命中（已自动记录至 WorkOS 反思队列）。</div>`}
           </details>
         </div>
       `;
-      setDraftStatus(edited ? "已保留手工修改，新建议显示在下方。" : "草稿已填入，可继续编辑。");
+      if (!refs.length) loadWorkosHarness(false);
+      setDraftStatus(edited ? "已保留手工修改，新建议显示在下方。" : "草稿已填入，可继续编辑；修改后可点「✨ 纠偏沉淀 SOP」。");
     }
 
     function copyPreviewToSender() {
@@ -6488,9 +6619,208 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       });
     }
 
+    const WORKOS_STATE = {
+      speedMode: "fast",
+      postPreset: "private_ops",
+      taskGoal: "接待咨询，回答产品与技术问题，收集客户需求并沉淀常见问答 SOP",
+      harness: null,
+      lastEscAt: 0,
+    };
+
+    function _renderWorkosControls(harness) {
+      if (!harness) return;
+      WORKOS_STATE.harness = harness;
+      const gov = harness.governance || {};
+      WORKOS_STATE.speedMode = gov.speedMode || "fast";
+      WORKOS_STATE.postPreset = gov.postPreset || "private_ops";
+      if (gov.taskGoal) WORKOS_STATE.taskGoal = gov.taskGoal;
+
+      const sBtn = document.getElementById("speedModeBtn");
+      if (sBtn) {
+        const isDeep = WORKOS_STATE.speedMode === "deep";
+        sBtn.textContent = isDeep ? "🔬 深思" : "⚡ 极速";
+        sBtn.style.borderColor = isDeep ? "var(--work-pine)" : "";
+        sBtn.style.color = isDeep ? "var(--work-pine)" : "";
+      }
+      document.querySelectorAll(".workos-preset-btn").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.workosPreset === WORKOS_STATE.postPreset);
+      });
+      const goalInput = document.getElementById("workosGoalInput");
+      if (goalInput && document.activeElement !== goalInput && gov.taskGoal) {
+        goalInput.value = gov.taskGoal;
+      }
+
+      const govBox = document.getElementById("workosGovBox");
+      if (govBox) {
+        const targets = (gov.allowedTargets || []).join("、") || "未设置";
+        const hgActive = gov.humanGuard?.enabled ? "已启用让路" : "已关闭";
+        govBox.innerHTML = `<div>允许联系人：<b>${escapeHtml(targets)}</b></div><div>防抢鼠标：${escapeHtml(hgActive)} · 当前档位：<b>${WORKOS_STATE.speedMode === "deep" ? "🔬 深思" : "⚡ 极速"}</b></div><div>岗位：${escapeHtml(gov.postLabel || "私域运营专员")}</div>`;
+      }
+      const evalBox = document.getElementById("workosEvalBox");
+      if (evalBox) {
+        const ev = harness.evaluation || {};
+        const b = ev.benchmark || {};
+        const benchLine = b.totalCases ? `基准评测：${b.passed}/${b.totalCases}（术语泄漏 ${b.jargonLeaks ?? 0} 条）` : "基准评测：暂无离线报告";
+        evalBox.innerHTML = `<div>知识库总条目：<b>${ev.knowledgeEntriesCount ?? 0}</b> 条</div><div>自学习沉淀 SOP：<b>${ev.selfLearnedCount ?? 0}</b> 条</div><div>${escapeHtml(benchLine)}</div>`;
+      }
+      const refBox = document.getElementById("workosReflectBox");
+      if (refBox) {
+        const items = harness.reflection?.items || [];
+        if (!items.length) {
+          refBox.innerHTML = `<div style="color:var(--text-muted);">暂未发现未命中知识库的盲区来信。</div>`;
+        } else {
+          refBox.innerHTML = `<ul class="workos-list">${items.slice(0, 6).map((it, idx) => `<li><b>[${escapeHtml(it.target)}]</b> ${escapeHtml(it.incomingText)} <button type="button" class="link-btn" style="font-size:11px;" onclick="fillFromReflection(${idx})">填入草稿</button></li>`).join("")}</ul>`;
+        }
+      }
+      const evoBox = document.getElementById("workosEvolveBox");
+      if (evoBox) {
+        const items = harness.evolution?.items || [];
+        if (!items.length) {
+          evoBox.innerHTML = `<div style="color:var(--text-muted);">修改回复草稿后点击底部「✨ 纠偏沉淀 SOP」即可自动进化。</div>`;
+        } else {
+          evoBox.innerHTML = `<ul class="workos-list">${items.slice(0, 6).map((it) => `<li><b>${escapeHtml(it.title)}</b> → ${escapeHtml(it.correctedReply)}</li>`).join("")}</ul>`;
+        }
+      }
+      const mCode = document.getElementById("mobileRemoteUrlCode");
+      if (mCode) mCode.textContent = `${location.origin}/mobile`;
+    }
+
+    async function loadWorkosHarness(notify = false) {
+      try {
+        const { status, data } = await apiJson("/api/workos/harness");
+        if (status === 200 && data.ok) {
+          _renderWorkosControls(data);
+          if (notify) showToast("已刷新 WorkOS 四维闭环指标");
+        }
+      } catch (err) {
+        if (notify) showToast("刷新 WorkOS 指标失败: " + err.message);
+      }
+    }
+
+    async function toggleWorkosSpeedMode() {
+      const next = WORKOS_STATE.speedMode === "deep" ? "fast" : "deep";
+      try {
+        const { status, data } = await apiJson("/api/workos/goal", {
+          method: "POST",
+          body: JSON.stringify({ speed_mode: next }),
+        });
+        if (status === 200 && data.ok) {
+          showToast(next === "deep" ? "🔬 已切换至「深思」深度推理模式" : "⚡ 已切换至「极速」低延迟模式");
+          await loadWorkosHarness(false);
+        }
+      } catch (err) {
+        showToast("切换推理档位失败: " + err.message);
+      }
+    }
+
+    async function selectWorkosPreset(presetKey) {
+      try {
+        const { status, data } = await apiJson("/api/workos/goal", {
+          method: "POST",
+          body: JSON.stringify({ post_preset: presetKey }),
+        });
+        if (status === 200 && data.ok) {
+          const goalInput = document.getElementById("workosGoalInput");
+          if (goalInput && data.taskGoal) goalInput.value = data.taskGoal;
+          showToast(`🎯 已切换岗位目标：${data.postLabel || presetKey}`);
+          await loadWorkosHarness(false);
+        }
+      } catch (err) {
+        showToast("切换岗位模板失败: " + err.message);
+      }
+    }
+
+    async function saveWorkosGoal() {
+      const goal = (document.getElementById("workosGoalInput")?.value || "").trim();
+      if (!goal) { showToast("请填写一句 AI 员工任务目标"); return; }
+      try {
+        const { status, data } = await apiJson("/api/workos/goal", {
+          method: "POST",
+          body: JSON.stringify({ task_goal: goal }),
+        });
+        if (status === 200 && data.ok) {
+          showToast("🎯 已更新 AI 员工任务目标");
+          await loadWorkosHarness(false);
+        }
+      } catch (err) {
+        showToast("保存目标失败: " + err.message);
+      }
+    }
+
+    function fillFromReflection(index) {
+      const items = WORKOS_STATE.harness?.reflection?.items || [];
+      const item = items[index];
+      if (!item) return;
+      hideSettingsModal();
+      syncChatRecipient(item.target || "");
+      const pt = document.getElementById("previewTarget");
+      if (pt) pt.value = item.target || "";
+      const pi = document.getElementById("previewIncoming");
+      const paste = document.getElementById("pasteIncoming");
+      if (pi) pi.value = item.incomingText || "";
+      if (paste) paste.value = item.incomingText || "";
+      const st = document.getElementById("sendText");
+      if (st) {
+        st.value = item.replyText || "";
+        st.focus();
+      }
+      showToast("已填入待优化来信与参考回复，修改后点「✨ 纠偏沉淀 SOP」即可入库");
+    }
+
+    async function learnFromDraftCorrection() {
+      const target = (document.getElementById("previewTarget")?.value || document.getElementById("sendTarget")?.value || "").trim();
+      const prevEl = document.getElementById("replyPreviewResult");
+      const rawIn = extractLatestPeerMessage((document.getElementById("previewIncoming")?.value || prevEl?.dataset.lastIncoming || "").trim());
+      const corrected = (document.getElementById("sendText")?.value || "").trim();
+      const originalDraft = prevEl?.dataset.lastOriginalDraft || "";
+      if (!rawIn) {
+        showToast("请先选择或粘贴客户来信原话");
+        return;
+      }
+      if (!corrected) {
+        showToast("请先填写或修改定稿回复后再沉淀 SOP");
+        document.getElementById("sendText")?.focus();
+        return;
+      }
+      const btn = document.getElementById("learnCorrectionBtn");
+      if (btn) btn.disabled = true;
+      try {
+        const { status, data } = await apiJson("/api/workos/learn-correction", {
+          method: "POST",
+          body: JSON.stringify({
+            target,
+            incoming_text: rawIn,
+            corrected_reply: corrected,
+            original_draft: originalDraft,
+            kind: "script",
+          }),
+        });
+        if (status !== 200 || !data.ok) throw new Error(data.error || "沉淀失败");
+        showToast(`✨ 已沉淀 SOP《${data.entry?.title || ""}》，后续同类咨询自动命中`);
+        setDraftStatus("已沉淀进知识库 SOP（自学习 +1）。");
+        await loadWorkosHarness(false);
+        await loadOverview(false);
+      } catch (err) {
+        showToast("纠偏沉淀失败: " + err.message);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    function openMobileRemoteOverlay() {
+      const frame = document.getElementById("mobileRemoteFrame");
+      if (frame) frame.src = "/mobile?embed=1&ts=" + Date.now();
+      document.getElementById("mobileRemoteOverlay")?.classList.add("visible");
+    }
+
+    function hideMobileRemoteOverlay() {
+      document.getElementById("mobileRemoteOverlay")?.classList.remove("visible");
+    }
+
     function openSettingsModal(section = "reply") {
       syncSettingsModalFromState();
       switchSettingsSection(section);
+      loadWorkosHarness(false);
       document.getElementById("settingsOverlay")?.classList.add("visible");
     }
 
@@ -6978,25 +7308,51 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       if (hostingPicker && !hostingPicker.contains(event.target)) hostingPicker.open = false;
     });
     document.addEventListener("keydown", event => {
-      if (event.key === "Escape" && document.getElementById("settingsOverlay")?.classList.contains("visible")) {
-        hideSettingsModal();
-      }
-      if (event.key === "Escape" && moreActions?.open) {
-        moreActions.open = false;
-        moreActions.querySelector("summary").focus();
-      }
-      if (event.key === "Escape" && navMore?.open) {
-        navMore.open = false;
-        navMore.querySelector("summary").focus();
-      }
-      if (event.key === "Escape" && hostingPicker?.open) {
-        hostingPicker.open = false;
+      if (event.key === "Escape") {
+        let closedAny = false;
+        if (document.getElementById("mobileRemoteOverlay")?.classList.contains("visible")) {
+          hideMobileRemoteOverlay();
+          closedAny = true;
+        }
+        if (document.getElementById("settingsOverlay")?.classList.contains("visible")) {
+          hideSettingsModal();
+          closedAny = true;
+        }
+        if (moreActions?.open) {
+          moreActions.open = false;
+          moreActions.querySelector("summary").focus();
+          closedAny = true;
+        }
+        if (navMore?.open) {
+          navMore.open = false;
+          navMore.querySelector("summary").focus();
+          closedAny = true;
+        }
+        if (hostingPicker?.open) {
+          hostingPicker.open = false;
+          closedAny = true;
+        }
+        if (!closedAny) {
+          const now = Date.now();
+          if (WORKOS_STATE.lastEscAt && (now - WORKOS_STATE.lastEscAt) <= 420) {
+            WORKOS_STATE.lastEscAt = 0;
+            if (HOSTING_STATE?.hosting?.running) {
+              applyHosting(false);
+              showToast("⏸ 已通过双击 Esc 紧急暂停托管");
+            } else {
+              showToast("⏸ 双击 Esc 已确认：当前托管处于未开启状态");
+            }
+          } else {
+            WORKOS_STATE.lastEscAt = now;
+          }
+        }
       }
     });
     document.getElementById("sendText").addEventListener("input", () => { draftRevision++; });
     syncSendModeLabel();
     renderSalesCrmTab();
     loadOverview();
+    loadWorkosHarness(false);
     loadPermissions();
     loadBackgroundObservation();
     setInterval(loadBackgroundObservation, 5000);
@@ -7017,3 +7373,118 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
 def render_web_console_html() -> str:
     """Return the self-contained Web Control Console HTML page."""
     return WEB_CONSOLE_HTML
+
+
+MOBILE_REMOTE_HTML = r"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>WeChat Bot · 手机遥控台</title>
+  <style>
+    :root { --bg:#f4f7f5; --card:#ffffff; --text:#18211d; --muted:#5f6f67; --pine:#1b5e3c; --border:#dce5df; --danger:#b42318; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif; background:var(--bg); color:var(--text); }
+    .phone-wrap { max-width:460px; margin:0 auto; padding:14px 14px 28px; display:flex; flex-direction:column; gap:12px; }
+    .hdr { display:flex; align-items:center; justify-content:space-between; }
+    .hdr h1 { margin:0; font-size:17px; display:flex; align-items:center; gap:7px; }
+    .badge { display:inline-flex; align-items:center; gap:5px; font-size:12px; padding:3px 10px; border-radius:999px; background:#e6f4ec; color:var(--pine); font-weight:600; }
+    .badge.off { background:#eef1ef; color:var(--muted); }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:12px 14px; }
+    .card h2 { margin:0 0 8px; font-size:13.5px; color:var(--muted); font-weight:600; }
+    .kpi-grid { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; text-align:center; }
+    .kpi { background:#f8faf9; border:1px solid var(--border); border-radius:10px; padding:8px 6px; }
+    .kpi strong { display:block; font-size:18px; color:var(--pine); }
+    .kpi span { font-size:11px; color:var(--muted); }
+    .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+    button, .link-btn { cursor:pointer; border-radius:10px; padding:9px 12px; font-size:13px; font-weight:600; border:1px solid var(--border); background:#fff; color:var(--text); text-decoration:none; text-align:center; flex:1; }
+    button.primary { background:var(--pine); color:#fff; border-color:var(--pine); }
+    button.danger { background:#fff5f4; color:var(--danger); border-color:#f3c6c2; }
+    ul { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:7px; }
+    li { font-size:12.5px; line-height:1.45; padding:7px 9px; border-radius:9px; background:#f8faf9; border:1px solid var(--border); }
+    .sub { font-size:11.5px; color:var(--muted); }
+  </style>
+</head>
+<body>
+  <main class="phone-wrap">
+    <div class="hdr">
+      <h1>📱 WeChat Bot 遥控台</h1>
+      <span id="mHostingBadge" class="badge off">检测中</span>
+    </div>
+    <section class="card">
+      <h2>1 · 运行状态与远程开停（识流伴侣模式）</h2>
+      <div class="kpi-grid">
+        <div class="kpi"><strong id="mSpeed">—</strong><span>当前档位</span></div>
+        <div class="kpi"><strong id="mKbCount">—</strong><span>SOP 知识库</span></div>
+        <div class="kpi"><strong id="mEvoCount">—</strong><span>自学习进化</span></div>
+      </div>
+      <div class="actions">
+        <button type="button" class="primary" id="mEnableBtn" onclick="remoteHosting(true)">🚀 开启托管</button>
+        <button type="button" class="danger" id="mPauseBtn" onclick="remoteHosting(false)">⏸ 紧急暂停</button>
+        <button type="button" onclick="refreshMobile()">🔄 刷新</button>
+      </div>
+      <p class="sub" id="mStatusMsg" style="margin:8px 0 0;">托管仍在桌面端本地账号内执行，手机端只做远程掌控。</p>
+    </section>
+    <section class="card">
+      <h2>2 · 人工介入待办 &amp; 反思盲区</h2>
+      <ul id="mReflectList"><li class="sub">暂无待人工核对项</li></ul>
+      <div class="actions"><a class="link-btn" href="/workbench" target="_top">📋 前往待办审阅台</a><a class="link-btn" href="/" target="_top">💻 返回桌面工作台</a></div>
+    </section>
+    <section class="card">
+      <h2>3 · 白名单托管会话</h2>
+      <ul id="mThreadsList"><li class="sub">读取中…</li></ul>
+    </section>
+  </main>
+  <script>
+    let LAST_TARGETS = ["安晓心", "心安", "openbot"];
+    const esc = s => String(s || "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    async function refreshMobile() {
+      try {
+        const [dRes, hRes] = await Promise.all([
+          fetch("/api/diagnostics").then(r => r.json()),
+          fetch("/api/workos/harness").then(r => r.json()).catch(() => ({}))
+        ]);
+        const h = dRes.hosting || {};
+        if (Array.isArray(h.targets) && h.targets.length) LAST_TARGETS = h.targets;
+        const badge = document.getElementById("mHostingBadge");
+        badge.textContent = h.running ? "🟢 托管运行中" : "⚪ 已暂停";
+        badge.className = "badge" + (h.running ? "" : " off");
+        const gov = hRes.governance || {};
+        const ev = hRes.evaluation || {};
+        document.getElementById("mSpeed").textContent = gov.speedMode === "deep" ? "🔬 深思" : "⚡ 极速";
+        document.getElementById("mKbCount").textContent = String(ev.knowledgeEntriesCount ?? dRes.knowledgeEntries ?? "-");
+        document.getElementById("mEvoCount").textContent = String((hRes.evolution && hRes.evolution.totalCount) ?? 0);
+
+        const refs = (hRes.reflection && hRes.reflection.items) || [];
+        const rList = document.getElementById("mReflectList");
+        rList.innerHTML = refs.length
+          ? refs.slice(0, 5).map(r => `<li><strong>${esc(r.target)}</strong>：${esc(r.incomingText)}<div class="sub">${esc(r.suggestion || "")}</div></li>`).join("")
+          : `<li class="sub">当前无未命中盲区，回复策略稳定。</li>`;
+
+        const tList = document.getElementById("mThreadsList");
+        tList.innerHTML = LAST_TARGETS.map(t => `<li>💬 ${esc(t)}<div class="sub">白名单受控会话</div></li>`).join("");
+      } catch (e) {
+        document.getElementById("mStatusMsg").textContent = "连接失败：" + (e.message || e);
+      }
+    }
+    async function remoteHosting(enable) {
+      const res = await fetch("/api/hosting", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ action: enable ? "enable" : "disable", targets: LAST_TARGETS, disable_replies: !enable })
+      }).then(r => r.json());
+      document.getElementById("mStatusMsg").textContent = res.ok
+        ? (enable ? "🚀 已开启白名单托管" : "⏸ 已紧急暂停托管")
+        : ("操作失败：" + (res.error || "unknown"));
+      await refreshMobile();
+    }
+    refreshMobile();
+  </script>
+</body>
+</html>
+"""
+
+
+def render_mobile_remote_html() -> str:
+    """Return the Thiflow-inspired responsive mobile companion remote console page."""
+    return MOBILE_REMOTE_HTML

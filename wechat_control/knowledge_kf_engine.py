@@ -1205,6 +1205,67 @@ class PersonaSwitchEngine:
             rewritten = "这条消息我还在学习中，已转交人工客服为您详细解答～"
         return self._clean_single_line(rewritten, max_len)
 
+    @staticmethod
+    def _build_see_think_act(
+        *,
+        target: str,
+        speaker: str,
+        incoming_text: str,
+        input_kind: str,
+        media_notes_count: int,
+        speed_mode: str,
+        persona_name: str,
+        task_goal: str,
+        entries: List[Dict[str, Any]],
+        memory_count: int,
+        generation_mode: str,
+        is_empty: bool = False,
+    ) -> Dict[str, Any]:
+        """Build Thiflow-inspired transparent See -> Think -> Act reasoning trace."""
+        clean_speed = "deep" if str(speed_mode or "").strip().lower() in ("deep", "think", "reasoning", "深思") else "fast"
+        clean_goal = str(task_goal or "").strip() or "接待咨询，回答产品与技术问题，收集客户需求"
+        if is_empty:
+            think_summary = f"[{'深思' if clean_speed == 'deep' else '极速'} · {persona_name}] 仅检测到空字符或标点，触发安全礼貌引导"
+            act_summary = "输出轻量礼貌引导；保持辅助确认模式，双击 Esc 可随时紧急暂停。"
+        else:
+            think_summary = (
+                f"[{'深思' if clean_speed == 'deep' else '极速'} · {persona_name}] "
+                + (
+                    f"命中知识库《{entries[0]['title']}》等 {len(entries)} 条"
+                    if entries
+                    else "未命中固定条款，结合上下文与深读笔记推理"
+                )
+            )
+            act_summary = "已生成无术语合规回复草稿；辅助模式先出草稿由你确认，修改后可点「✨ 纠偏沉淀 SOP」持续进化。"
+        return {
+            "see": {
+                "label": "看 · 屏幕与会话感知",
+                "target": target,
+                "speaker": speaker,
+                "inputKind": input_kind,
+                "mediaNotesCount": media_notes_count,
+                "summary": f"读取「{target}」来信" + (f"（发言人：{speaker}）" if speaker else "") + f"：{(incoming_text or '')[:36]}",
+            },
+            "think": {
+                "label": "想 · 知识检索与推理",
+                "speedMode": clean_speed,
+                "speedLabel": "深思模式" if clean_speed == "deep" else "极速模式",
+                "personaName": persona_name,
+                "taskGoal": clean_goal,
+                "matchedCount": len(entries),
+                "matchedTitles": [e["title"] for e in entries[:3]],
+                "memoryCount": memory_count,
+                "summary": think_summary,
+            },
+            "act": {
+                "label": "做 · 拟人执行与守卫",
+                "generationMode": generation_mode,
+                "sanitized": True,
+                "pauseShortcut": "双击 Esc 随时暂停",
+                "summary": act_summary,
+            },
+        }
+
     def generate_smart_reply(
         self,
         target: str,
@@ -1218,6 +1279,8 @@ class PersonaSwitchEngine:
         model_hub: Optional[Any] = None,
         model_id: Optional[str] = None,
         use_llm: Optional[bool] = None,
+        speed_mode: str = "fast",
+        task_goal: str = "",
     ) -> Dict[str, Any]:
         role = str((binding or {}).get("role") or "friend")
         persona_hint = persona_override or (binding or {}).get("aiPersona") or ""
@@ -1230,6 +1293,14 @@ class PersonaSwitchEngine:
         contact_soul = mem_ctx.get("contactSoul") or {}
         memory_snippet = str(mem_ctx.get("memoryPromptSnippet") or "").strip()
         memory_refs = list(mem_ctx.get("memoryRefs") or [])
+        speaker_name = str(mem_ctx.get("groupSpeaker") or "").strip()
+        clean_speed = "deep" if str(speed_mode or "").strip().lower() in ("deep", "think", "reasoning", "深思") else "fast"
+        clean_goal = str(task_goal or "").strip() or "接待咨询，回答产品与技术问题，收集客户需求"
+        media_notes_count = sum(
+            1
+            for m in (recent_messages or [])
+            if str(m or "").strip().startswith(("[元宝深读:", "[小微深读:", "[链接深读:", "[图片识别:", "[视频识别:"))
+        )
 
         norm_in = unicodedata.normalize("NFKC", incoming_text or "").strip()
         in_cf = norm_in.casefold()
@@ -1299,7 +1370,21 @@ class PersonaSwitchEngine:
                 "latencyMs": None,
                 "llmError": None,
                 "basis": {"personaId": persona["id"], "personaName": persona["name"],
-                          "generationMode": "empty_input_guard"},
+                          "generationMode": "empty_input_guard", "speedMode": clean_speed},
+                "seeThinkAct": self._build_see_think_act(
+                    target=target,
+                    speaker=speaker_name,
+                    incoming_text=norm_in,
+                    input_kind="empty",
+                    media_notes_count=media_notes_count,
+                    speed_mode=clean_speed,
+                    persona_name=persona["name"],
+                    task_goal=clean_goal,
+                    entries=[],
+                    memory_count=0,
+                    generation_mode="empty_input_guard",
+                    is_empty=True,
+                ),
             }
         is_reply_check = any(
             kw in in_cf
@@ -1493,12 +1578,18 @@ class PersonaSwitchEngine:
                 )
             max_chars = int(persona.get("maxChars") or 160)
             target_chars = max(60, max_chars - 12)
-            speaker = str((memory_context or {}).get("groupSpeaker") or "").strip()
-            speaker_hint = f"群内发言人：{speaker}\n" if speaker else ""
+            speaker_hint = f"群内发言人：{speaker_name}\n" if speaker_name else ""
+            goal_hint = f"当前 AI 员工岗位目标：{clean_goal}\n"
+            speed_hint = (
+                "当前档位：深思模式（请先在内部拆解客户底层意图、隐含前提与边界条件，再给出结论清晰、步骤可落地的深度解答）。\n"
+                if clean_speed == "deep"
+                else "当前档位：极速模式（直接切入核心结论与关键动作，简洁明了）。\n"
+            )
             card_hint = "\n提示：对方仅发来了公众号/视频号来源卡片标题，请礼貌说明目前仅能看到标题，并邀请对方补充原文链接或想讨论的具体问题。\n" if is_card_source_only else ""
             sys_prompt = (
                 f"你正在代表号主通过微信与「{target}」专业沟通。\n"
                 f"当前性格角色：{persona['name']}（MBTI: {persona['mbti']}，互动风格: {persona.get('interactionStyleLabel', '')}）。\n"
+                f"{goal_hint}{speed_hint}"
                 f"角色定位与要求：{persona.get('tone', '')} {persona.get('guidelines', '')}\n"
                 f"表达原则：{persona.get('styleDirective', '')}\n"
                 f"企业知识库与术语参考（仅在对方确实咨询我们的产品、定价、功能、权限或服务政策时引用；若对方询问通用技术原理、行业问题或分享第三方 GitHub/文章/视频，请直接就事论事给出专业解答或点评，切勿生硬推销或强行附加无关产品链接）：\n{kb_snippets}"
@@ -1566,4 +1657,22 @@ class PersonaSwitchEngine:
             "latencyMs": latency_ms,
             "llmError": llm_error,
             "basis": basis,
+            "seeThinkAct": self._build_see_think_act(
+                target=target,
+                speaker=speaker_name,
+                incoming_text=norm_in,
+                input_kind=(
+                    "card_title"
+                    if is_card_source_only
+                    else ("external_link" if is_external_link else ("media_followup" if is_media_followup else "chat_text"))
+                ),
+                media_notes_count=media_notes_count,
+                speed_mode=clean_speed,
+                persona_name=persona["name"],
+                task_goal=clean_goal,
+                entries=entries,
+                memory_count=len(memory_refs),
+                generation_mode=generation_mode,
+                is_empty=False,
+            ),
         }

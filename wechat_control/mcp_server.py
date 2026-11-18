@@ -30,7 +30,7 @@ def _maybe_unquote_target(t: str) -> str:
         except Exception:
             pass
     return t
-from .web_console import render_web_console_html
+from .web_console import render_mobile_remote_html, render_web_console_html
 from .workbench import ReviewLedger, Workbench, WorkbenchError
 from .workbench_library import records as workbench_records
 
@@ -1393,6 +1393,10 @@ def create_http_server(
             try:
                 if path in ("/", "/console", "/index.html"):
                     self._send_html(200, render_web_console_html())
+                elif path in ("/mobile", "/mobile/"):
+                    self._send_html(200, render_mobile_remote_html())
+                elif path == "/api/workos/harness":
+                    self._send_json(200, engine.get_workos_harness_summary())
                 elif path == "/health":
                     self._send_json(200, {"ok": True, "service": SERVER_INFO["name"], "version": SERVER_INFO.get("version")})
                 elif path == "/auth/status":
@@ -1649,6 +1653,8 @@ def create_http_server(
                         persona_override=body.get("persona_override") or None,
                         model_id=body.get("model_id") or None,
                         use_llm=body.get("use_llm") if "use_llm" in body else None,
+                        speed_mode=body.get("speed_mode") or body.get("speedMode") or None,
+                        task_goal=body.get("task_goal") or body.get("taskGoal") or None,
                     )
                     self._send_json(200, res)
                 elif path == "/api/model-select":
@@ -1863,6 +1869,24 @@ def create_http_server(
                     else:
                         res = engine.export_botstudio_integration_bundle(out_path=body.get("outPath") or None)
                     self._send_json(200, res)
+                elif path == "/api/workos/goal":
+                    res = engine.configure_workos_post(
+                        speed_mode=body.get("speed_mode") if "speed_mode" in body else body.get("speedMode"),
+                        post_preset=body.get("post_preset") if "post_preset" in body else body.get("postPreset"),
+                        task_goal=body.get("task_goal") if "task_goal" in body else body.get("taskGoal"),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/workos/learn-correction":
+                    res = engine.learn_from_correction(
+                        target=str(body.get("target") or ""),
+                        incoming_text=str(body.get("incoming_text") or body.get("incomingText") or ""),
+                        corrected_reply=str(body.get("corrected_reply") or body.get("correctedReply") or ""),
+                        original_draft=str(body.get("original_draft") or body.get("originalDraft") or ""),
+                        title=str(body.get("title") or ""),
+                        kind=str(body.get("kind") or "script"),
+                        keywords=body.get("keywords") if isinstance(body.get("keywords"), list) else None,
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
                 elif path == "/api/kb-search":
                     res = engine.kb_search(
                         str(body.get("query") or ""),

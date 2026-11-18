@@ -54,6 +54,21 @@ from .safety import (
 
 _BUNDLE_RES = Path(__file__).resolve().parent.parent
 
+WORKOS_POST_PRESETS: Dict[str, Dict[str, str]] = {
+    "private_ops": {
+        "label": "私域运营专员",
+        "goal": "接待咨询，回答产品与技术问题，收集客户需求并沉淀常见问答 SOP",
+    },
+    "tech_consultant": {
+        "label": "售前技术顾问",
+        "goal": "专业拆解技术问题、对比方案差异与部署边界，推动意向客户深入沟通",
+    },
+    "community_steward": {
+        "label": "社群管家",
+        "goal": "识别群内发言人意图，结合 @元宝/小微 深读整理干货要点并保持群内礼貌分寸",
+    },
+}
+
 
 def _resolve_default_binary_path(bundle_res: Path = _BUNDLE_RES) -> Path:
     """解析原生 wechat-vision-ax 二进制路径：开发仓在 bin/，安装版在 Contents/MacOS 或 Resources/。"""
@@ -440,6 +455,9 @@ class WeChatControlEngine:
             state_path=resolved_mon_state.parent / "hosting_state.json",
             interval_seconds=max(5.0, float(os.environ.get("WECHAT_PLUGIN_HOSTING_INTERVAL", "45") or 45)),
         )
+        self._workos_lock = threading.RLock()
+        self.workos_state_path = resolved_auth.parent / "workos_state.json"
+        self._workos_state = self._load_workos_state()
         # 托管自动恢复：上次异常退出（enabled=true 未走 stop）时重启引擎恢复托管。
         # fail-closed：授权被撤销则不恢复，只落审计。
         try:
@@ -1621,6 +1639,8 @@ class WeChatControlEngine:
         persona_override: Optional[str] = None,
         model_id: Optional[str] = None,
         use_llm: Optional[bool] = None,
+        speed_mode: Optional[str] = None,
+        task_goal: Optional[str] = None,
     ) -> Dict[str, Any]:
         self._require("status")
         binding = self.bindings.get_binding(target)
@@ -1676,7 +1696,11 @@ class WeChatControlEngine:
         if sender_name:
             memory_context["groupSpeaker"] = sender_name
 
-        return self.personas.generate_smart_reply(
+        with self._workos_lock:
+            eff_speed = str(speed_mode or self._workos_state.get("speedMode") or "fast").strip().lower()
+            eff_goal = str(task_goal if task_goal is not None else self._workos_state.get("taskGoal") or "").strip()
+
+        res = self.personas.generate_smart_reply(
             target,
             query_incoming,
             knowledge_store=self.knowledge,
@@ -1687,7 +1711,22 @@ class WeChatControlEngine:
             model_hub=self.models,
             model_id=model_id,
             use_llm=use_llm,
+            speed_mode=eff_speed,
+            task_goal=eff_goal,
         )
+        if (
+            res.get("ok")
+            and int(res.get("matchedCount") or 0) == 0
+            and str(res.get("generationMode") or "") != "empty_input_guard"
+            and query_incoming
+            and str(target or "").strip()
+        ):
+            self._record_workos_reflection(
+                target=str(target).strip(),
+                incoming_text=query_incoming,
+                reply_text=str(res.get("replyText") or ""),
+            )
+        return res
 
     # ------------------------------------------------------------------
     # Magpie Multi-Provider & Multi-Model Hub
@@ -3549,3 +3588,249 @@ class WeChatControlEngine:
             },
         )
         return payload
+
+    # ------------------------------------------------------------------
+    # Thiflow See-Think-Act & Yingdao AI WorkOS Harness (v2.4.69)
+    # ------------------------------------------------------------------
+
+    def _default_workos_state(self) -> Dict[str, Any]:
+        preset = WORKOS_POST_PRESETS["private_ops"]
+        return {
+            "speedMode": "fast",
+            "postPreset": "private_ops",
+            "postLabel": preset["label"],
+            "taskGoal": preset["goal"],
+            "reflections": [],
+            "evolutions": [],
+        }
+
+    def _load_workos_state(self) -> Dict[str, Any]:
+        base = self._default_workos_state()
+        try:
+            if self.workos_state_path.is_file():
+                raw = json.loads(self.workos_state_path.read_text(encoding="utf-8"))
+                if isinstance(raw, dict):
+                    for k in ("speedMode", "postPreset", "postLabel", "taskGoal"):
+                        if isinstance(raw.get(k), str) and raw[k].strip():
+                            base[k] = raw[k].strip()
+                    if isinstance(raw.get("reflections"), list):
+                        base["reflections"] = [r for r in raw["reflections"] if isinstance(r, dict)][-30:]
+                    if isinstance(raw.get("evolutions"), list):
+                        base["evolutions"] = [e for e in raw["evolutions"] if isinstance(e, dict)][-50:]
+        except Exception:
+            pass
+        return base
+
+    def _save_workos_state(self) -> None:
+        try:
+            self.workos_state_path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_json(self.workos_state_path, self._workos_state)
+        except Exception:
+            pass
+
+    def _record_workos_reflection(self, *, target: str, incoming_text: str, reply_text: str) -> None:
+        clean_in = re.sub(r"\s+", " ", incoming_text or "").strip()[:160]
+        if not clean_in:
+            return
+        with self._workos_lock:
+            refs = list(self._workos_state.get("reflections") or [])
+            # Deduplicate identical unanswered prompts across consecutive previews
+            refs = [r for r in refs if not (r.get("target") == target and r.get("incomingText") == clean_in)]
+            refs.append({
+                "target": target,
+                "incomingText": clean_in,
+                "replyText": re.sub(r"\s+", " ", reply_text or "").strip()[:160],
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "suggestion": "该来信暂未命中知识库固定条款，建议人工修改后点击「✨ 纠偏沉淀 SOP」。",
+            })
+            self._workos_state["reflections"] = refs[-30:]
+            self._save_workos_state()
+
+    def configure_workos_post(
+        self,
+        *,
+        speed_mode: Optional[str] = None,
+        post_preset: Optional[str] = None,
+        task_goal: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Configure AI employee post goal and Fast/Deep model speed tier."""
+        self._require("status")
+        with self._workos_lock:
+            if speed_mode is not None:
+                sm = str(speed_mode).strip().lower()
+                if sm not in ("fast", "deep"):
+                    return {"ok": False, "error": f"Unsupported speed_mode: {speed_mode!r}"}
+                self._workos_state["speedMode"] = sm
+            if post_preset is not None:
+                pp = str(post_preset).strip()
+                if pp not in WORKOS_POST_PRESETS:
+                    return {"ok": False, "error": f"Unsupported post_preset: {post_preset!r}"}
+                self._workos_state["postPreset"] = pp
+                self._workos_state["postLabel"] = WORKOS_POST_PRESETS[pp]["label"]
+                if task_goal is None:
+                    self._workos_state["taskGoal"] = WORKOS_POST_PRESETS[pp]["goal"]
+            if task_goal is not None:
+                clean_goal = re.sub(r"\s+", " ", str(task_goal)).strip()[:200]
+                if clean_goal:
+                    self._workos_state["taskGoal"] = clean_goal
+            self._save_workos_state()
+            snapshot = dict(self._workos_state)
+        self.audit.log("workos_configure_post", "ok", {
+            "speedMode": snapshot["speedMode"],
+            "postPreset": snapshot["postPreset"],
+            "taskGoal": snapshot["taskGoal"],
+        })
+        return {"ok": True, **snapshot, "presets": WORKOS_POST_PRESETS}
+
+    def learn_from_correction(
+        self,
+        target: str,
+        incoming_text: str,
+        corrected_reply: str,
+        *,
+        original_draft: str = "",
+        title: str = "",
+        kind: str = "script",
+        keywords: Optional[Iterable[str]] = None,
+    ) -> Dict[str, Any]:
+        """Thiflow/WorkOS continuous self-learning: save human-corrected reply into FTS5 SOP."""
+        self._require("status")
+        raw_in = re.sub(r"\s+", " ", str(incoming_text or "")).strip()
+        raw_in = re.sub(r"^(?!https?:)[^:\s/\n]{1,16}:\s+", "", raw_in).strip()
+        raw_reply = re.sub(r"\s+", " ", str(corrected_reply or "")).strip()
+        if not raw_in or not raw_reply:
+            return {"ok": False, "error": "incoming_text and corrected_reply are required."}
+        clean_kind = str(kind or "script").strip().lower()
+        if clean_kind not in ("terminology", "knowledge", "script", "faq"):
+            clean_kind = "script"
+
+        clean_reply = self.personas.sanitize_for_customer(raw_reply, max_len=240)
+        if not clean_reply:
+            return {"ok": False, "error": "Corrected reply became empty after sanitization."}
+
+        clean_title = re.sub(r"\s+", " ", str(title or "")).strip()[:40] or f"纠偏SOP：{raw_in[:24]}"
+        extracted_kw: List[str] = [str(k).strip() for k in (keywords or []) if str(k).strip()]
+        if not extracted_kw:
+            if len(raw_in) <= 28:
+                extracted_kw.append(raw_in)
+            for tok in re.findall(r"[A-Za-z0-9_.-]{2,20}|[\u4e00-\u9fff]{2,8}", raw_in):
+                if tok not in extracted_kw and len(extracted_kw) < 8:
+                    extracted_kw.append(tok)
+        synonyms = [raw_in[:32]] if raw_in else []
+
+        try:
+            saved = self.knowledge.save_entry(
+                title=clean_title,
+                body=clean_reply,
+                kind=clean_kind,
+                library="shared",
+                keywords=extracted_kw[:8],
+                synonyms=synonyms,
+                source="workos-self-learn",
+                external=True,
+                status="published",
+            )
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
+        entry = saved.get("entry") or {}
+        evo_item = {
+            "id": entry.get("id") or f"evo_{int(time.time() * 1000)}",
+            "entryId": entry.get("id"),
+            "target": str(target or "").strip(),
+            "title": clean_title,
+            "incomingText": raw_in[:120],
+            "correctedReply": clean_reply[:180],
+            "originalDraft": re.sub(r"\s+", " ", str(original_draft or "")).strip()[:120],
+            "keywords": extracted_kw[:6],
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+        }
+        with self._workos_lock:
+            evos = list(self._workos_state.get("evolutions") or [])
+            evos.append(evo_item)
+            self._workos_state["evolutions"] = evos[-50:]
+            refs = list(self._workos_state.get("reflections") or [])
+            self._workos_state["reflections"] = [
+                r for r in refs if r.get("incomingText") != raw_in[:160]
+            ]
+            self._save_workos_state()
+            evo_count = len(self._workos_state["evolutions"])
+
+        self.audit.log("workos_learn_correction", "ok", {
+            "entryId": entry.get("id"),
+            "target": target,
+            "title": clean_title,
+        })
+        return {"ok": True, "entry": entry, "evolution": evo_item, "evolutionCount": evo_count}
+
+    def get_workos_harness_summary(self) -> Dict[str, Any]:
+        """Return Yingdao AI WorkOS 4-pillar Harness summary (Governance, Evaluation, Reflection, Evolution)."""
+        self._require("status")
+        with self._workos_lock:
+            state = dict(self._workos_state)
+            reflections = list(reversed(state.get("reflections") or []))
+            evolutions = list(reversed(state.get("evolutions") or []))
+
+        bound_targets = [str(b.get("target") or "").strip() for b in self.bindings.list_bindings() if str(b.get("target") or "").strip()]
+        hosting = self.hosting_manager.status()
+        allowed_targets = (
+            self.allowlist.list_allowed()
+            if self.allowlist.enabled
+            else (list(hosting.get("targets") or []) or bound_targets)
+        )
+        kb_list = self.knowledge.list_entries(include_drafts=False, limit=5000)
+        kb_entries = kb_list.get("entries") or []
+        self_learned_entries = [e for e in kb_entries if e.get("source") == "workos-self-learn"]
+
+        bench_metrics: Dict[str, Any] = {}
+        try:
+            rep = self.benchmark_suite.get_latest_report() or {}
+            latest = rep.get("latest") if isinstance(rep.get("latest"), dict) else rep
+            if isinstance(latest, dict) and latest.get("totalCases"):
+                bench_metrics = {
+                    "totalCases": latest.get("totalCases"),
+                    "passed": latest.get("passed"),
+                    "passRate": latest.get("passRate"),
+                    "jargonLeaks": latest.get("jargonLeaks"),
+                    "generatedAt": latest.get("generatedAt"),
+                }
+        except Exception:
+            pass
+
+        hg_raw = getattr(self.human_guard, "_state", {}) or {}
+        human_guard_summary = {
+            "enabled": bool(hg_raw.get("enabled", True)),
+            "status": str(hg_raw.get("status") or "idle_ready"),
+            "idleResumeSeconds": float(hg_raw.get("idle_resume_seconds", 45.0)),
+            "cooldownSeconds": float(hg_raw.get("cooldown_seconds", 45.0)),
+            "interventionsDetected": int(hg_raw.get("interventions_detected") or 0),
+        }
+
+        return {
+            "ok": True,
+            "governance": {
+                "allowedTargets": allowed_targets,
+                "hostingRunning": bool(hosting.get("running")),
+                "sendMode": hosting.get("sendMode"),
+                "humanGuard": human_guard_summary,
+                "antiban": self.antiban.status(),
+                "speedMode": state.get("speedMode", "fast"),
+                "postPreset": state.get("postPreset", "private_ops"),
+                "postLabel": state.get("postLabel", WORKOS_POST_PRESETS["private_ops"]["label"]),
+                "taskGoal": state.get("taskGoal", WORKOS_POST_PRESETS["private_ops"]["goal"]),
+            },
+            "evaluation": {
+                "knowledgeEntriesCount": int(kb_list.get("count") or len(kb_entries)),
+                "selfLearnedCount": len(self_learned_entries),
+                "benchmark": bench_metrics,
+            },
+            "reflection": {
+                "pendingCount": len(reflections),
+                "items": reflections[:15],
+            },
+            "evolution": {
+                "totalCount": len(evolutions),
+                "items": evolutions[:20],
+            },
+            "presets": WORKOS_POST_PRESETS,
+        }
