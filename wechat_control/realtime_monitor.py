@@ -525,6 +525,7 @@ class WeChatRealtimeMonitor:
             snap_path = Path(inspected["snapshotPath"]) if inspected.get("snapshotPath") else None
             win_bounds = inspected.get("bounds") if isinstance(inspected.get("bounds"), dict) else None
             win_id = inspected.get("windowID") or inspected.get("popoutWindowID")
+            card_task_receipts: List[Dict[str, Any]] = []
             for card in card_targets[-3:]:
                 card_txt = str(card.get("text") or "").strip()
                 if card_txt:
@@ -549,6 +550,13 @@ class WeChatRealtimeMonitor:
                                     self.engine.append_media_note(target, note_str)
                                 except Exception:
                                     pass
+                            card_task_receipts.append({
+                                "kind": "card_deep_read",
+                                "category": card.get("mediaType"),
+                                "rawText": card_txt[:120],
+                                "clickedToOpen": bool(cres.get("clickedToOpen")),
+                                "openedViewerWindowID": cres.get("openedViewerWindowID"),
+                            })
                             continue
                     except Exception:
                         pass
@@ -561,6 +569,14 @@ class WeChatRealtimeMonitor:
                 )
                 if fallback_note not in extra_notes:
                     extra_notes.append(fallback_note)
+                card_task_receipts.append({
+                    "kind": "card_deep_read",
+                    "category": mtype,
+                    "rawText": card_txt[:120],
+                    "clickedToOpen": False,
+                })
+        else:
+            card_task_receipts = []
 
         # 2) 收割微信原生助手（元宝 / 小微）总结；仅在当前屏幕无明确媒体卡片时再回溯历史 media_note，避免旧链接张冠李戴
         try:
@@ -584,7 +600,7 @@ class WeChatRealtimeMonitor:
             if card_targets and extra_notes:
                 dispatched_receipt = {
                     "boundAgentId": binding.get("boundAgentId") or "bot_wechat_ecosystem",
-                    "tasks": [{"kind": "card_deep_read", "category": c.get("mediaType"), "rawText": str(c.get("text") or "")[:120]} for c in card_targets[:4]],
+                    "tasks": card_task_receipts[:4] or [{"kind": "card_deep_read", "category": c.get("mediaType"), "rawText": str(c.get("text") or "")[:120]} for c in card_targets[:4]],
                     "notes": extra_notes,
                 }
             return extra_notes, dispatched_receipt
@@ -633,7 +649,7 @@ class WeChatRealtimeMonitor:
                         # 图片/图文卡片深读：对巡检快照做 2x Vision OCR + 视觉模型识别
                         snap_path = Path(inspected["snapshotPath"]) if inspected.get("snapshotPath") else None
                         crop_region = self._png_size(snap_path) if snap_path else None
-                        if crop_region and not extra_notes:
+                        if crop_region and not any(n.startswith("[图片识别:") for n in extra_notes):
                             ires = self.engine.media_analyzer.analyze_image_or_card(
                                 source_snapshot=snap_path,
                                 crop_region=crop_region,
@@ -645,7 +661,7 @@ class WeChatRealtimeMonitor:
                             if ires.get("summary"):
                                 extra_notes.append(f"[图片识别:{ires.get('title','') or '图片'}] {ires.get('summary')}")
                     elif it.get("kind") == "video_analysis" and hasattr(self.engine, "media_analyzer"):
-                        if not card_targets:
+                        if not any(n.startswith(("[视频识别:", "[视频号深读:")) for n in extra_notes):
                             vres = self.engine.media_analyzer.analyze_video(
                                 from_viewer_window=True,
                                 window_title="图片和视频",
@@ -676,20 +692,20 @@ class WeChatRealtimeMonitor:
                             pass
                     dispatched_receipt = {
                         "boundAgentId": binding.get("boundAgentId") or "bot_wechat_ecosystem",
-                        "tasks": interesting[:4],
+                        "tasks": (card_task_receipts[:4] + interesting[:4])[:6],
                         "notes": extra_notes,
                     }
         except Exception:
             if card_targets and extra_notes:
                 dispatched_receipt = {
                     "boundAgentId": binding.get("boundAgentId") or "bot_wechat_ecosystem",
-                    "tasks": [{"kind": "card_deep_read", "category": c.get("mediaType")} for c in card_targets[:4]],
+                    "tasks": card_task_receipts[:4] or [{"kind": "card_deep_read", "category": c.get("mediaType")} for c in card_targets[:4]],
                     "notes": extra_notes,
                 }
         return extra_notes, dispatched_receipt
 
     def _memory_context_with_history(self, target: str) -> Optional[Dict[str, Any]]:
-        """联系人记忆画像 + 聊天历史往来摘要（历史缺失不阻塞回复生成）。"""
+        """联系人记忆画像 + 聊天历史往来摘要 + 双产品对聊自进化参数（历史缺失不阻塞回复生成）。"""
         mem_ctx = (
             self.engine.soul_profiler.get_contact_memory_context(target)
             if hasattr(self.engine, "soul_profiler")
@@ -702,6 +718,18 @@ class WeChatRealtimeMonitor:
                 mem_ctx["historyThreadSnippet"] = history_snippet
         except Exception:
             pass  # 历史上下文缺失不阻塞回复生成
+        if hasattr(self.engine, "coevolution"):
+            try:
+                po = self.engine.coevolution.get_contact_partition_overrides(target)
+                rules = self.engine.coevolution.get_contact_style_rules(target)
+                if po or rules:
+                    mem_ctx = dict(mem_ctx or {})
+                    if po:
+                        mem_ctx["coevolutionPartitionOverrides"] = po
+                    if rules:
+                        mem_ctx["coevolutionStyleRules"] = rules
+            except Exception:
+                pass
         return mem_ctx
 
     def poll_once(
@@ -1152,6 +1180,7 @@ class WeChatRealtimeMonitor:
             return {
                 "job": job,
                 "smart": smart,
+                "extra_notes": extra_notes,
                 "dispatched_receipt": dispatched_receipt,
             }
 
@@ -1165,6 +1194,7 @@ class WeChatRealtimeMonitor:
         for item in thought_results:
             job = item["job"]
             smart = item["smart"]
+            extra_notes = item.get("extra_notes") or []
             dispatched_receipt = item["dispatched_receipt"]
             target = job["target"]
             is_sandbox_bot = job["is_sandbox_bot"]
@@ -1326,6 +1356,24 @@ class WeChatRealtimeMonitor:
                 c_state["lastRepliedAt"] = _utc_iso_now()
                 c_state["lastPostSendSnapshot"] = send_res.get("postSendSnapshot")
                 replies_this_cycle += 1
+                coev_turn = None
+                if hasattr(self.engine, "coevolution"):
+                    try:
+                        coev_res = self.engine.coevolution.record_sparring_turn(
+                            target=target,
+                            incoming_text=incoming_text,
+                            reply_text=reply_text,
+                            persona_id=str(smart["persona"].get("id") or "warm-friend"),
+                            generation_mode=str(smart.get("generationMode") or ""),
+                            model_used=str(smart.get("modelUsed") or ""),
+                            media_notes=extra_notes,
+                            dispatched_receipt=dispatched_receipt,
+                            send_receipt=send_res,
+                            popout_meta=popout_meta,
+                        )
+                        coev_turn = coev_res.get("turn")
+                    except Exception:
+                        coev_turn = None
                 self._append_event(
                     "auto_reply_sent",
                     {
@@ -1336,6 +1384,7 @@ class WeChatRealtimeMonitor:
                         "replyText": reply_text,
                         "personaId": smart["persona"]["id"],
                         "postSendSnapshot": send_res.get("postSendSnapshot"),
+                        **({"coevolutionScore": coev_turn.get("humanLikenessScore")} if isinstance(coev_turn, dict) else {}),
                         **popout_meta,
                     },
                 )
@@ -1349,6 +1398,7 @@ class WeChatRealtimeMonitor:
                     "persona": smart["persona"],
                     "basis": smart["basis"],
                     "send": send_res,
+                    **({"coevolution": coev_turn} if isinstance(coev_turn, dict) else {}),
                     **popout_meta,
                 })
             else:

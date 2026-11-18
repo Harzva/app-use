@@ -1406,6 +1406,8 @@ def create_http_server(
                     self._send_json(200, engine.get_scheduler_status())
                 elif path == "/api/workos/border-overlay":
                     self._send_json(200, engine.get_border_overlay_status(refresh_windows=True))
+                elif path == "/api/workos/coevolution":
+                    self._send_json(200, engine.coevolution.get_summary())
                 elif path == "/health":
                     self._send_json(200, {"ok": True, "service": SERVER_INFO["name"], "version": SERVER_INFO.get("version")})
                 elif path == "/auth/status":
@@ -2027,6 +2029,8 @@ def create_http_server(
                         state=str(raw_state) if raw_state is not None else None,
                     )
                     self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/workos/coevolution/sync":
+                    self._send_json(200, engine.coevolution.sync_to_botstudio())
                 elif path == "/api/kb-search":
                     res = engine.kb_search(
                         str(body.get("query") or ""),

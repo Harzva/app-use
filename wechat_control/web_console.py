@@ -7779,11 +7779,19 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       }
       const evoBox = document.getElementById("workosEvolveBox");
       if (evoBox) {
+        const coev = harness.coevolution || {};
+        const vlse = coev.vlseBotLayer || {};
+        const rpa = coev.wechatRpaLayer || {};
+        const mm = rpa.multimodalByKind || {};
+        const coevBanner = `<div style="margin-bottom:6px; padding:6px 8px; border-radius:6px; background:var(--panel-soft, rgba(16,185,129,0.08)); border:1px solid rgba(16,185,129,0.2);">` +
+          `<div><b>🧬 双产品共进化</b> · VLSE Bot 真人度 <b>${vlse.avgHumanLikenessScore ?? 0}</b> · 知识沉淀 <b>${vlse.distilledKnowledgeCount ?? 0}</b> 条 · 规则 <b>${vlse.evolvedRulesCount ?? 0}</b> 条</div>` +
+          `<div><b>🤖 WeChatBot RPA 训练</b> · 零切窗率 <b>${rpa.zeroSwitchRate ?? 0}%</b> · 多模态深读 <b>${rpa.multimodalDeepReadTotal ?? 0}</b> 次 (链${mm.link ?? 0}/图${mm.image ?? 0}/视${(mm.video ?? 0) + (mm.channels_video ?? 0)}/文${mm.wechat_article ?? 0})</div>` +
+          `</div>`;
         const items = harness.evolution?.items || [];
         if (!items.length) {
-          evoBox.innerHTML = `<div style="color:var(--text-muted);">修改回复草稿后点击底部「✨ 纠偏沉淀 SOP」即可自动进化。</div>`;
+          evoBox.innerHTML = coevBanner + `<div style="color:var(--text-muted);">修改回复草稿后点击底部「✨ 纠偏沉淀 SOP」或保持双Bot对聊即可持续进化。</div>`;
         } else {
-          evoBox.innerHTML = `<ul class="workos-list">${items.slice(0, 6).map((it) => `<li><b>${escapeHtml(it.title)}</b> → ${escapeHtml(it.correctedReply)}</li>`).join("")}</ul>`;
+          evoBox.innerHTML = coevBanner + `<ul class="workos-list">${items.slice(0, 6).map((it) => `<li><b>${escapeHtml(it.title)}</b> → ${escapeHtml(it.correctedReply)}</li>`).join("")}</ul>`;
         }
       }
       const mCode = document.getElementById("mobileRemoteUrlCode");

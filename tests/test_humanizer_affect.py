@@ -99,7 +99,7 @@ class TestHumanizerAffectAndCardRead(unittest.TestCase):
             "windowTitle": "联系人A",
             "windowBounds": {"x": 927, "y": 177, "width": 1523, "height": 1160},
             "elements": [
-                {"text": "联系人A", "bbox": {"x": 13, "y": 49, "width": 45, "height": 18}, "center": {"x": 35, "y": 58}},
+                {"text": "联系人A", "bbox": {"x": 13, "y": 49, "width": 31, "height": 18}, "center": {"x": 29, "y": 58}},
                 {"text": "、6…", "bbox": {"x": 1399, "y": 46, "width": 109, "height": 19}, "center": {"x": 1453, "y": 55}},
                 {"text": "10:52", "bbox": {"x": 744, "y": 230, "width": 35, "height": 11}, "center": {"x": 761, "y": 236}},
                 {"text": "宁德时代董事长曾毓群反思：", "bbox": {"x": 93, "y": 283, "width": 139, "height": 14}, "center": {"x": 163, "y": 290}},
@@ -167,6 +167,72 @@ class TestHumanizerAffectAndCardRead(unittest.TestCase):
         self.assertEqual(deep["openedViewerWindowID"], 15001)
         self.assertTrue(deep["note"].startswith("[公众号文章深读:"))
         self.assertIn("CASGM", deep["ocrText"])
+
+    def test_dual_product_coevolution_and_multimodal_sparring(self) -> None:
+        from wechat_control import evaluate_turn_human_likeness
+
+        high_q = evaluate_turn_human_likeness(
+            "南角离阳台两米多，下午有西晒，我先把快递盒挪走，半黄叶子先留着 [旺柴]",
+            incoming_text="你家南边那个角晒不晒得到太阳，半黄叶子剪了没",
+        )
+        low_q = evaluate_turn_human_likeness(
+            "哈哈收到啦！第一、先挪走快递盒；第二、绿萝需要散光。",
+            incoming_text="绿萝怎么养",
+        )
+        self.assertGreaterEqual(high_q["humanLikenessScore"], 90)
+        self.assertEqual(high_q["grade"], "S")
+        self.assertLess(low_q["humanLikenessScore"], 50)
+        self.assertIn("contains_list_enumeration", low_q["issues"])
+        self.assertIn("contains_ai_modal_slop", low_q["issues"])
+
+        res = self.engine.coevolution.record_sparring_turn(
+            target="微信ClawBot",
+            incoming_text="卧槽你刚才还分一二三点，你是AI吧？顺便看看这视频号还有那张图片链接",
+            reply_text="被你看出来了，下次不列点直接说人话，那张图和视频号要点我都看清了 [捂脸]",
+            persona_id="warm-friend",
+            generation_mode="llm_magpie",
+            model_used="auto/deepseek-v4-pro",
+            media_notes=[
+                "[链接深读:GitHub LoopForge] 腾讯开源本地多Agent人工审批工作流",
+                "[图片识别:结构对比图] 展示了三阶段防抢鼠标状态机流程图",
+                "[视频号深读:九紫离火运客厅布局] 建议保持阳台过道通风采光",
+            ],
+            dispatched_receipt={"tasks": [{"kind": "card_deep_read", "clickedToOpen": True}]},
+            send_receipt={"ok": True, "status": "sent"},
+            popout_meta={"popoutWindowID": 14013, "zeroSwitch": True},
+        )
+        self.assertTrue(res["ok"])
+        summary = res["summary"]
+        vlse = summary["vlseBotLayer"]
+        rpa = summary["wechatRpaLayer"]
+        self.assertEqual(vlse["totalTurns"], 1)
+        self.assertEqual(vlse["distilledKnowledgeCount"], 3)
+        self.assertGreaterEqual(vlse["evolvedRulesCount"], 1)
+        self.assertEqual(rpa["zeroSwitchTurns"], 1)
+        self.assertEqual(rpa["zeroSwitchRate"], 100.0)
+        self.assertEqual(rpa["cardClickOpens"], 1)
+        self.assertEqual(rpa["multimodalDeepReadTotal"], 3)
+        self.assertEqual(rpa["multimodalByKind"]["link"], 1)
+        self.assertEqual(rpa["multimodalByKind"]["image"], 1)
+        self.assertEqual(rpa["multimodalByKind"]["channels_video"], 1)
+
+        # Learned partition overrides & style rules flow back into PersonaSwitchEngine
+        overrides = self.engine.coevolution.get_contact_partition_overrides("微信ClawBot")
+        rules = self.engine.coevolution.get_contact_style_rules("微信ClawBot")
+        self.assertIsNotNone(overrides)
+        self.assertTrue(rules)
+        smart = self.engine.personas.generate_smart_reply(
+            "微信ClawBot",
+            "这次还不错",
+            knowledge_store=self.engine.knowledge,
+            memory_context={
+                "coevolutionPartitionOverrides": overrides,
+                "coevolutionStyleRules": rules,
+            },
+            use_llm=False,
+        )
+        self.assertTrue(smart["ok"])
+        self.assertTrue(Path(summary["syncPath"]).is_file())
 
 
 if __name__ == "__main__":

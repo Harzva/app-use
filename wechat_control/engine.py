@@ -31,6 +31,7 @@ from .auth_gate import StudioAuthGate, StudioPluginUnauthorizedError
 from .benchmark_suite import WeChatRPABenchmarkSuite
 from .botstudio_bridge import BotStudioBridgeManager
 from .bridge_importer import WeChatBridgeImporter
+from .coevolution_engine import DualProductCoevolutionEngine
 from .contact_profiler import ContactBindingStore, ContactStyleProfiler, ContextualAIChatGenerator
 from .doc_ingestor import ALLOWED_TEST_CONTACTS, AppWindowBinder, DocumentKnowledgeIngestor
 from .human_activity_guard import HumanActivityGuard
@@ -504,6 +505,12 @@ class WeChatControlEngine:
         self.app_window_binder = AppWindowBinder(resolved_auth.parent / "app_window_binding.json")
         self.doc_ingestor = DocumentKnowledgeIngestor(self)
         self.multi_scheduler = MultiWindowScheduler()
+        self.coevolution = DualProductCoevolutionEngine(
+            state_path=resolved_reports / "coevolution_state.json",
+            corpus_path=resolved_reports / "coevolution_corpus.jsonl",
+            knowledge_store=self.knowledge,
+            sync_path=resolved_reports / "botstudio_coevolution_sync.json",
+        )
         self.border_overlay_state = self._workos_state["borderOverlay"]
         # 托管自动恢复：上次异常退出（enabled=true 未走 stop）时重启引擎恢复托管。
         # fail-closed：授权被撤销则不恢复，只落审计。
@@ -3293,6 +3300,7 @@ class WeChatControlEngine:
             "mediaAnalyses": self.get_media_analyses(limit=12),
             "sidebarDockStatus": self.dock_app_to_wechat("verify"),
             "salesCrm": self.sales_crm.get_overview(auto_sync=True),
+            "coevolution": self.coevolution.get_summary(),
         }
 
     # ------------------------------------------------------------------
@@ -4133,6 +4141,7 @@ class WeChatControlEngine:
                 "lastRound": self.multi_scheduler.last_round,
             },
             "borderOverlay": self.get_border_overlay_status(refresh_windows=False),
+            "coevolution": self.coevolution.get_summary(),
             "presets": WORKOS_POST_PRESETS,
         }
 

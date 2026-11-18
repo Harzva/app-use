@@ -17,6 +17,10 @@ from .bridge_importer import (
     UnsafeArchiveError,
     WeChatBridgeImporter,
 )
+from .coevolution_engine import (
+    DualProductCoevolutionEngine,
+    evaluate_turn_human_likeness,
+)
 from .engine import WeChatControlEngine
 from .human_activity_guard import HumanActivityGuard
 from .humanizer_affect import (
@@ -50,6 +54,7 @@ __all__ = [
     "ArchiveAttachment",
     "AuditLogger",
     "DirtyInputCircuitBreakerError",
+    "DualProductCoevolutionEngine",
     "EuphoriaAffectEngine",
     "GroupAllowlistGuard",
     "HumanActivityGuard",
@@ -77,6 +82,7 @@ __all__ = [
     "WECHAT_UI_SCHEMA_VERSION",
     "blend_persona_partitions",
     "create_http_server",
+    "evaluate_turn_human_likeness",
     "humanize_wechat_reply",
     "map_magpie_model",
     "parse_sibyl_feedback_command",

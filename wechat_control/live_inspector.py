@@ -605,19 +605,21 @@ class WeChatLiveInspector:
                 "cardDigest": "",
             }
 
-        if any(tok in lower for tok in ("[视频]", "[video]", "视频消息")):
+        if any(tok in lower for tok in ("[视频]", "[video]", "视频消息")) or (
+            height >= 42.0 and re.fullmatch(r"\d{1,2}:[0-5]\d(?::[0-5]\d)?", text)
+        ):
             return "video", {
                 "cardKind": "video",
                 "cardSource": "微信视频",
-                "cardTitle": text[:120],
+                "cardTitle": text[:120] or "微信视频",
                 "cardDigest": "",
             }
 
-        if any(tok in lower for tok in ("[图片]", "[image]", "[photo]", "[动画表情]")):
+        if any(tok in lower for tok in ("[图片]", "[image]", "[photo]", "[动画表情]", "图片消息")):
             return "image", {
                 "cardKind": "image",
                 "cardSource": "微信图片",
-                "cardTitle": text[:120],
+                "cardTitle": text[:120] or "微信图片",
                 "cardDigest": "",
             }
 

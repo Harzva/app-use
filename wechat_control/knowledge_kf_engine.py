@@ -1332,7 +1332,12 @@ class PersonaSwitchEngine:
             recent_messages=[str(m or "") for m in (recent_messages or [])],
         )
         affect_controls = affect_snapshot["controls"]
-        partition_mix = blend_persona_partitions(pid)
+        coevolution_overrides = mem_ctx.get("coevolutionPartitionOverrides")
+        coevolution_rules = [str(r).strip() for r in (mem_ctx.get("coevolutionStyleRules") or []) if str(r).strip()]
+        partition_mix = blend_persona_partitions(
+            pid,
+            custom_spec=coevolution_overrides if isinstance(coevolution_overrides, dict) else None,
+        )
 
         norm_in = unicodedata.normalize("NFKC", incoming_text or "").strip()
         in_cf = norm_in.casefold()
@@ -1661,10 +1666,16 @@ class PersonaSwitchEngine:
                 if clean_speed == "deep"
                 else "当前档位：极速模式（不绕弯子，像熟人微信秒回直切重点）。\n"
             )
+            coevolution_hint = (
+                "对聊自适应纠偏经验：" + "；".join(coevolution_rules[-2:]) + "\n"
+                if coevolution_rules
+                else ""
+            )
             affect_block = (
                 f"当前情绪与语气参数(Euphoria ExpressionPolicy)：valence={affect_controls.valence:+.2f} arousal={affect_controls.arousal:.2f} "
                 f"warmth={affect_controls.warmth:.2f} directness={affect_controls.directness:.2f} 语调={affect_controls.tone}\n"
                 f"{partition_mix.get('promptDirective', '')}\n"
+                f"{coevolution_hint}"
             )
             card_hint = "\n提示：对方仅发来了公众号/视频号来源卡片标题，请直接结合已识别出的标题与摘要说明要点，看不清全文处坦诚说哪部分没展开。\n" if is_card_source_only else ""
             sys_prompt = (
