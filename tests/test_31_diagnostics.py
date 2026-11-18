@@ -541,6 +541,7 @@ class DiagnosticsTests(unittest.TestCase):
 
     def test_wechat_ai_assistant_yuanbao_and_xiaowei_integration(self):
         import threading
+        import urllib.error
         import urllib.request
         from wechat_control.media_link_analyzer import (
             extract_assistant_insights_from_bubbles,
@@ -700,6 +701,24 @@ class DiagnosticsTests(unittest.TestCase):
                     self.assertEqual(body["mode"], mode)
                     self.assertTrue(body["persistedToHistory"])
                     self.assertTrue(body["note"].startswith("["))
+
+            # 未授权人类联系人调用 /api/wechat-ai-assist 应立即被白名单/绑定守卫拦截返回 400
+            bad_req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/api/wechat-ai-assist",
+                data=json.dumps({
+                    "target": "陌生路人",
+                    "contentHint": "看看这条链接",
+                    "mode": "at_yuanbao",
+                    "dryRun": False,
+                }).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                urllib.request.urlopen(bad_req, timeout=10)
+            self.assertEqual(ctx.exception.code, 400)
+            bad_body = json.loads(ctx.exception.read().decode("utf-8"))
+            self.assertFalse(bad_body["ok"])
+            self.assertEqual(bad_body.get("error_code"), "target_not_allowed")
         finally:
             srv.shutdown()
             srv.server_close()
@@ -712,6 +731,7 @@ class DiagnosticsTests(unittest.TestCase):
         for marker in (
             "topSettingsBtn",
             "sidebarSettingsBtn",
+            "composerSettingsBtn",
             "settingsOverlay",
             "openSettingsModal",
             "quickYuanbaoBtn",
@@ -731,6 +751,12 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertTrue(any("Fable 5.2" in n for n in notes))
         preview = self.engine.preview_smart_reply("openbot", "心安: 这条视频讲了什么？", use_llm=False)
         self.assertIn("Fable 5.2", preview["replyText"])
+
+        self.engine.bind_contact("安晓心", role="friend", ai_persona="wecom-kf-pro", auto_reply_enabled=True)
+        no_note_preview = self.engine.preview_smart_reply("安晓心", "帮我总结一下刚才发的文章重点", use_llm=False)
+        self.assertEqual(no_note_preview["matchedCount"], 0)
+        self.assertNotIn("WaveBot 是一款", no_note_preview["replyText"])
+        self.assertIn("@元宝 解析 / 转发小微", no_note_preview["replyText"])
 
         # 3) _agent_dispatch_notes 任务优先级：最新气泡中的 link_deep_read 不被前面多条旧 agent_instruction 饿死
         self.engine.bind_contact("心安", role="friend", auto_reply_enabled=True)

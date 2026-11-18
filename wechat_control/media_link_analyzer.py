@@ -928,6 +928,33 @@ class WeChatMediaLinkAnalyzer:
     ) -> Dict[str, Any]:
         """Consult WeChat native AI assistants (`@元宝` in chat or relay to `小微`/`元宝` session) to understand links/videos/articles."""
         clean_target = str(target or "").strip()
+        if clean_target:
+            is_ai = is_wechat_ai_assistant_name(clean_target)
+            allowlist = getattr(self.engine, "allowlist", None)
+            is_explicit_allow = bool(
+                allowlist
+                and getattr(allowlist, "enabled", False)
+                and allowlist.is_allowed(clean_target)
+            )
+            bindings = getattr(self.engine, "bindings", None)
+            bound_targets = (
+                [str(b.get("target") or "").strip() for b in bindings.list_bindings()]
+                if bindings is not None and hasattr(bindings, "list_bindings")
+                else []
+            )
+            norm_target = _normalize_assistant_label(clean_target).casefold()
+            is_bound = any(
+                _normalize_assistant_label(bt).casefold() == norm_target
+                for bt in bound_targets
+                if bt
+            )
+            if not (is_ai or is_explicit_allow or is_bound):
+                return {
+                    "ok": False,
+                    "error_code": "target_not_allowed",
+                    "target": clean_target,
+                    "error": f"Refusing WeChat AI assistant consultation for non-allowlisted target {clean_target!r}.",
+                }
         clean_hint = re.sub(r"\s+", " ", str(content_hint or "").strip())
         # Strip leading `speaker: ` prefix if coming straight from group bubble text (never strip https://)
         clean_hint = re.sub(r"^(?!https?:)[^:\s/\n]{1,24}:\s+", "", clean_hint).strip()

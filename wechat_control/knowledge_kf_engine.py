@@ -1244,9 +1244,18 @@ class PersonaSwitchEngine:
             (str(m).strip() for m in reversed(recent_messages or []) if str(m or "").strip().startswith(("[元宝深读:", "[小微深读:"))),
             "",
         )
+        has_explicit_media_ref = any(
+            phrase in in_cf
+            for phrase in ("这条视频", "这个视频", "刚才发的", "上面发的", "发的文章", "发的视频", "发的链接", "这篇文章", "那篇文章")
+        )
         is_media_followup = (
-            bool(ai_media_insight)
-            and any(kw in in_cf for kw in ("视频", "文章", "链接", "卡片", "讲了", "总结", "要点", "分享", "内容"))
+            (
+                (
+                    bool(ai_media_insight)
+                    and any(kw in in_cf for kw in ("视频", "文章", "链接", "卡片", "讲了", "总结", "要点", "分享", "内容"))
+                )
+                or has_explicit_media_ref
+            )
             and not any(kw in in_cf for kw in ("wavebot", "openbot", "定价", "多少钱", "退款", "部署", "安装", "托管", "微信客服"))
         )
         entries = (
@@ -1427,6 +1436,8 @@ class PersonaSwitchEngine:
                 if ai_insight and any(kw in norm_in for kw in ("视频", "文章", "链接", "卡片", "讲了", "什么", "总结", "要点", "分享")):
                     ai_body = ai_insight.split("]", 1)[-1].strip()
                     reply = f"结合已解析的内容要点，为您说明：{ai_body[:120]}"
+                elif is_media_followup:
+                    reply = f"您好，已收到您的消息「{clean_in}」；当前尚未读取到该文章或视频的完整正文，方便贴一下原文链接或点击「@元宝 解析 / 转发小微」，我立即为您梳理核心要点。"
                 else:
                     reply = f"您好，我已实时收到您的消息「{clean_in}」。当前知识库暂未收录该细分条款，我已为您记录并可转人工客服核对确认。"
             elif pid == "rpa-tech-expert":

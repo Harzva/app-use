@@ -2298,7 +2298,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
                 <button type="button" id="quickXiaoweiBtn" class="btn-outline" onclick="runQuickWeChatAiAssist('relay_xiaowei')" title="转发给微信小微/腾讯元宝解析链接、视频与文章并自动生成回复草稿">转发小微</button>
                 <button type="button" id="saveDraftBtn" class="btn-outline" aria-describedby="saveDraftHint" onclick="saveConversationDraft()">加入待办</button>
                 <button type="button" id="sendActionLabel" class="btn-outline" onclick="executeSafeSend()" aria-describedby="sendModeHint">模拟检查</button>
-                <button type="button" class="btn-outline" onclick="openSettingsModal('reply')" title="打开回复性格、模型与发送安全设置">⚙️ 设置</button>
+                <button type="button" id="composerSettingsBtn" class="btn-outline" onclick="openSettingsModal('reply')" title="打开回复性格、模型与发送安全设置">⚙️ 设置</button>
               </div>
               <div class="saved-draft-feedback">
                 <p id="savedDraftStatus" role="status"></p>
