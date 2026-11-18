@@ -654,16 +654,37 @@ func readChatTitleFromAX(pid: pid_t) -> (name: String?, memberCount: Int?) {
     return (chatName, memberCount)
 }
 
+func hardwareKeyboardIdleSeconds() -> Double {
+    let hidDown = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .keyDown)
+    let hidUp = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .keyUp)
+    let hidFlags = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .flagsChanged)
+    return max(0.0, min(hidDown, hidUp, hidFlags))
+}
+
 func queryHIDIdleState() -> [String: Any] {
-    let mouseMove = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .mouseMoved)
-    let leftDown = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .leftMouseDown)
-    let rightDown = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .rightMouseDown)
-    let scrollWheel = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .scrollWheel)
-    let keyDown = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown)
-    let flagsChanged = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .flagsChanged)
+    let mouseMove = min(
+        CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .mouseMoved),
+        CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .mouseMoved)
+    )
+    let leftDown = min(
+        CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .leftMouseDown),
+        CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .leftMouseDown)
+    )
+    let rightDown = min(
+        CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .rightMouseDown),
+        CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .rightMouseDown)
+    )
+    let scrollWheel = min(
+        CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .scrollWheel),
+        CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .scrollWheel)
+    )
+    let hwKeyIdle = hardwareKeyboardIdleSeconds()
+    let combinedKeyDown = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown)
+    let combinedKeyUp = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyUp)
+    let combinedFlags = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .flagsChanged)
 
     let mouseIdle = min(mouseMove, leftDown, rightDown, scrollWheel)
-    let keyboardIdle = min(keyDown, flagsChanged)
+    let keyboardIdle = min(hwKeyIdle, combinedKeyDown, combinedKeyUp, combinedFlags)
     let anyInputIdle = min(mouseIdle, keyboardIdle)
 
     let cursorLoc = CGEvent(source: nil)?.location ?? CGPoint(
@@ -676,6 +697,8 @@ func queryHIDIdleState() -> [String: Any] {
         "scrollIdleSeconds": scrollWheel,
         "mouseIdleSeconds": mouseIdle,
         "keyboardIdleSeconds": keyboardIdle,
+        "hardwareKeyboardIdleSeconds": hwKeyIdle,
+        "keyboardActive": hwKeyIdle < 2.5 || keyboardIdle < 2.5,
         "anyInputIdleSeconds": anyInputIdle,
         "cursorPosition": [
             "x": (cursorLoc.x * 10.0).rounded() / 10.0,
@@ -2126,59 +2149,104 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
     }
     usleep(180_000)
 
-    // Pre-clean: select all + delete any leftover text in the input box
-    // (粘贴前不清空会让新消息叠在旧消息后面，读回长度超 3x 触发熔断)
-    postKey(keyCode: kKeyA, flags: .maskCommand)
-    usleep(60_000)
-    postKey(keyCode: kKeyDelete, flags: [])
-    usleep(80_000)
+    let preExistingText = axInputEl.flatMap { axString($0, kAXValueAttribute) } ?? ""
+    let cleanedStaleDraft = !preExistingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    let trimmedExpected = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
-    // Paste text
-    pb.clearContents()
-    pb.setString(text, forType: .string)
-    postKey(keyCode: kKeyV, flags: .maskCommand)
-    usleep(250_000)
-
-    // Readback verification (AXValue first, then Cmd+A + Cmd+C, then Vision OCR fallback)
-    var readback = ""
-    var readbackSource = "ax"
-    if let el = axInputEl, let axVal = axString(el, kAXValueAttribute) {
-        readback = axVal
-    } else {
-        readbackSource = "clipboard"
-        pb.clearContents()
-        postKey(keyCode: kKeyA, flags: .maskCommand)
-        usleep(80_000)
-        postKey(keyCode: kKeyC, flags: .maskCommand)
-        usleep(160_000)
-        readback = pb.string(forType: .string) ?? ""
+    // Protect active human keyboard typing BEFORE touching the input box (never wipe user draft!)
+    let entryHwKeyIdle = hardwareKeyboardIdleSeconds()
+    if entryHwKeyIdle < 2.0 || (cleanedStaleDraft && entryHwKeyIdle < 12.0 && options["force-clear-draft"] != "1") {
+        restoreClipboard()
+        failJSON(
+            "Human keyboard input detected; paused before touching input box to protect user typing.",
+            code: "human_keyboard_active",
+            extra: [
+                "retryable": true,
+                "hardwareKeyboardIdleSeconds": (entryHwKeyIdle * 100.0).rounded() / 100.0,
+                "existingDraft": preExistingText,
+            ]
+        )
     }
 
-    if readback.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-       CGPreflightScreenCaptureAccess(),
-       let win = targetWin,
-       let image = captureWindowImage(win) {
-        let imgW = Double(image.width)
-        let imgH = Double(image.height)
-        let scale = imgW / max(win.width, 1.0)
-        let cropLeftFrac = win.isMainWindow ? 0.36 : 0.08
-        let cropWidthFrac = win.isMainWindow ? 0.62 : 0.88
-        let cropX = min(max(0.0, imgW * cropLeftFrac), max(0.0, imgW - 10.0))
-        let cropY = max(0.0, imgH - 155.0 * scale)
-        let cropW = min(imgW * cropWidthFrac, imgW - cropX)
-        let cropH = min(115.0 * scale, imgH - cropY)
-        if cropW > 10.0 && cropH > 10.0,
-           let cropped = image.cropping(to: CGRect(x: cropX, y: cropY, width: cropW, height: cropH)),
-           let results = try? runVisionOCR(cgImage: cropped) {
-            let joined = results.compactMap { $0["text"] as? String }.joined(separator: " ")
-            if !joined.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                readback = joined
-                readbackSource = "vision_ocr"
+    func performPasteAndReadback() -> (readback: String, source: String) {
+        if hardwareKeyboardIdleSeconds() < 1.0 {
+            restoreClipboard()
+            failJSON(
+                "Human keyboard activity detected right before paste; paused cleanly.",
+                code: "human_keyboard_active",
+                extra: ["retryable": true, "hardwareKeyboardIdleSeconds": hardwareKeyboardIdleSeconds()]
+            )
+        }
+        if let el = axInputEl {
+            _ = AXUIElementSetAttributeValue(el, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        }
+        // Pre-clean: select all + delete any leftover / half-pasted text
+        postKey(keyCode: kKeyA, flags: .maskCommand)
+        usleep(60_000)
+        postKey(keyCode: kKeyDelete, flags: [])
+        usleep(80_000)
+
+        // Paste text
+        pb.clearContents()
+        pb.setString(text, forType: .string)
+        postKey(keyCode: kKeyV, flags: .maskCommand)
+        usleep(250_000)
+
+        var rb = ""
+        var rbSrc = "ax"
+        if let el = axInputEl, let axVal = axString(el, kAXValueAttribute) {
+            rb = axVal
+        } else {
+            rbSrc = "clipboard"
+            pb.clearContents()
+            postKey(keyCode: kKeyA, flags: .maskCommand)
+            usleep(80_000)
+            postKey(keyCode: kKeyC, flags: .maskCommand)
+            usleep(160_000)
+            rb = pb.string(forType: .string) ?? ""
+        }
+
+        if rb.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           CGPreflightScreenCaptureAccess(),
+           let win = targetWin,
+           let image = captureWindowImage(win) {
+            let imgW = Double(image.width)
+            let imgH = Double(image.height)
+            let scale = imgW / max(win.width, 1.0)
+            let cropLeftFrac = win.isMainWindow ? 0.36 : 0.08
+            let cropWidthFrac = win.isMainWindow ? 0.62 : 0.88
+            let cropX = min(max(0.0, imgW * cropLeftFrac), max(0.0, imgW - 10.0))
+            let cropY = max(0.0, imgH - 155.0 * scale)
+            let cropW = min(imgW * cropWidthFrac, imgW - cropX)
+            let cropH = min(115.0 * scale, imgH - cropY)
+            if cropW > 10.0 && cropH > 10.0,
+               let cropped = image.cropping(to: CGRect(x: cropX, y: cropY, width: cropW, height: cropH)),
+               let results = try? runVisionOCR(cgImage: cropped) {
+                let joined = results.compactMap { $0["text"] as? String }.joined(separator: " ")
+                if !joined.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    rb = joined
+                    rbSrc = "vision_ocr"
+                }
             }
         }
+        return (rb, rbSrc)
     }
 
-    // 3x length dirty-input circuit breaker (adapted from wechat-mac-rpa)
+    func matchesExpected(_ rb: String, source: String) -> Bool {
+        if rb.contains(trimmedExpected) { return true }
+        if source == "vision_ocr" {
+            let stripWS: (String) -> String = { s in
+                String(s.unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) })
+            }
+            return stripWS(rb).contains(stripWS(trimmedExpected))
+        }
+        return false
+    }
+
+    var attempt = 1
+    var (readback, readbackSource) = performPasteAndReadback()
+
+    // 3x length dirty-input circuit breaker
     if readback.count > text.count * 3 {
         postKey(keyCode: kKeyA, flags: .maskCommand)
         usleep(60_000)
@@ -2187,25 +2255,37 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
         failJSON(
             "Dirty input circuit breaker triggered: readback length \(readback.count) > 3x expected \(text.count).",
             code: "dirty_input_circuit_breaker",
-            extra: ["expectedLen": text.count, "readbackLen": readback.count]
+            extra: ["retryable": true, "expectedLen": text.count, "readbackLen": readback.count]
         )
     }
 
-    let trimmedExpected = text.trimmingCharacters(in: .whitespacesAndNewlines)
-    let ocrCompactMatch: Bool = {
-        guard readbackSource == "vision_ocr" else { return false }
-        let stripWS: (String) -> String = { s in
-            String(s.unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) })
+    // If interrupted mid-paste (partial/mismatched), clean input and retry once if window still frontmost
+    if !matchesExpected(readback, source: readbackSource) {
+        postKey(keyCode: kKeyA, flags: .maskCommand)
+        usleep(60_000)
+        postKey(keyCode: kKeyDelete)
+        usleep(120_000)
+        if isAppFrontmost(targetKind).0 {
+            attempt = 2
+            (readback, readbackSource) = performPasteAndReadback()
         }
-        return stripWS(readback).contains(stripWS(trimmedExpected))
-    }()
-    guard readback.contains(trimmedExpected) || ocrCompactMatch else {
-        restoreClipboard()
-        failJSON(
-            "Readback verification mismatch.",
-            code: "readback_mismatch",
-            extra: ["expected": text, "readback": readback, "readbackSource": readbackSource]
-        )
+        if !matchesExpected(readback, source: readbackSource) {
+            postKey(keyCode: kKeyA, flags: .maskCommand)
+            usleep(60_000)
+            postKey(keyCode: kKeyDelete)
+            restoreClipboard()
+            failJSON(
+                "Paste interrupted or readback mismatch; input box cleaned for safe retry.",
+                code: "interrupted_during_paste",
+                extra: [
+                    "retryable": true,
+                    "attempts": attempt,
+                    "expected": text,
+                    "readback": readback,
+                    "readbackSource": readbackSource,
+                ]
+            )
+        }
     }
 
     var sent = false
@@ -2215,10 +2295,55 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
         usleep(60_000)
         postKey(keyCode: kKeyDelete)
     } else {
+        // Re-verify frontmost focus AND human keyboard idle right before pressing Return
+        let (preReturnFront, preReturnDesc) = isAppFrontmost(targetKind)
+        guard preReturnFront else {
+            postKey(keyCode: kKeyA, flags: .maskCommand)
+            usleep(60_000)
+            postKey(keyCode: kKeyDelete)
+            restoreClipboard()
+            failJSON(
+                "Window lost focus before Return (\(preReturnDesc)); aborted send and cleaned input for retry.",
+                code: "interrupted_before_return",
+                extra: ["retryable": true, "frontmost": preReturnDesc]
+            )
+        }
+        let preReturnHwKey = hardwareKeyboardIdleSeconds()
+        if preReturnHwKey < 0.8 {
+            postKey(keyCode: kKeyA, flags: .maskCommand)
+            usleep(60_000)
+            postKey(keyCode: kKeyDelete)
+            restoreClipboard()
+            failJSON(
+                "Human started typing before Return; cleaned input and paused send for safe retry.",
+                code: "human_keyboard_active",
+                extra: ["retryable": true, "hardwareKeyboardIdleSeconds": preReturnHwKey]
+            )
+        }
+
         postKey(keyCode: kKeyRightArrow)
         usleep(60_000)
         postKey(keyCode: kKeyReturn)
-        usleep(250_000)
+        usleep(280_000)
+
+        // Post-Return input-empty verification (handle IME candidate bar swallowing first Return)
+        if let el = axInputEl, let remaining = axString(el, kAXValueAttribute), remaining.contains(trimmedExpected) {
+            postKey(keyCode: kKeyRightArrow)
+            usleep(60_000)
+            postKey(keyCode: kKeyReturn)
+            usleep(240_000)
+            if let remaining2 = axString(el, kAXValueAttribute), remaining2.contains(trimmedExpected) {
+                postKey(keyCode: kKeyA, flags: .maskCommand)
+                usleep(60_000)
+                postKey(keyCode: kKeyDelete)
+                restoreClipboard()
+                failJSON(
+                    "Return keystroke did not dispatch message (text remained in input box); cleaned input for safe retry.",
+                    code: "return_not_dispatched",
+                    extra: ["retryable": true, "readback": remaining2]
+                )
+            }
+        }
         sent = true
     }
 
@@ -2230,6 +2355,8 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
         "verified": true,
         "sent": sent,
         "silentMode": silentMode,
+        "attempts": attempt,
+        "cleanedStaleDraft": cleanedStaleDraft,
         "readbackLength": readback.count,
         "readbackSource": readbackSource,
     ]
@@ -2347,6 +2474,316 @@ func cmdSendSticker(flags: Set<String>, options: [String: String]) {
         "windowTitle": targetWin.title,
         "slotPoint": ["x": slotX, "y": slotY],
     ])
+}
+
+func cmdPasteImage(flags: Set<String>, options: [String: String]) {
+    guard let imgPath = options["image"], !imgPath.isEmpty else {
+        failJSON("Missing non-empty --image <path> argument", code: "missing_argument")
+    }
+    var isDir: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: imgPath, isDirectory: &isDir), !isDir.boolValue else {
+        failJSON("Image file not found: \(imgPath)", code: "file_not_found")
+    }
+    guard let nsImage = NSImage(contentsOfFile: imgPath),
+          let tiff = nsImage.tiffRepresentation,
+          let rep = NSBitmapImageRep(data: tiff),
+          let pngData = rep.representation(using: .png, properties: [:]) else {
+        failJSON("Unable to decode image file: \(imgPath)", code: "invalid_image")
+    }
+
+    let (_, targetKind) = resolveTargetApp(options: options, allowWindowLookupWhenOmitted: true)
+    let wantSend = flags.contains("send")
+    let silentMode = flags.contains("silent") || !wantSend
+    let dryRun = flags.contains("dry-run") || options["dry-run"] == "1"
+
+    let windows = listWindows(for: targetKind)
+    let hasWindowSelector = options["window-id"] != nil || !(options["window-title"] ?? "").isEmpty
+    let targetWin = selectTargetWindow(in: windows, options: options)
+    if dryRun {
+        writeJSON([
+            "ok": true,
+            "sent": false,
+            "dryRun": true,
+            "imagePath": imgPath,
+            "pngBytes": pngData.count,
+            "imageWidth": rep.pixelsWide,
+            "imageHeight": rep.pixelsHigh,
+            "windowID": targetWin?.windowID as Any,
+            "windowTitle": targetWin?.title as Any,
+        ])
+        return
+    }
+
+    guard hardwareKeyboardIdleSeconds() >= 1.5 else {
+        failJSON(
+            "Human keyboard activity detected; paused image paste cleanly.",
+            code: "human_keyboard_active",
+            extra: ["retryable": true]
+        )
+    }
+
+    let ensured = ensureAppMainWindow(kind: targetKind)
+    guard let app = ensured.app else {
+        failJSON("\(targetKind.appLabel) is not running.", code: targetKind.notRunningErrorCode, extra: ["appId": targetKind.appId])
+    }
+    if hasWindowSelector && targetWin == nil {
+        failJSON("No matching visible \(targetKind.appLabel) window found.", code: "window_not_found")
+    }
+
+    if let tw = targetWin, let twApp = NSRunningApplication(processIdentifier: tw.pid) {
+        _ = twApp.unhide()
+        _ = twApp.activate(options: [.activateIgnoringOtherApps])
+    } else {
+        _ = app.activate(options: [.activateIgnoringOtherApps])
+    }
+    usleep(220_000)
+
+    let (frontOK, frontDesc) = isAppFrontmost(targetKind)
+    guard frontOK else {
+        failJSON("Aborted: frontmost app is '\(frontDesc)', expected \(targetKind.appLabel).", code: "not_frontmost")
+    }
+
+    let pb = NSPasteboard.general
+    let originalClipboard = pb.string(forType: .string)
+    func restoreClipboard() {
+        pb.clearContents()
+        if let orig = originalClipboard {
+            pb.setString(orig, forType: .string)
+        }
+    }
+
+    let effectivePID = targetWin?.pid ?? app.processIdentifier
+    var focusedInput = false
+    if let axWin = findAXWindow(pid: effectivePID, kind: targetKind, targetWin: targetWin, reqTitle: options["window-title"]),
+       let inputEl = findInputElement(in: axWin) {
+        _ = AXUIElementSetAttributeValue(axWin, kAXMainAttribute as CFString, kCFBooleanTrue)
+        _ = AXUIElementPerformAction(axWin, kAXRaiseAction as CFString)
+        _ = AXUIElementSetAttributeValue(inputEl, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        if let pt = axPoint(inputEl, kAXPositionAttribute), let sz = axSize(inputEl, kAXSizeAttribute) {
+            moveAndClick(x: pt.x + sz.width / 2.0, y: pt.y + sz.height / 2.0)
+            focusedInput = true
+        }
+    }
+    if !focusedInput, let win = targetWin {
+        moveAndClick(x: win.x + win.width * 0.60, y: win.y + win.height - 85.0)
+    }
+    usleep(180_000)
+
+    pb.clearContents()
+    pb.declareTypes([.png, .tiff], owner: nil)
+    pb.setData(pngData, forType: .png)
+    pb.setData(tiff, forType: .tiff)
+    postKey(keyCode: kKeyV, flags: .maskCommand)
+    usleep(380_000)
+
+    var sent = false
+    if !silentMode {
+        guard isAppFrontmost(targetKind).0, hardwareKeyboardIdleSeconds() >= 0.8 else {
+            restoreClipboard()
+            failJSON("Interrupted before sending image; aborted cleanly.", code: "interrupted_before_return", extra: ["retryable": true])
+        }
+        postKey(keyCode: kKeyReturn)
+        usleep(320_000)
+        sent = true
+    }
+
+    restoreClipboard()
+    writeJSON([
+        "ok": true,
+        "sent": sent,
+        "silentMode": silentMode,
+        "imagePath": imgPath,
+        "pngBytes": pngData.count,
+        "windowID": targetWin?.windowID as Any,
+        "windowTitle": targetWin?.title as Any,
+    ])
+}
+
+func cmdAnnotateImage(options: [String: String]) {
+    guard let imgPath = options["image"], !imgPath.isEmpty else {
+        failJSON("Missing --image <src_path>", code: "missing_argument")
+    }
+    guard let outPath = options["out"], !outPath.isEmpty else {
+        failJSON("Missing --out <dst_path>", code: "missing_argument")
+    }
+    guard let cgImage = loadCGImage(at: imgPath) else {
+        failJSON("Unable to load image: \(imgPath)", code: "file_not_found")
+    }
+
+    let imgW = cgImage.width
+    let imgH = cgImage.height
+    let keywords = (options["keywords"] ?? "")
+        .split(separator: ",")
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        .filter { !$0.isEmpty }
+    let noteText = (options["note"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+
+    struct AnnotBox {
+        let x: Int
+        let y: Int
+        let width: Int
+        let height: Int
+        let label: String
+    }
+
+    var targetBoxes: [AnnotBox] = []
+    if let rawBoxes = options["boxes"], !rawBoxes.isEmpty {
+        for part in rawBoxes.split(separator: ";") {
+            let nums = part.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+            if nums.count == 4 && nums[2] > 4 && nums[3] > 4 {
+                targetBoxes.append(AnnotBox(x: nums[0], y: nums[1], width: nums[2], height: nums[3], label: ""))
+            }
+        }
+    }
+
+    let ocrItems = (try? runVisionOCR(cgImage: cgImage)) ?? []
+    if targetBoxes.isEmpty && !keywords.isEmpty {
+        for item in ocrItems {
+            let txt = (item["text"] as? String) ?? ""
+            let lower = txt.lowercased()
+            if keywords.contains(where: { lower.contains($0) }),
+               let b = item["bbox"] as? [String: Int],
+               let bx = b["x"], let by = b["y"], let bw = b["width"], let bh = b["height"] {
+                targetBoxes.append(AnnotBox(x: bx, y: by, width: bw, height: bh, label: txt))
+                if targetBoxes.count >= 4 { break }
+            }
+        }
+    }
+    if targetBoxes.isEmpty {
+        // Fallback: highlight top 2 prominent OCR regions (excluding tiny noise)
+        let informative = ocrItems.filter { (($0["text"] as? String) ?? "").count >= 4 }
+        for item in informative.prefix(2) {
+            if let b = item["bbox"] as? [String: Int],
+               let bx = b["x"], let by = b["y"], let bw = b["width"], let bh = b["height"] {
+                targetBoxes.append(AnnotBox(x: bx, y: by, width: bw, height: bh, label: (item["text"] as? String) ?? ""))
+            }
+        }
+    }
+    if targetBoxes.isEmpty {
+        // Pure photo without OCR text -> center focal box
+        targetBoxes.append(AnnotBox(
+            x: Int(Double(imgW) * 0.18),
+            y: Int(Double(imgH) * 0.18),
+            width: max(24, Int(Double(imgW) * 0.64)),
+            height: max(24, Int(Double(imgH) * 0.56)),
+            label: "重点区域"
+        ))
+    }
+
+    guard let rep = NSBitmapImageRep(
+        bitmapDataPlanes: nil,
+        pixelsWide: imgW,
+        pixelsHigh: imgH,
+        bitsPerSample: 8,
+        samplesPerPixel: 4,
+        hasAlpha: true,
+        isPlanar: false,
+        colorSpaceName: .deviceRGB,
+        bytesPerRow: 0,
+        bitsPerPixel: 0
+    ) else {
+        failJSON("Failed to allocate annotation bitmap.", code: "bitmap_alloc_failed")
+    }
+
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+
+    // Draw base image cleanly in Cocoa bottom-left coordinate space
+    let srcNS = NSImage(cgImage: cgImage, size: NSSize(width: imgW, height: imgH))
+    srcNS.draw(in: NSRect(x: 0, y: 0, width: imgW, height: imgH))
+
+    let strokeWidth = max(3.0, min(6.0, CGFloat(imgW) / 240.0))
+    let redStroke = NSColor(calibratedRed: 0.98, green: 0.32, blue: 0.32, alpha: 0.96)
+    let redFill = NSColor(calibratedRed: 0.98, green: 0.32, blue: 0.32, alpha: 0.10)
+
+    var outBoxesMeta: [[String: Any]] = []
+    for (idx, box) in targetBoxes.enumerated() {
+        let pad = 6
+        let px = max(2, box.x - pad)
+        let pyTop = max(2, box.y - pad)
+        let pw = min(imgW - px - 2, box.width + pad * 2)
+        let ph = min(imgH - pyTop - 2, box.height + pad * 2)
+        // Flip top-left Vision pixel y -> bottom-left Cocoa y
+        let drawY = CGFloat(imgH - pyTop - ph)
+        let rect = NSRect(x: CGFloat(px), y: drawY, width: CGFloat(max(8, pw)), height: CGFloat(max(8, ph)))
+
+        let rounded = NSBezierPath(roundedRect: rect, xRadius: 6.0, yRadius: 6.0)
+        redFill.setFill()
+        rounded.fill()
+        redStroke.setStroke()
+        rounded.lineWidth = strokeWidth
+        rounded.stroke()
+
+        // Numbered red badge (1, 2, 3...) near top-left corner of box
+        let badgeSize = max(20.0, min(28.0, CGFloat(imgW) / 30.0))
+        let badgeRect = NSRect(
+            x: max(4.0, rect.minX - badgeSize * 0.35),
+            y: min(CGFloat(imgH) - badgeSize - 4.0, rect.maxY - badgeSize * 0.5),
+            width: badgeSize,
+            height: badgeSize
+        )
+        let circle = NSBezierPath(ovalIn: badgeRect)
+        redStroke.setFill()
+        circle.fill()
+        let numAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: badgeSize * 0.58, weight: .bold),
+            .foregroundColor: NSColor.white,
+        ]
+        let numStr = NSAttributedString(string: "\(idx + 1)", attributes: numAttrs)
+        let numSz = numStr.size()
+        numStr.draw(at: NSPoint(x: badgeRect.midX - numSz.width / 2.0, y: badgeRect.midY - numSz.height / 2.0))
+
+        outBoxesMeta.append([
+            "index": idx + 1,
+            "x": px,
+            "y": pyTop,
+            "width": pw,
+            "height": ph,
+            "label": box.label,
+        ])
+    }
+
+    if !noteText.isEmpty {
+        let fontSize = max(14.0, min(22.0, CGFloat(imgW) / 36.0))
+        let noteAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .semibold),
+            .foregroundColor: NSColor.white,
+        ]
+        let displayNote = "标注说明：\(noteText)"
+        let textSz = NSAttributedString(string: displayNote, attributes: noteAttrs).size()
+        let barH = min(CGFloat(imgH) * 0.22, textSz.height + 18.0)
+        let barW = min(CGFloat(imgW) - 24.0, textSz.width + 28.0)
+        let barRect = NSRect(x: 12.0, y: 12.0, width: barW, height: barH)
+        let barPath = NSBezierPath(roundedRect: barRect, xRadius: 8.0, yRadius: 8.0)
+        NSColor(calibratedWhite: 0.08, alpha: 0.84).setFill()
+        barPath.fill()
+        NSAttributedString(string: displayNote, attributes: noteAttrs).draw(
+            in: NSRect(x: barRect.minX + 14.0, y: barRect.minY + 7.0, width: barRect.width - 28.0, height: barRect.height - 14.0)
+        )
+    }
+
+    NSGraphicsContext.restoreGraphicsState()
+
+    guard let pngData = rep.representation(using: .png, properties: [:]) else {
+        failJSON("Failed to encode annotated PNG.", code: "png_encode_failed")
+    }
+    do {
+        let dstUrl = URL(fileURLWithPath: outPath)
+        try FileManager.default.createDirectory(at: dstUrl.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try pngData.write(to: dstUrl)
+        writeJSON([
+            "ok": true,
+            "srcPath": imgPath,
+            "outPath": outPath,
+            "imageWidth": imgW,
+            "imageHeight": imgH,
+            "annotatedCount": outBoxesMeta.count,
+            "matchedBoxes": outBoxesMeta,
+            "note": noteText,
+        ])
+    } catch {
+        failJSON("Failed to write annotated PNG: \(error.localizedDescription)", code: "write_failed")
+    }
 }
 
 func renderPDFPageToCGImage(_ page: PDFPage, maxDimension: CGFloat = 2200.0, scale: CGFloat = 2.0) -> CGImage? {
@@ -2552,9 +2989,13 @@ case "paste-and-verify":
     cmdPasteAndVerify(flags: parsed.flags, options: parsed.options)
 case "send-sticker":
     cmdSendSticker(flags: parsed.flags, options: parsed.options)
+case "paste-image":
+    cmdPasteImage(flags: parsed.flags, options: parsed.options)
+case "annotate-image":
+    cmdAnnotateImage(options: parsed.options)
 default:
     writeJSON([
         "ok": true,
-        "usage": "wechat-vision-ax <status|list-app-windows|dhash-windows|hid-idle|ax-tree|ocr|capture-ocr|set-window-frame|extract-pdf-text|extract-video-frames|render-test-image|click|right-click|scroll|activate|request-permissions|focus-input|paste-and-verify|send-sticker> [options]",
+        "usage": "wechat-vision-ax <status|list-app-windows|dhash-windows|hid-idle|ax-tree|ocr|capture-ocr|set-window-frame|extract-pdf-text|extract-video-frames|render-test-image|click|right-click|scroll|activate|request-permissions|focus-input|paste-and-verify|send-sticker|paste-image|annotate-image> [options]",
     ])
 }

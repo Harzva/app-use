@@ -240,17 +240,23 @@ class HumanActivityGuard:
             any_idle = max(0.0, float(any_idle_raw))
             mouse_idle = max(0.0, float(mouse_idle_raw if mouse_idle_raw is not None else any_idle))
             kb_idle = max(0.0, float(kb_idle_raw if kb_idle_raw is not None else any_idle))
+            hw_kb_raw = hid.get("hardwareKeyboardIdleSeconds")
+            hw_kb_idle = max(0.0, float(hw_kb_raw if hw_kb_raw is not None else kb_idle))
 
+            # Hardware keyboard input is NEVER exempted even right after paste-and-verify,
+            # so any physical user typing pauses automation immediately.
+            human_typing_active = bool(hid.get("keyboardActive")) and (hw_kb_idle < idle_thresh)
             is_self_rpa_window = (
                 since_rpa <= 1.2
                 and (cursor_drift_from_rpa is None or cursor_drift_from_rpa <= tol_px)
-                and (kb_idle >= 1.2 or self._state.get("last_rpa_kind") == "paste-and-verify")
+                and hw_kb_idle >= 2.0
+                and kb_idle >= 1.2
             )
-            if any_idle < idle_thresh and not is_self_rpa_window:
+            if (any_idle < idle_thresh and not is_self_rpa_window) or (human_typing_active and not (since_rpa <= 1.2 and hw_kb_idle >= 2.0)):
                 human_triggered = True
                 if not trigger_reason:
-                    src = "keyboard" if kb_idle <= mouse_idle else "mouse"
-                    trigger_reason = f"{src}_active_idle_{round(any_idle, 1)}s_lt_{round(idle_thresh, 0)}s"
+                    src = "keyboard" if (kb_idle <= mouse_idle or human_typing_active) else "mouse"
+                    trigger_reason = f"{src}_active_idle_{round(min(any_idle, hw_kb_idle), 1)}s_lt_{round(idle_thresh, 0)}s"
         else:
             any_idle = None
             mouse_idle = None

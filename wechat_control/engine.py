@@ -649,7 +649,7 @@ class WeChatControlEngine:
                 "error": f"Native binary not compiled at {self.binary_path}",
             }
         cmd_name = args[0] if args else ""
-        mutating_input = cmd_name in ("click", "scroll", "focus-input", "paste-and-verify", "send-sticker")
+        mutating_input = cmd_name in ("click", "scroll", "focus-input", "paste-and-verify", "send-sticker", "paste-image")
         rpa_x: Optional[float] = None
         rpa_y: Optional[float] = None
         if mutating_input:
@@ -1022,6 +1022,7 @@ class WeChatControlEngine:
             try:
                 ReadbackVerifier.verify(text, readback_text)
             except Exception as exc:
+                self.dedup.rollback(fp)
                 res = {
                     "ok": False,
                     "status": "circuit_breaker" if "circuit breaker" in str(exc).lower() else "readback_mismatch",
@@ -1049,9 +1050,11 @@ class WeChatControlEngine:
         if not skip_navigation:
             nav = self.inspector.select_session(clean_target)
             if not nav.get("ok"):
+                self.dedup.rollback(fp)
                 res = {
                     "ok": False,
                     "status": "target_navigation_failed",
+                    "retryable": True,
                     "target": clean_target,
                     "navigation": nav,
                     "error": nav.get("error", f"Failed to navigate to {clean_target!r}."),
@@ -1091,6 +1094,10 @@ class WeChatControlEngine:
         status_label = "sent" if (native_res.get("ok") and native_res.get("sent")) else (
             "silent_verified" if native_res.get("ok") else native_res.get("error_code", "native_error")
         )
+        send_succeeded = bool(native_res.get("ok")) and ((not will_send) or bool(native_res.get("sent")))
+        if not send_succeeded:
+            # 打断、未发成功或校验失败时释放 120s 防重锁，确保下轮巡检可立刻恢复重发
+            self.dedup.rollback(fp)
 
         post_send_snapshot: Optional[str] = None
         if expected_window_id is None and will_send and native_res.get("ok") and native_res.get("sent"):
@@ -1106,9 +1113,10 @@ class WeChatControlEngine:
                 post_send_snapshot = str(snap_file)
 
         result: Dict[str, Any] = {
-            "ok": bool(native_res.get("ok")),
-            "status": status_label,
+            "ok": send_succeeded,
+            "status": status_label if send_succeeded or status_label != "sent" else "return_not_dispatched",
             "mode": "live_send" if will_send else "silent_verify",
+            "retryable": bool(native_res.get("retryable", not send_succeeded)),
             "target": clean_target,
             "matchedChatTitle": matched_title,
             "fingerprint": fp,
@@ -1208,6 +1216,148 @@ class WeChatControlEngine:
         }
         self.audit.log("send_sticker", res["status"], res)
         return res
+
+    def send_image(
+        self,
+        target: str,
+        image_path: str,
+        *,
+        caption: str = "",
+        dry_run: bool = False,
+        confirm_send: bool = True,
+        skip_navigation: bool = False,
+        target_window_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Paste and send an image file directly into WeChat (optionally with a follow-up text caption)."""
+        clean_target = str(target or "").strip()
+        if not clean_target:
+            return {"ok": False, "error": "Target contact is required."}
+        img_file = Path(str(image_path or "").strip())
+        if not img_file.is_file():
+            return {"ok": False, "error_code": "file_not_found", "error": f"Image not found: {img_file}"}
+
+        will_send = (not dry_run) and bool(confirm_send)
+        self._require("send_text_live" if will_send else "send_text_dry_run")
+        if self.allowlist.enabled and not self.allowlist.is_allowed(clean_target):
+            return {
+                "ok": False,
+                "status": "blocked_allowlist",
+                "target": clean_target,
+                "error": f"Target {clean_target!r} is not in allowed contacts.",
+            }
+
+        popout_win = None
+        effective_wid: Optional[int] = int(target_window_id) if target_window_id is not None else None
+        if effective_wid is None and hasattr(self, "inspector"):
+            try:
+                popout_win = self.inspector.find_popout_window(clean_target, app="all")
+                if popout_win and popout_win.get("windowID"):
+                    effective_wid = int(popout_win["windowID"])
+            except Exception:
+                popout_win = None
+
+        if effective_wid is None and (not skip_navigation) and (not dry_run):
+            nav = self.inspector.select_session(clean_target)
+            if not nav.get("ok"):
+                return {
+                    "ok": False,
+                    "status": "target_navigation_failed",
+                    "target": clean_target,
+                    "error": nav.get("error", f"Failed to navigate to {clean_target!r}."),
+                }
+
+        args = ["paste-image", "--image", str(img_file)]
+        if effective_wid is not None:
+            args += ["--window-id", str(effective_wid)]
+            pw_title = str((popout_win or {}).get("title") or "").strip()
+            if pw_title:
+                args += ["--window-title", pw_title]
+        args.append("--send" if will_send else "--dry-run")
+
+        native_res = self._run_native(args, timeout=20.0)
+        img_sent_ok = bool(native_res.get("ok")) and ((not will_send) or bool(native_res.get("sent")))
+        caption_res = None
+        if img_sent_ok and will_send and str(caption or "").strip():
+            caption_res = self.send_text(
+                clean_target,
+                str(caption).strip(),
+                dry_run=False,
+                silent_mode=False,
+                confirm_send=True,
+                skip_navigation=True,
+                target_window_id=effective_wid,
+            )
+
+        status = "sent" if (will_send and img_sent_ok) else ("dry_run_ok" if native_res.get("ok") else native_res.get("error_code", "native_error"))
+        res = {
+            "ok": img_sent_ok,
+            "status": status,
+            "target": clean_target,
+            "imagePath": str(img_file),
+            "windowID": effective_wid,
+            "native": native_res,
+            **({"captionSend": caption_res} if caption_res is not None else {}),
+        }
+        self.audit.log("send_image", status, res)
+        return res
+
+    def search_and_send_web_image(
+        self,
+        target: str,
+        query: str,
+        *,
+        caption: str = "",
+        dry_run: bool = False,
+        confirm_send: bool = True,
+        target_window_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Search an image on the web for `query` and send (or dry-run) it to `target`."""
+        self._require("send_text_live" if (not dry_run and confirm_send) else "send_text_dry_run")
+        search_res = self.media_analyzer.search_web_image(query)
+        if not search_res.get("ok") or not search_res.get("imagePath"):
+            return {"ok": False, "status": "image_search_failed", **search_res}
+        send_res = self.send_image(
+            target,
+            search_res["imagePath"],
+            caption=caption or (f"{query} 参考图 [旺柴]" if not dry_run else ""),
+            dry_run=dry_run,
+            confirm_send=confirm_send,
+            target_window_id=target_window_id,
+        )
+        return {**send_res, "search": search_res}
+
+    def annotate_and_send_peer_image(
+        self,
+        target: str,
+        *,
+        image_path: str = "",
+        keywords: Optional[List[str]] = None,
+        note: str = "",
+        boxes: Optional[List[Dict[str, int]]] = None,
+        dry_run: bool = False,
+        confirm_send: bool = True,
+        target_window_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Highlight key areas on a peer-sent image using Vision OCR red boxes/callouts and send it back."""
+        self._require("send_text_live" if (not dry_run and confirm_send) else "send_text_dry_run")
+        ann_res = self.media_analyzer.annotate_image_with_highlights(
+            image_path=Path(image_path) if image_path else None,
+            target=target,
+            keywords=keywords,
+            note=note,
+            boxes=boxes,
+        )
+        if not ann_res.get("ok") or not ann_res.get("imagePath"):
+            return {"ok": False, "status": "image_annotate_failed", **ann_res}
+        send_res = self.send_image(
+            target,
+            ann_res["imagePath"],
+            caption=(f"我帮你在图上框出重点了：{note} [机智]" if note else ""),
+            dry_run=dry_run,
+            confirm_send=confirm_send,
+            target_window_id=target_window_id,
+        )
+        return {**send_res, "annotation": ann_res}
 
     # ------------------------------------------------------------------
     # Bound Contacts, Deep Observation, Friend Style & Frequency Analytics

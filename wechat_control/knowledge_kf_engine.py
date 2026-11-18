@@ -1639,7 +1639,7 @@ class PersonaSwitchEngine:
                     media_notes.append(f"- {s_m[:420]}")
                 else:
                     chat_lines.append(f"- {s_m[:180]}")
-            recent_ctx = "\n".join(chat_lines[-6:]) or "（暂无历史消息）"
+            recent_ctx = "\n".join(chat_lines[-10:]) or "（暂无历史消息）"
             media_block = ("\n深读解析上下文（当前画面已提取的公众号文章/视频号/链接/图文事实，优先级高于旧历史）：\n" + "\n".join(media_notes[:5]) + "\n") if media_notes else ""
             # 聊天历史往来（导入的旧记录 + 托管实时沉淀）注入参考，机器人"记得"之前聊过什么
             history_snippet = str((memory_context or {}).get("historyThreadSnippet") or "").strip()
@@ -1647,15 +1647,18 @@ class PersonaSwitchEngine:
                 recent_ctx = f"{recent_ctx}\n— 更早的往来（来自聊天记录）—\n{history_snippet}"
             elif history_snippet:
                 recent_ctx = f"{recent_ctx}\n— 更早历史仅供参考（若与当前卡片冲突一律以当前画面和深读为准）—\n{history_snippet}"
+            rolling_summary = str((memory_context or {}).get("rollingSummary") or "").strip()
             soul_block = ""
-            if owner_twin_active or memory_snippet:
+            if owner_twin_active or memory_snippet or contact_soul or rolling_summary:
                 owner_style = str(owner_prof.get("digitalTwinSystemPrompt") or owner_prof.get("archetypeTag") or "")
                 friend_tag = str(contact_soul.get("personalityTag") or "")
                 friend_pref = str(contact_soul.get("communicationPreferences") or "")
+                rolling_line = f"\n近期对话滚动记忆摘要（请保持前后一致，不要自相矛盾或忘掉刚才说过的数字与事实）：\n{rolling_summary}" if rolling_summary else ""
                 soul_block = (
                     f"\n号主本我画像与说话习惯：{owner_style[:260]}\n"
                     f"好友心智画像：{friend_tag} | 偏好：{friend_pref[:160]}\n"
-                    f"双方长期共同记忆（facts/events/shared）：\n{memory_snippet or '（暂无）'}\n"
+                    f"双方长期共同记忆（facts/events/shared）：\n{memory_snippet or '（暂无）'}"
+                    f"{rolling_line}\n"
                 )
             max_chars = int(persona.get("maxChars") or 160)
             target_chars = max(60, max_chars - 12)

@@ -3184,6 +3184,10 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
               <button type="button" class="btn-outline sm" onclick="insertWeChatEmoji('[让我看看]')">[让我看看]</button>
               <button type="button" class="btn-outline sm" onclick="insertWeChatEmoji('[苦笑]')">[苦笑]</button>
               <button type="button" class="btn-outline sm" onclick="sendWeChatStickerQuick('favorites', 0)" title="点击微信表情面板「❤️ 收藏表情」第1个并发送">❤️ 发收藏表情</button>
+              <input type="text" id="quickImageQuery" placeholder="搜图词/框选词(逗号分隔)" style="width:148px; padding:3px 7px; font-size:11.5px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text);" />
+              <input type="text" id="quickAnnotateNote" placeholder="红框标注说明" style="width:116px; padding:3px 7px; font-size:11.5px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text);" />
+              <button type="button" class="btn-outline sm" onclick="searchAndSendWebImageQuick()" title="联网搜图并发送给当前好友">🔍 搜图发送</button>
+              <button type="button" class="btn-outline sm" onclick="annotateAndSendImageQuick()" title="对好友发来的图片画红框编号标注重点并回传">🖍️ 标注图片回传</button>
             </div>
             <textarea id="sendText" placeholder="输入回复，或点下方「生成草稿」/「@元宝 解析」自动起草"></textarea>
             <div class="chat-composer-bar">
@@ -6474,6 +6478,54 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
           `<div class="send-receipt"><p>${data.ok ? (dryRun ? "表情坐标模拟检查完成，未真实点击。" : "已触发微信表情发送。") : "表情发送未成功。"}</p><details><summary>查看回执</summary><pre class="code-box">${escapeHtml(JSON.stringify(data, null, 2))}</pre></details></div>`;
       } catch (err) {
         setDraftStatus("发送表情失败: " + err.message, "error");
+      }
+    }
+
+    async function searchAndSendWebImageQuick() {
+      if (sendInFlight || serviceBlocked) return;
+      const target = (document.getElementById("sendTarget")?.value || "").trim();
+      if (!target) { setDraftStatus("请先选择好友。", "error"); return; }
+      const rawQuery = (document.getElementById("quickImageQuery")?.value || "").trim();
+      const draftFallback = (document.getElementById("sendText")?.value || "").trim().slice(0, 24);
+      const query = rawQuery || draftFallback;
+      if (!query) {
+        setDraftStatus("请在左侧输入框填入搜图关键词（或先在草稿框输入主题）。", "error");
+        document.getElementById("quickImageQuery")?.focus();
+        return;
+      }
+      const mode = document.getElementById("sendMode")?.value || "dry_run";
+      const dryRun = mode !== "confirm_send";
+      try {
+        const { data } = await apiJson("/api/search-send-image", {
+          method: "POST",
+          body: JSON.stringify({ target, query, dry_run: dryRun, confirm_send: !dryRun }),
+        });
+        document.getElementById("sendReceiptBox").innerHTML =
+          `<div class="send-receipt"><p>${data.ok ? (dryRun ? "已搜图并完成发送预检（未实发）。" : "已搜图并发送给好友。") : "搜图发送未成功。"}</p><details><summary>查看回执</summary><pre class="code-box">${escapeHtml(JSON.stringify(data, null, 2))}</pre></details></div>`;
+      } catch (err) {
+        setDraftStatus("搜图失败: " + err.message, "error");
+      }
+    }
+
+    async function annotateAndSendImageQuick() {
+      if (sendInFlight || serviceBlocked) return;
+      const target = (document.getElementById("sendTarget")?.value || "").trim();
+      if (!target) { setDraftStatus("请先选择好友。", "error"); return; }
+      const kwRaw = (document.getElementById("quickImageQuery")?.value || "").trim();
+      const noteRaw = (document.getElementById("quickAnnotateNote")?.value || "").trim();
+      const draftNote = (document.getElementById("sendText")?.value || "").trim().slice(0, 80);
+      const note = noteRaw || draftNote || "重点关注红框位置";
+      const mode = document.getElementById("sendMode")?.value || "dry_run";
+      const dryRun = mode !== "confirm_send";
+      try {
+        const { data } = await apiJson("/api/annotate-send-image", {
+          method: "POST",
+          body: JSON.stringify({ target, keywords: kwRaw, note, dry_run: dryRun, confirm_send: !dryRun }),
+        });
+        document.getElementById("sendReceiptBox").innerHTML =
+          `<div class="send-receipt"><p>${data.ok ? (dryRun ? "已生成红框标注图并预检（未实发）。" : "已将标注图片回传给好友。") : "标注失败。"}</p><details><summary>查看回执</summary><pre class="code-box">${escapeHtml(JSON.stringify(data, null, 2))}</pre></details></div>`;
+      } catch (err) {
+        setDraftStatus("标注图片失败: " + err.message, "error");
       }
     }
 

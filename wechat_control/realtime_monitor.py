@@ -712,7 +712,7 @@ class WeChatRealtimeMonitor:
             else None
         )
         try:
-            history_snippet = self.engine.recent_history_thread(target, limit=6)
+            history_snippet = self.engine.recent_history_thread(target, limit=16)
             if history_snippet:
                 mem_ctx = dict(mem_ctx or {})
                 mem_ctx["historyThreadSnippet"] = history_snippet
@@ -1131,6 +1131,19 @@ class WeChatRealtimeMonitor:
                 })
                 continue
 
+            interrupted_prev = c_state.get("interruptedSend")
+            resumed_interrupted = (
+                interrupted_prev
+                if (
+                    isinstance(interrupted_prev, dict)
+                    and interrupted_prev.get("signature") == msg_sig
+                    and int(interrupted_prev.get("attempts") or 0) < 3
+                    and str(interrupted_prev.get("replyText") or "").strip()
+                    and isinstance(interrupted_prev.get("smart"), dict)
+                )
+                else None
+            )
+
             ready_jobs.append({
                 "binding": binding,
                 "target": target,
@@ -1143,6 +1156,7 @@ class WeChatRealtimeMonitor:
                 "new_row_preview": new_row_preview,
                 "bubbles": bubbles,
                 "last_bubble": last_bubble,
+                "raw_last_text": raw_last_text,
                 "incoming_text": incoming_text,
                 "query_incoming": query_incoming,
                 "msg_sig": msg_sig,
@@ -1150,9 +1164,18 @@ class WeChatRealtimeMonitor:
                 "recent_peer_msgs": recent_peer_msgs,
                 "sender_name": sender_name,
                 "active_cards": list(delta.get("activeMediaCards") or []),
+                "resumed_interrupted": resumed_interrupted,
             })
 
         def _think_job(job: Dict[str, Any]) -> Dict[str, Any]:
+            if job.get("resumed_interrupted"):
+                cached = job["resumed_interrupted"]
+                return {
+                    "job": job,
+                    "smart": cached["smart"],
+                    "extra_notes": list(cached.get("extraNotes") or []),
+                    "dispatched_receipt": cached.get("dispatchedReceipt"),
+                }
             t_name = job["target"]
             extra_notes, dispatched_receipt = self._agent_dispatch_notes(
                 job["binding"],
@@ -1342,13 +1365,15 @@ class WeChatRealtimeMonitor:
                 if not is_sandbox_bot:
                     self.engine.antiban.record_sent(target)
                 c_state["lastProcessedPeerSig"] = msg_sig
-                c_state["lastProcessedPeerText"] = raw_last_text
+                c_state["lastProcessedPeerText"] = str(job.get("raw_last_text") or raw_last_text)
                 c_state["lastOutboundText"] = reply_text
                 if new_row_preview:
                     c_state["lastSeenPreview"] = new_row_preview
                 c_state.pop("pendingGapRetry", None)
                 c_state.pop("lastRateLimitReason", None)
                 c_state.pop("correctionBypassUsed", None)
+                resumed_flag = bool(job.get("resumed_interrupted"))
+                c_state.pop("interruptedSend", None)
                 updated_recent = [t for t in recent_out if t and t != reply_text]
                 updated_recent.append(reply_text)
                 c_state["recentOutboundTexts"] = updated_recent[-10:]
@@ -1356,6 +1381,16 @@ class WeChatRealtimeMonitor:
                 c_state["lastRepliedAt"] = _utc_iso_now()
                 c_state["lastPostSendSnapshot"] = send_res.get("postSendSnapshot")
                 replies_this_cycle += 1
+                if hasattr(self.engine, "soul_profiler") and hasattr(self.engine.soul_profiler, "ingest_live_turn"):
+                    try:
+                        self.engine.soul_profiler.ingest_live_turn(
+                            target,
+                            incoming_text,
+                            reply_text,
+                            media_notes=extra_notes,
+                        )
+                    except Exception:
+                        pass
                 coev_turn = None
                 if hasattr(self.engine, "coevolution"):
                     try:
@@ -1384,6 +1419,7 @@ class WeChatRealtimeMonitor:
                         "replyText": reply_text,
                         "personaId": smart["persona"]["id"],
                         "postSendSnapshot": send_res.get("postSendSnapshot"),
+                        **({"resumedFromInterruption": True} if resumed_flag else {}),
                         **({"coevolutionScore": coev_turn.get("humanLikenessScore")} if isinstance(coev_turn, dict) else {}),
                         **popout_meta,
                     },
@@ -1398,11 +1434,29 @@ class WeChatRealtimeMonitor:
                     "persona": smart["persona"],
                     "basis": smart["basis"],
                     "send": send_res,
+                    **({"resumedFromInterruption": True} if resumed_flag else {}),
                     **({"coevolution": coev_turn} if isinstance(coev_turn, dict) else {}),
                     **popout_meta,
                 })
             else:
                 c_state["pendingDraft"] = draft_record
+                prev_attempts = (
+                    int(c_state["interruptedSend"].get("attempts") or 0)
+                    if isinstance(c_state.get("interruptedSend"), dict) and c_state["interruptedSend"].get("signature") == msg_sig
+                    else 0
+                )
+                c_state["interruptedSend"] = {
+                    "signature": msg_sig,
+                    "incomingText": incoming_text,
+                    "replyText": reply_text,
+                    "smart": smart,
+                    "extraNotes": list(extra_notes or []),
+                    "dispatchedReceipt": dispatched_receipt,
+                    "attempts": prev_attempts + 1,
+                    "lastStatus": send_res.get("status", "send_failed"),
+                    "lastError": str(send_res.get("error") or ""),
+                    "updatedAt": _utc_iso_now(),
+                }
                 self._append_event(
                     "auto_reply_failed",
                     {

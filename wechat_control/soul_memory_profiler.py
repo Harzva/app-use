@@ -46,6 +46,12 @@ _GITHUB_RE = re.compile(r"(?:github\.com/[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)?|
 _WECHAT_ID_RE = re.compile(r"微信号[：:]\s*([A-Za-z0-9_\-]+)")
 _STUDIO_RE = re.compile(r"([\u4e00-\u9fffA-Za-z0-9]+AI工作室|[\u4e00-\u9fffA-Za-z0-9]+工作室)")
 _BOOK_OR_VIDEO_RE = re.compile(r"[《“]([^》”]{2,24})[》”]")
+_USER_FACT_RE = re.compile(
+    r"(?:我家(?:里|南边|玄关)?|我妈|我爸|我侄子|我工位|我办公桌|我在做|我平时|我喜欢|我不喜欢|我这边|我的)[^，。！？\n]{3,42}"
+)
+_CONCRETE_SPEC_RE = re.compile(
+    r"(?:\d+(?:\.\d+)?\s*(?:公分|厘米|cm|mm|米|小时|分钟|秒|个|条|篇|%|％)|O\([^\)]{1,16}\)|CASGM|GRSM|ISPRS|曾毓群|九紫离火运|绿萝|虎皮兰|多肉)"
+)
 _COMMITMENT_HINTS = ("测试", "总结", "地址", "定时", "预约", "约定", "记得", "一起", "明天", "下周", "周末", "方案", "验收")
 _CATCHPHRASE_CANDIDATES = (
     "哈哈",
@@ -367,8 +373,36 @@ class SoulMemoryProfiler:
                     "source": "chat_log_extract",
                 })
 
-        # Extract episodic events from timestamped messages
+        # Extract user household/work/personal facts & media deep-reads
         for rec in records:
+            if rec.get("kind") != "message":
+                continue
+            rtxt = _clean_text(str(rec.get("text") or ""))
+            if not rtxt:
+                continue
+            direction = str(rec.get("direction") or "peer")
+            if direction == "peer":
+                for ufact in _USER_FACT_RE.findall(rtxt):
+                    clean_u = ufact.strip("，,。.!！?？ ")
+                    if len(clean_u) >= 5:
+                        facts.append({
+                            "id": _stable_id("fact_user", title, clean_u),
+                            "category": "fact",
+                            "content": f"用户情况：{clean_u}",
+                            "source": "live_chat_fact",
+                        })
+            specs = _CONCRETE_SPEC_RE.findall(rtxt)
+            if specs and len(rtxt) >= 6:
+                spec_tag = "/".join(dict.fromkeys(specs[:3]))
+                shared.append({
+                    "id": _stable_id("sh_spec", title, spec_tag, rtxt[:24]),
+                    "category": "shared",
+                    "content": f"关键参数/话题({spec_tag})：{rtxt[:72]}",
+                    "source": "chat_log_extract",
+                })
+
+        # Extract episodic events from timestamped messages (most recent first)
+        for rec in reversed(records):
             if rec.get("kind") != "message":
                 continue
             txt = _clean_text(str(rec.get("text") or ""))
@@ -380,6 +414,7 @@ class SoulMemoryProfiler:
             is_event = (
                 bool(t_mark and len(txt) >= 5)
                 or any(h in txt for h in _COMMITMENT_HINTS)
+                or len(txt) >= 10
             )
             if is_event:
                 events.append({
@@ -392,9 +427,9 @@ class SoulMemoryProfiler:
                 })
 
         return (
-            _dedupe_memory_items(facts, limit=12),
-            _dedupe_memory_items(events, limit=16),
-            _dedupe_memory_items(shared, limit=14),
+            _dedupe_memory_items(facts, limit=16),
+            _dedupe_memory_items(events, limit=20),
+            _dedupe_memory_items(shared, limit=16),
         )
 
     # ------------------------------------------------------------------
@@ -912,27 +947,44 @@ class SoulMemoryProfiler:
         }
 
     def get_contact_memory_context(self, target: str) -> Dict[str, Any]:
-        """Return compact owner soul + target friend soul & memories for smart reply injection."""
+        """Return compact owner soul + target friend soul, live memories, and rolling summary."""
+        store = self._load_store()
         data = self.get_profiles()
         owner = data.get("ownerProfile") or {}
+        norm_key = normalize_chat_name(target or "").casefold()
+        live_bucket = dict((store.get("liveMemories") or {}).get(norm_key) or {})
+        rolling_list = list((store.get("rollingSummaries") or {}).get(norm_key) or [])
+        rolling_summary = "\n".join(f"- {ln}" for ln in rolling_list[-6:])
+
         matched_contact: Optional[Dict[str, Any]] = None
         for c in data.get("contactProfiles") or []:
             if _matches_target(target, c.get("matchedTitle", "")) or _matches_target(target, c.get("target", "")):
                 matched_contact = c
                 break
-        if matched_contact is None:
-            return {
-                "ownerProfile": owner,
-                "contactSoul": None,
-                "memories": {"facts": [], "episodicEvents": [], "sharedContext": [], "totalMemories": 0},
-                "memoryPromptSnippet": "",
-                "memoryRefs": [],
-            }
-        mems = matched_contact.get("memories") or {}
-        combined = (mems.get("facts") or [])[:3] + (mems.get("sharedContext") or [])[:3] + (mems.get("episodicEvents") or [])[:3]
-        return {
-            "ownerProfile": owner,
-            "contactSoul": {
+
+        base_mems = dict((matched_contact or {}).get("memories") or {})
+        facts = _dedupe_memory_items(list(live_bucket.get("facts") or []) + list(base_mems.get("facts") or []), limit=16)
+        shared = _dedupe_memory_items(list(live_bucket.get("shared") or []) + list(base_mems.get("sharedContext") or []), limit=16)
+        events = _dedupe_memory_items(list(live_bucket.get("events") or []) + list(base_mems.get("episodicEvents") or []), limit=20)
+        mems = {
+            "facts": facts,
+            "episodicEvents": events,
+            "sharedContext": shared,
+            "totalMemories": len(facts) + len(events) + len(shared),
+        }
+
+        memory_lines: List[str] = []
+        for f in facts[:4]:
+            memory_lines.append(f"[事实] {f['content']}")
+        for sh in shared[:4]:
+            memory_lines.append(f"[共同记忆] {sh['content']}")
+        for ev in events[:4]:
+            memory_lines.append(f"[事件({ev.get('timeMarker', '近期')})] {ev['content']}")
+        prompt_snippet = "\n".join(f"- {ln}" for ln in memory_lines) or str((matched_contact or {}).get("memoryPromptSnippet") or "")
+
+        combined = facts[:4] + shared[:4] + events[:4]
+        contact_soul = (
+            {
                 "target": matched_contact.get("target"),
                 "matchedTitle": matched_contact.get("matchedTitle"),
                 "personalityTag": matched_contact.get("personalityTag"),
@@ -940,13 +992,109 @@ class SoulMemoryProfiler:
                 "communicationPreferences": matched_contact.get("communicationPreferences"),
                 "emotionalBaseline": matched_contact.get("emotionalBaseline"),
                 "rapportScore": matched_contact.get("rapportScore"),
-            },
+            }
+            if matched_contact is not None
+            else None
+        )
+        return {
+            "ownerProfile": owner,
+            "contactSoul": contact_soul,
             "memories": mems,
-            "memoryPromptSnippet": matched_contact.get("memoryPromptSnippet") or "",
+            "rollingSummary": rolling_summary,
+            "memoryPromptSnippet": prompt_snippet,
             "memoryRefs": [
                 {"id": m["id"], "category": m.get("category", "fact"), "content": m["content"]}
                 for m in combined
             ],
+        }
+
+    def ingest_live_turn(
+        self,
+        target: str,
+        incoming_text: str,
+        reply_text: str,
+        *,
+        media_notes: Optional[List[str]] = None,
+        time_marker: str = "",
+    ) -> Dict[str, Any]:
+        """Incrementally extract and persist long-term user memories & rolling summary after a live turn."""
+        clean_target = normalize_chat_name(target or "").strip()
+        if not clean_target:
+            return {"ok": False, "error": "Target cannot be empty."}
+        norm_key = clean_target.casefold()
+        t_mark = _clean_text(time_marker) or datetime.now().strftime("%H:%M")
+
+        synth_records: List[Dict[str, Any]] = []
+        if _clean_text(incoming_text):
+            synth_records.append({
+                "kind": "message",
+                "direction": "peer",
+                "text": _clean_text(incoming_text),
+                "timeMarker": t_mark,
+                "source": "live_turn",
+            })
+        if _clean_text(reply_text):
+            synth_records.append({
+                "kind": "message",
+                "direction": "self",
+                "text": _clean_text(reply_text),
+                "timeMarker": t_mark,
+                "source": "live_turn",
+            })
+
+        new_facts, new_events, new_shared = self._extract_facts_from_records(
+            clean_target,
+            synth_records,
+            [],
+        )
+        for note in (media_notes or []):
+            clean_note = _clean_text(str(note or ""))
+            if clean_note:
+                new_shared.insert(0, {
+                    "id": _stable_id("sh_media", clean_target, clean_note[:40]),
+                    "category": "shared",
+                    "content": f"共同看过的媒体内容：{clean_note[:140]}",
+                    "source": "live_media_deep_read",
+                })
+
+        store = self._load_store()
+        live_map: Dict[str, Dict[str, List[Dict[str, Any]]]] = dict(store.get("liveMemories") or {})
+        bucket = dict(live_map.get(norm_key) or {})
+        bucket["facts"] = _dedupe_memory_items(new_facts + list(bucket.get("facts") or []), limit=20)
+        bucket["shared"] = _dedupe_memory_items(new_shared + list(bucket.get("shared") or []), limit=24)
+        bucket["events"] = _dedupe_memory_items(new_events + list(bucket.get("events") or []), limit=24)
+        live_map[norm_key] = bucket
+        store["liveMemories"] = live_map
+
+        summaries: Dict[str, List[str]] = dict(store.get("rollingSummaries") or {})
+        hist_bullets = list(summaries.get(norm_key) or [])
+        summary_line = f"[{t_mark}] 对方问「{_clean_text(incoming_text)[:42]}」→ 我方答「{_clean_text(reply_text)[:48]}」"
+        if summary_line not in hist_bullets:
+            hist_bullets.append(summary_line)
+        summaries[norm_key] = hist_bullets[-12:]
+        store["rollingSummaries"] = summaries
+
+        # Keep existing cached contactProfile synchronized if present
+        cp_map = store.get("contactProfiles")
+        if isinstance(cp_map, dict):
+            for c_key, cp_obj in cp_map.items():
+                if isinstance(cp_obj, dict) and (_matches_target(clean_target, cp_obj.get("matchedTitle", "")) or c_key == norm_key):
+                    mems = dict(cp_obj.get("memories") or {})
+                    mems["facts"] = _dedupe_memory_items(bucket["facts"] + list(mems.get("facts") or []), limit=20)
+                    mems["sharedContext"] = _dedupe_memory_items(bucket["shared"] + list(mems.get("sharedContext") or []), limit=24)
+                    mems["episodicEvents"] = _dedupe_memory_items(bucket["events"] + list(mems.get("episodicEvents") or []), limit=24)
+                    mems["totalMemories"] = len(mems["facts"]) + len(mems["sharedContext"]) + len(mems["episodicEvents"])
+                    cp_obj["memories"] = mems
+                    break
+
+        self._save_store(store)
+        return {
+            "ok": True,
+            "target": clean_target,
+            "factsCount": len(bucket["facts"]),
+            "sharedCount": len(bucket["shared"]),
+            "eventsCount": len(bucket["events"]),
+            "rollingSummaryCount": len(summaries[norm_key]),
         }
 
     def add_memory_note(

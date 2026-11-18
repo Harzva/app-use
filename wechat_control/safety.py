@@ -125,6 +125,12 @@ class OutgoingMessageRegistry:
             self._records[fp] = ts
         return fp
 
+    def rollback(self, target_or_fp: str, text: Optional[str] = None) -> bool:
+        """Roll back an unconfirmed dedup reservation so an interrupted send can retry immediately."""
+        fp = self.fingerprint(target_or_fp, text) if text is not None else str(target_or_fp or "")
+        with self._lock:
+            return self._records.pop(fp, None) is not None
+
 
 class GroupAllowlistGuard:
     """Optional allowlist restricting live/batch messaging to approved chats/groups."""

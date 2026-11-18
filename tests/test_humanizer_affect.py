@@ -88,7 +88,7 @@ class TestHumanizerAffectAndCardRead(unittest.TestCase):
         self.assertEqual(sibyl, {"code": "s3", "rating": "suggest", "suggestion": "下次先说核心结论再聊细节"})
 
     def test_wide_popout_card_classification_unread_delta_and_click_read(self) -> None:
-        snap = self.tmp / "snapshots" / "contact_a_14393.png"
+        snap = self.tmp / "snapshots" / "xinan_14393.png"
         snap.parent.mkdir(parents=True, exist_ok=True)
         _write_solid_png(snap, 1523, 1160)
 
@@ -282,6 +282,142 @@ class TestHumanizerAffectAndCardRead(unittest.TestCase):
         res_code = self.engine.send_wechat_sticker("联系人A", emoji_code="思考", dry_run=True, confirm_send=False)
         self.assertTrue(res_code["ok"])
         self.assertEqual(res_code["status"], "dry_run_ok")
+
+    def test_v2476_memory_interrupt_keyboard_and_image_tools(self) -> None:
+        from wechat_control.human_activity_guard import HumanActivityGuard
+
+        # 1) Dynamic User Memory Management (`ingest_live_turn` + `get_contact_memory_context`)
+        mem_res = self.engine.soul_profiler.ingest_live_turn(
+            "微信ClawBot",
+            "我家玄关只有90公分宽，我妈喜欢在南墙窗台养绿萝",
+            "90公分宽建议做半高鞋柜留空过道，绿萝别直晒 [旺柴]",
+            media_notes=["[公众号文章深读:玄关采光布局] 留白通风减少潮湿"],
+        )
+        self.assertTrue(mem_res["ok"])
+        self.assertGreaterEqual(mem_res["factsCount"], 1)
+        mem_ctx = self.engine.soul_profiler.get_contact_memory_context("微信ClawBot")
+        self.assertIn("我家玄关只有90公分宽", mem_ctx["memoryPromptSnippet"])
+        self.assertIn("90公分宽", mem_ctx["rollingSummary"])
+
+        # 2) Interrupted Paste Rollback & Auto-Resume in `poll_once`
+        self.engine.bind_contact("测试好友Z", ai_persona="warm-friend", auto_reply_enabled=True)
+        attempt_state = {"n": 0}
+        snap_src = self.tmp / "snapshots" / "poll_interrupt.png"
+        snap_src.parent.mkdir(parents=True, exist_ok=True)
+        _write_solid_png(snap_src, 900, 900)
+
+        def fake_poll_native(args, timeout=15.0):
+            cmd = args[0]
+            if cmd == "list-app-windows":
+                return {
+                    "ok": True,
+                    "windows": [
+                        {"windowID": 20001, "title": "测试好友Z", "isMainWindow": False, "bounds": {"x": 100, "y": 100, "width": 700, "height": 800}},
+                    ],
+                }
+            if cmd == "capture-ocr":
+                if "--out" in args:
+                    _write_solid_png(Path(args[args.index("--out") + 1]), 700, 800)
+                return {
+                    "ok": True,
+                    "isMainWindow": False,
+                    "splitX": 0.0,
+                    "windowTitle": "测试好友Z",
+                    "windowBounds": {"x": 100, "y": 100, "width": 700, "height": 800},
+                    "elements": [
+                        {"text": "测试好友Z", "bbox": {"x": 15, "y": 40, "width": 70, "height": 18}, "center": {"x": 50, "y": 49}},
+                        {"text": "17:10", "bbox": {"x": 330, "y": 180, "width": 40, "height": 12}, "center": {"x": 350, "y": 186}},
+                        {"text": "请问我家玄关90公分够不够放鞋柜？", "bbox": {"x": 60, "y": 240, "width": 260, "height": 22}, "center": {"x": 190, "y": 251}},
+                    ],
+                }
+            if cmd == "paste-and-verify":
+                attempt_state["n"] += 1
+                if attempt_state["n"] == 1:
+                    return {"ok": False, "error_code": "interrupted_during_paste", "retryable": True, "error": "Human interrupted paste"}
+                return {"ok": True, "sent": True, "verified": True, "readbackSource": "ax"}
+            return {"ok": True}
+
+        self.engine._run_native = fake_poll_native  # type: ignore[method-assign]
+        p1 = self.engine.monitor.poll_once(target_filter="测试好友Z", auto_reply=True, confirm_send=True, ignore_human_guard=True)
+        self.assertEqual(p1["repliesDispatched"], 0)
+        self.assertEqual(p1["actions"][0]["status"], "interrupted_during_paste")
+        # Dedup must have rolled back so immediate retry on cycle 2 is NOT blocked_duplicate
+        self.engine.antiban.min_reply_gap_seconds = 0
+        p2 = self.engine.monitor.poll_once(target_filter="测试好友Z", auto_reply=True, confirm_send=True, ignore_human_guard=True)
+        self.assertEqual(p2["repliesDispatched"], 1)
+        self.assertEqual(p2["actions"][0]["status"], "replied")
+        self.assertTrue(p2["actions"][0].get("resumedFromInterruption"))
+
+        # 3) Hardware keyboard activity stops automation immediately (never exempted by paste-and-verify)
+        clock = {"now": 5000.0}
+        guard = HumanActivityGuard(
+            state_path=self.tmp / "kb_guard.json",
+            clock_fn=lambda: clock["now"],
+            default_idle_resume_seconds=45.0,
+            default_cooldown_seconds=45.0,
+        )
+        guard.record_rpa_action(action="paste-and-verify", cursor_x=400.0, cursor_y=300.0)
+        clock["now"] = 5000.5
+        res_kb = guard.check_can_operate({
+            "anyInputIdleSeconds": 0.4,
+            "mouseIdleSeconds": 60.0,
+            "keyboardIdleSeconds": 0.4,
+            "hardwareKeyboardIdleSeconds": 0.4,
+            "keyboardActive": True,
+            "cursorPosition": {"x": 400.0, "y": 300.0},
+        })
+        self.assertFalse(res_kb["canOperate"])
+        self.assertEqual(res_kb["status"], "human_active_cooldown")
+        self.assertIn("keyboard", res_kb["triggerReason"])
+
+        # 4) Web image search fallback & image annotation dry-run
+        sample_img = self.tmp / "snapshots" / "sample_annot.png"
+        _write_solid_png(sample_img, 480, 320)
+
+        def fake_media_native(args, timeout=15.0):
+            cmd = args[0]
+            if cmd == "render-test-image":
+                out_p = Path(args[args.index("--out") + 1])
+                _write_solid_png(out_p, 600, 360)
+                return {"ok": True, "outPath": str(out_p)}
+            if cmd == "annotate-image":
+                out_p = Path(args[args.index("--out") + 1])
+                _write_solid_png(out_p, 480, 320)
+                return {"ok": True, "outPath": str(out_p), "annotatedCount": 2, "matchedBoxes": [{"index": 1}, {"index": 2}]}
+            if cmd == "list-app-windows":
+                return {"ok": True, "windows": [{"windowID": 20001, "title": "测试好友Z", "isMainWindow": False, "bounds": {"x": 100, "y": 100, "width": 700, "height": 800}}]}
+            if cmd == "paste-image":
+                return {"ok": True, "sent": False, "dryRun": True}
+            return {"ok": True}
+
+        self.engine._run_native = fake_media_native  # type: ignore[method-assign]
+        ann_send = self.engine.annotate_and_send_peer_image(
+            "测试好友Z",
+            image_path=str(sample_img),
+            keywords=["90公分"],
+            note="红框处尺寸确认",
+            boxes=[{"x": 40, "y": 50, "width": 160, "height": 40}],
+            dry_run=True,
+            confirm_send=False,
+        )
+        self.assertTrue(ann_send["ok"])
+        self.assertEqual(ann_send["annotation"]["annotatedCount"], 2)
+
+        # Avoid outbound live network call inside unit tests by mocking urlopen to use local fallback cleanly
+        import urllib.request as _ur
+        orig_urlopen = _ur.urlopen
+        try:
+            _ur.urlopen = lambda *a, **k: (_ for _ in ()).throw(ConnectionRefusedError("offline test"))  # type: ignore[assignment]
+            web_send = self.engine.search_and_send_web_image(
+                "测试好友Z",
+                "极简玄关矮柜",
+                dry_run=True,
+                confirm_send=False,
+            )
+            self.assertTrue(web_send["ok"])
+            self.assertEqual(web_send["search"]["sourceMode"], "local_visual_fallback")
+        finally:
+            _ur.urlopen = orig_urlopen  # type: ignore[assignment]
 
 
 if __name__ == "__main__":

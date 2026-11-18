@@ -1402,3 +1402,165 @@ class WeChatMediaLinkAnalyzer:
         atomic_write_json(art_path, result, newline=False)
         result["artifactPath"] = str(art_path)
         return self._record_analysis(result)
+
+    def search_web_image(
+        self,
+        query: str,
+        *,
+        limit: int = 4,
+    ) -> Dict[str, Any]:
+        """Search public web image APIs (Wikimedia Commons) and download a local PNG/JPEG ready for WeChat sending."""
+        clean_query = re.sub(r"\s+", " ", str(query or "")).strip()
+        if not clean_query:
+            return {"ok": False, "error": "Image search query is required."}
+
+        self.analysis_dir.mkdir(parents=True, exist_ok=True)
+        slug = re.sub(r"[^A-Za-z0-9_\u4e00-\u9fff]+", "_", clean_query)[:24].strip("_") or "img"
+        ts = int(time.time() * 1000)
+        candidates: List[Dict[str, Any]] = []
+        fetch_error = ""
+
+        try:
+            q_enc = urllib.parse.quote(clean_query)
+            api_url = (
+                "https://commons.wikimedia.org/w/api.php"
+                f"?action=query&generator=search&gsrnamespace=6&gsrsearch={q_enc}"
+                f"&gsrlimit={max(2, min(10, int(limit) * 2))}"
+                "&prop=imageinfo&iiprop=url|mime|size&iiurlwidth=1200&format=json"
+            )
+            req = urllib.request.Request(api_url, headers={"User-Agent": DEFAULT_WECHAT_UA})
+            with urllib.request.urlopen(req, timeout=10.0) as resp:
+                raw = _read_bounded_response(resp, 2 * 1024 * 1024)
+            payload = json.loads(raw.decode("utf-8", errors="replace"))
+            pages = (payload.get("query") or {}).get("pages") or {}
+            for page in pages.values():
+                if not isinstance(page, dict):
+                    continue
+                infos = page.get("imageinfo") or []
+                if not infos or not isinstance(infos[0], dict):
+                    continue
+                ii = infos[0]
+                mime = str(ii.get("mime") or "").lower()
+                if mime not in ("image/jpeg", "image/png", "image/webp"):
+                    continue
+                img_url = str(ii.get("thumburl") or ii.get("url") or "").strip()
+                if img_url.startswith("https://"):
+                    candidates.append({
+                        "title": str(page.get("title") or clean_query).replace("File:", "").strip(),
+                        "url": img_url,
+                        "mime": mime,
+                        "width": ii.get("thumbwidth") or ii.get("width"),
+                        "height": ii.get("thumbheight") or ii.get("height"),
+                    })
+        except Exception as exc:
+            fetch_error = str(exc)
+
+        for cand in candidates[:3]:
+            ok_u, _ = _validate_safe_http_url(cand["url"], allow_loopback=False)
+            if not ok_u:
+                continue
+            try:
+                ireq = urllib.request.Request(cand["url"], headers={"User-Agent": DEFAULT_WECHAT_UA})
+                with urllib.request.urlopen(ireq, timeout=12.0) as iresp:
+                    ibytes = _read_bounded_response(iresp, 8 * 1024 * 1024)
+                if len(ibytes) < 512:
+                    continue
+                ext = ".png" if "png" in cand["mime"] else ".jpg"
+                out_file = self.analysis_dir / f"webimg_{slug}_{ts}{ext}"
+                out_file.write_bytes(ibytes)
+                return {
+                    "ok": True,
+                    "query": clean_query,
+                    "sourceMode": "web_wikimedia_commons",
+                    "imagePath": str(out_file),
+                    "sourceUrl": cand["url"],
+                    "title": cand["title"],
+                    "bytes": len(ibytes),
+                }
+            except Exception as exc:
+                fetch_error = str(exc)
+                continue
+
+        # Offline / blocked fallback: render clean high-contrast visual card PNG
+        fallback_png = self.analysis_dir / f"webimg_card_{slug}_{ts}.png"
+        card_text = f"搜图主题：{clean_query}\n在线图库暂未返回直链，已为你生成可视化示意卡\n说明：{fetch_error[:60] or '请直接查看核心要点'}"
+        r_res = self.engine._run_native(
+            ["render-test-image", "--out", str(fallback_png), "--text", card_text],
+            10.0,
+        )
+        if r_res.get("ok") and fallback_png.is_file():
+            return {
+                "ok": True,
+                "query": clean_query,
+                "sourceMode": "local_visual_fallback",
+                "imagePath": str(fallback_png),
+                "sourceUrl": "",
+                "title": clean_query,
+                "fetchError": fetch_error,
+            }
+        return {"ok": False, "query": clean_query, "error": fetch_error or "image_search_failed"}
+
+    def annotate_image_with_highlights(
+        self,
+        *,
+        image_path: Optional[Path] = None,
+        target: str = "",
+        keywords: Optional[List[str]] = None,
+        note: str = "",
+        boxes: Optional[List[Dict[str, int]]] = None,
+    ) -> Dict[str, Any]:
+        """Locate key areas via Vision OCR (or explicit boxes) and draw WeChat-style red boxes + numbered callouts + caption."""
+        src_img: Optional[Path] = Path(image_path) if image_path else None
+        clean_target = str(target or "").strip()
+
+        if src_img is None or not src_img.is_file():
+            candidates = sorted(
+                list(self.analysis_dir.glob("card_*_viewer_p1.png"))
+                + list(self.analysis_dir.glob("card_*_crop.png"))
+                + list(self.analysis_dir.glob("img_*.png")),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            if candidates:
+                src_img = candidates[0]
+
+        if (src_img is None or not src_img.is_file()) and clean_target and hasattr(self.engine, "inspector"):
+            snap = self.analysis_dir / f"annot_src_{int(time.time() * 1000)}.png"
+            pop_win = self.engine.inspector.find_popout_window(clean_target, app="all") if hasattr(self.engine.inspector, "find_popout_window") else None
+            cap_args = ["capture-ocr", "--no-activate", "--out", str(snap)]
+            if pop_win and pop_win.get("windowID"):
+                cap_args += ["--window-id", str(pop_win["windowID"])]
+            cap = self.engine._run_native(cap_args, 12.0)
+            if cap.get("ok") and snap.is_file():
+                src_img = snap
+
+        if src_img is None or not src_img.is_file():
+            return {"ok": False, "error_code": "source_image_not_found", "error": "未找到可标注的源图片或截图。"}
+
+        out_path = self.analysis_dir / f"annotated_{int(time.time() * 1000)}.png"
+        args = ["annotate-image", "--image", str(src_img), "--out", str(out_path)]
+        clean_kws = [str(k).strip() for k in (keywords or []) if str(k).strip()]
+        if clean_kws:
+            args += ["--keywords", ",".join(clean_kws)]
+        if str(note or "").strip():
+            args += ["--note", str(note).strip()]
+        if boxes:
+            box_strs = [
+                f"{int(b['x'])},{int(b['y'])},{int(b['width'])},{int(b['height'])}"
+                for b in boxes
+                if isinstance(b, dict) and all(k in b for k in ("x", "y", "width", "height"))
+            ]
+            if box_strs:
+                args += ["--boxes", ";".join(box_strs)]
+
+        res = self.engine._run_native(args, 15.0)
+        if not res.get("ok"):
+            return {"ok": False, "error": res.get("error", "annotate-image failed"), "native": res}
+        return {
+            "ok": True,
+            "srcPath": str(src_img),
+            "imagePath": str(out_path),
+            "annotatedCount": int(res.get("annotatedCount") or 0),
+            "matchedBoxes": res.get("matchedBoxes") or [],
+            "note": res.get("note") or note,
+        }

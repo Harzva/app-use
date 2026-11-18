@@ -2096,6 +2096,34 @@ def create_http_server(
                         target_window_id=int(body["target_window_id"]) if body.get("target_window_id") else None,
                     )
                     self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/search-send-image":
+                    res = engine.search_and_send_web_image(
+                        target=str(body.get("target") or ""),
+                        query=str(body.get("query") or ""),
+                        caption=str(body.get("caption") or ""),
+                        dry_run=bool(body.get("dry_run", body.get("dryRun", False))),
+                        confirm_send=bool(body.get("confirm_send", body.get("confirmSend", True))),
+                        target_window_id=int(body["target_window_id"]) if body.get("target_window_id") else None,
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/annotate-send-image":
+                    raw_kw = body.get("keywords")
+                    kw_list = (
+                        [str(k).strip() for k in raw_kw if str(k).strip()]
+                        if isinstance(raw_kw, list)
+                        else [k.strip() for k in str(raw_kw or "").split(",") if k.strip()]
+                    )
+                    res = engine.annotate_and_send_peer_image(
+                        target=str(body.get("target") or ""),
+                        image_path=str(body.get("image_path") or body.get("imagePath") or ""),
+                        keywords=kw_list or None,
+                        note=str(body.get("note") or ""),
+                        boxes=body.get("boxes") if isinstance(body.get("boxes"), list) else None,
+                        dry_run=bool(body.get("dry_run", body.get("dryRun", False))),
+                        confirm_send=bool(body.get("confirm_send", body.get("confirmSend", True))),
+                        target_window_id=int(body["target_window_id"]) if body.get("target_window_id") else None,
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
                 elif path == "/import-chatlog":
                     src = Path(str(body["source_path"]))
                     out = Path(str(body["output_dir"])) if body.get("output_dir") else None
