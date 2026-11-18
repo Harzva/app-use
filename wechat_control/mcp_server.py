@@ -1397,6 +1397,11 @@ def create_http_server(
                     self._send_html(200, render_mobile_remote_html())
                 elif path == "/api/workos/harness":
                     self._send_json(200, engine.get_workos_harness_summary())
+                elif path == "/api/workos/windows":
+                    app_filter = (query.get("app") or ["all"])[0]
+                    res = engine.list_app_windows(app=app_filter)
+                    status_code = 400 if res.get("error_code") == "unsupported_app" else 200
+                    self._send_json(status_code, res)
                 elif path == "/health":
                     self._send_json(200, {"ok": True, "service": SERVER_INFO["name"], "version": SERVER_INFO.get("version")})
                 elif path == "/auth/status":
@@ -1885,6 +1890,82 @@ def create_http_server(
                         title=str(body.get("title") or ""),
                         kind=str(body.get("kind") or "script"),
                         keywords=body.get("keywords") if isinstance(body.get("keywords"), list) else None,
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/workos/bind-window":
+                    raw_wid = body.get("windowID") if "windowID" in body else body.get("window_id")
+                    parsed_wid: Optional[int] = None
+                    if raw_wid not in (None, "", 0, "0", False):
+                        try:
+                            parsed_wid = int(raw_wid)
+                        except (TypeError, ValueError):
+                            self._send_json(400, {"ok": False, "error_code": "invalid_window_id", "error": f"Invalid windowID: {raw_wid!r}"})
+                            return
+                    res = engine.bind_app_window(
+                        app_id=str(
+                            body.get("appId")
+                            if "appId" in body
+                            else (body.get("app_id") if "app_id" in body else "auto")
+                        ),
+                        window_id=parsed_wid,
+                        window_title=str(
+                            body.get("windowTitle")
+                            if "windowTitle" in body
+                            else (body.get("window_title") or "")
+                        ),
+                        app_label=body.get("appLabel") if "appLabel" in body else body.get("app_label"),
+                        follow_up_isolation=bool(
+                            body.get("followUpIsolation", body.get("follow_up_isolation", True))
+                        ),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/workos/doc-ingest/preview":
+                    raw_use_llm = body.get("use_llm") if "use_llm" in body else body.get("useLlm")
+                    raw_max_pages = body.get("max_pages") if "max_pages" in body else body.get("maxPages")
+                    res = engine.preview_doc_ingest(
+                        raw_text=str(
+                            body.get("raw_text")
+                            if "raw_text" in body
+                            else (body.get("rawText") or body.get("text") or "")
+                        ),
+                        file_path=body.get("file_path") if "file_path" in body else body.get("filePath"),
+                        file_bytes_b64=(
+                            body.get("file_bytes_b64")
+                            if "file_bytes_b64" in body
+                            else (body.get("fileBytesB64") or body.get("file_b64"))
+                        ),
+                        filename=str(
+                            body.get("filename")
+                            if "filename" in body
+                            else (body.get("fileName") or "")
+                        ),
+                        instruction=str(body.get("instruction") or "希望你能够替代我去和顾客聊天"),
+                        doc_name=str(
+                            body.get("doc_name")
+                            if "doc_name" in body
+                            else (body.get("docName") or "")
+                        ),
+                        use_llm=raw_use_llm if isinstance(raw_use_llm, bool) else None,
+                        max_pages=int(raw_max_pages or 12),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/workos/doc-ingest/confirm":
+                    raw_items = body.get("items")
+                    if not isinstance(raw_items, list):
+                        self._send_json(400, {"ok": False, "error_code": "invalid_items", "error": "items must be a JSON array."})
+                        return
+                    res = engine.confirm_doc_ingest(
+                        items=raw_items,
+                        strategy=str(body.get("strategy") or "bind_kb"),
+                        doc_name=str(
+                            body.get("doc_name")
+                            if "doc_name" in body
+                            else (body.get("docName") or "")
+                        ),
+                        apply_prompt_target=bool(
+                            body.get("apply_prompt_target", body.get("applyPromptTarget", False))
+                        ),
+                        instruction=str(body.get("instruction") or ""),
                     )
                     self._send_json(200 if res.get("ok") else 400, res)
                 elif path == "/api/kb-search":

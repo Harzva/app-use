@@ -911,6 +911,435 @@ class DiagnosticsTests(unittest.TestCase):
             srv.shutdown()
             srv.server_close()
 
+    def test_wecom_wechat_window_binding_and_pdf_doc_ingest(self):
+        import base64
+        import threading
+        import urllib.error
+        import urllib.request
+        from wechat_control.doc_ingestor import ALLOWED_TEST_CONTACTS
+        from wechat_control.web_console import render_web_console_html
+
+        self.assertEqual(ALLOWED_TEST_CONTACTS, ("安晓心", "心安", "openbot"))
+
+        # 使用默认未覆写 allowed_groups 的引擎，验证测试联系人白名单仅严守 ["安晓心", "心安", "openbot"]
+        work_dir = self.data / "dualapp_engine"
+        work_engine = WeChatControlEngine(
+            audit_log_path=work_dir / "audit.jsonl",
+            auth_file_path=work_dir / "auth.json",
+            bindings_file_path=work_dir / "bindings.json",
+            models_config_path=work_dir / "models.json",
+            model_http_requester=lambda m, u, **k: (_ for _ in ()).throw(ConnectionRefusedError),
+            knowledge_db_path=work_dir / "kb.sqlite",
+            personas_file_path=work_dir / "personas.json",
+            snapshots_dir=work_dir / "snap",
+            reports_dir=work_dir / "reports",
+        )
+        work_engine.auth_grant(ALL_CAPABILITIES, authorized_by="diag-dualapp-test")
+        work_engine.bind_contact("安晓心", role="friend", ai_persona="wecom-kf-pro", auto_reply_enabled=True)
+
+        native_calls = []
+        mock_windows = [
+            {
+                "windowID": 3258,
+                "appId": "wechat",
+                "appLabel": "微信",
+                "bundleID": "com.tencent.xinWeChat",
+                "pid": 60968,
+                "title": "微信",
+                "isMainWindow": True,
+                "bounds": {"x": 20, "y": 40, "width": 900, "height": 720},
+            },
+            {
+                "windowID": 11503,
+                "appId": "wechat",
+                "appLabel": "微信",
+                "bundleID": "com.tencent.xinWeChat",
+                "pid": 60968,
+                "title": "安晓心",
+                "isMainWindow": False,
+                "bounds": {"x": 1380, "y": 484, "width": 598, "height": 640},
+            },
+            {
+                "windowID": 4012,
+                "appId": "wechat",
+                "appLabel": "微信",
+                "bundleID": "com.tencent.xinWeChat",
+                "pid": 60968,
+                "title": "陌生人弹窗",
+                "isMainWindow": False,
+                "bounds": {"x": 920, "y": 100, "width": 520, "height": 580},
+            },
+            {
+                "windowID": 3776,
+                "appId": "wecom",
+                "appLabel": "企业微信",
+                "bundleID": "com.tencent.WeWorkMac",
+                "pid": 25799,
+                "title": "企业微信",
+                "isMainWindow": True,
+                "bounds": {"x": 100, "y": 80, "width": 1080, "height": 760},
+            },
+        ]
+
+        def fake_native(args, timeout=15.0):
+            native_calls.append(list(args))
+            cmd = args[0] if args else ""
+            if cmd == "list-app-windows":
+                app_arg = args[args.index("--app") + 1] if "--app" in args else "all"
+                wins = (
+                    mock_windows
+                    if app_arg in ("all", "auto")
+                    else [w for w in mock_windows if w["appId"] == app_arg]
+                )
+                return {
+                    "ok": True,
+                    "requestedApp": app_arg,
+                    "apps": [
+                        {"appId": "wechat", "appLabel": "微信", "running": True, "windowCount": 3},
+                        {"appId": "wecom", "appLabel": "企业微信", "running": True, "windowCount": 1},
+                    ],
+                    "windowCount": len(wins),
+                    "windows": wins,
+                }
+            if cmd == "extract-pdf-text":
+                pdf_path = args[args.index("--pdf") + 1] if "--pdf" in args else ""
+                return {
+                    "ok": True,
+                    "pdfPath": pdf_path,
+                    "pageCount": 2,
+                    "processedPages": 2,
+                    "truncated": False,
+                    "text": (
+                        "产品名称：星云净水器 Pro\n"
+                        "核心卖点：星云净水器 Pro 采用 0.0001 微米 RO 反渗透膜，母婴直饮零陈水。\n"
+                        "使用方法：第一步接通电源并冲洗 5 分钟；第二步轻触出水键即可直饮。\n"
+                        "注意事项：滤芯每 12 个月更换一次，切勿接入 45 摄氏度以上热水。\n"
+                        "Q1：滤芯多久换一次？\nA1：建议每 12 个月更换一次原装复合滤芯。"
+                    ),
+                    "pages": [
+                        {"page": 1, "source": "pdfkit", "text": "星云净水器 Pro 核心卖点与使用步骤"},
+                        {"page": 2, "source": "ocr", "text": "注意事项与常见问题"},
+                    ],
+                }
+            return {
+                "ok": True,
+                "accessibilityTrusted": True,
+                "postEventTrusted": True,
+                "screenCaptureTrusted": True,
+                "wechatRunning": True,
+                "wechatPid": 60968,
+            }
+
+        work_engine._run_native = fake_native  # type: ignore[method-assign]
+
+        # 1) 验证 web_console.py 必备 DOM ID
+        console_html = render_web_console_html()
+        for marker in (
+            "appWindowPickerBtn",
+            "windowPickerPopover",
+            "docIngestBtn",
+            "docIngestOverlay",
+            "docIngestConfirmBtn",
+        ):
+            self.assertIn(marker, console_html, f"web_console.py 缺少关键标记: {marker}")
+
+        srv = create_http_server(work_engine, "127.0.0.1", 0)
+        port = srv.server_address[1]
+        t = threading.Thread(target=srv.serve_forever, daemon=True)
+        t.start()
+        try:
+            base = f"http://127.0.0.1:{port}"
+
+            # 2) GET /api/workos/windows 验证双应用扫描 + 独立小窗白名单隔离标注
+            with urllib.request.urlopen(f"{base}/api/workos/windows?app=all", timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                win_data = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(win_data["ok"])
+                self.assertEqual(len(win_data["windows"]), 4)
+                by_id = {w["windowID"]: w for w in win_data["windows"]}
+                self.assertTrue(by_id[11503]["isPopout"])
+                self.assertTrue(by_id[11503]["isAllowlistedTarget"])
+                self.assertTrue(by_id[4012]["isPopout"])
+                self.assertFalse(by_id[4012]["isAllowlistedTarget"])
+                self.assertFalse(by_id[3776]["isPopout"])
+
+            # 3) POST /api/workos/bind-window 支持 wechat 与 wecom 持久化
+            for bind_payload in (
+                {"appId": "wechat", "windowID": 11503, "windowTitle": "安晓心"},
+                {"appId": "wecom", "windowID": 3776, "windowTitle": "企业微信"},
+            ):
+                req = urllib.request.Request(
+                    f"{base}/api/workos/bind-window",
+                    data=json.dumps(bind_payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    self.assertEqual(resp.status, 200)
+                    bres = json.loads(resp.read().decode("utf-8"))
+                    self.assertTrue(bres["ok"])
+                    self.assertEqual(bres["appId"], bind_payload["appId"])
+                    self.assertEqual(bres["windowID"], bind_payload["windowID"])
+                    self.assertTrue(bres["followUpIsolation"])
+
+            # 重新构造同路径引擎实例，验证窗口绑定已持久化
+            reloaded_engine = WeChatControlEngine(
+                audit_log_path=work_dir / "audit.jsonl",
+                auth_file_path=work_dir / "auth.json",
+                bindings_file_path=work_dir / "bindings.json",
+                models_config_path=work_dir / "models.json",
+                model_http_requester=lambda m, u, **k: (_ for _ in ()).throw(ConnectionRefusedError),
+                knowledge_db_path=work_dir / "kb.sqlite",
+                personas_file_path=work_dir / "personas.json",
+                snapshots_dir=work_dir / "snap",
+                reports_dir=work_dir / "reports",
+            )
+            reloaded_engine.auth_grant(ALL_CAPABILITIES, authorized_by="diag-dualapp-reload")
+            persisted_bind = reloaded_engine.get_bound_app_window()
+            self.assertEqual(persisted_bind["appId"], "wecom")
+            self.assertEqual(persisted_bind["windowID"], 3776)
+            self.assertEqual(persisted_bind["windowTitle"], "企业微信")
+
+            # 4) POST /api/workos/doc-ingest/preview：支持 .md/.txt 与 Mock PDF 提取拆解
+            md_content = (
+                "# 光年咖啡机 X9\n"
+                "## 核心卖点\n"
+                "光年咖啡机 X9 支持 15Bar 黄金萃取与 30 秒极速预热。\n"
+                "## 使用方法\n"
+                "第一步水箱注水；第二步装入咖啡粉并按下萃取键。\n"
+                "## 注意事项\n"
+                "请勿干烧，每两周清理一次蒸汽喷嘴。\n"
+                "## 常见FAQ\n"
+                "Q：支持打奶泡吗？\nA：支持独立蒸汽棒绵密奶泡。\n"
+            )
+            md_req = urllib.request.Request(
+                f"{base}/api/workos/doc-ingest/preview",
+                data=json.dumps({
+                    "file_bytes_b64": base64.b64encode(md_content.encode("utf-8")).decode("ascii"),
+                    "filename": "光年咖啡机X9.md",
+                    "instruction": "希望你能够替代我去和顾客聊天",
+                    "use_llm": False,
+                }).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(md_req, timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                md_prev = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(md_prev["ok"])
+                self.assertEqual(md_prev["sourceType"], "markdown")
+                self.assertGreaterEqual(md_prev["itemCount"], 3)
+                cats = {it["category"] for it in md_prev["items"]}
+                self.assertTrue({"核心卖点", "使用方法与步骤", "注意事项"}.issubset(cats))
+                self.assertEqual(md_prev["recommendedStrategy"], "bind_kb")
+                opts = {o["id"]: o for o in md_prev["strategyOptions"]}
+                self.assertTrue(opts["bind_kb"]["recommended"])
+                self.assertFalse(opts["merge_prompt"]["recommended"])
+                self.assertEqual(md_prev["confirmCard"]["strategy"], "bind_kb")
+                self.assertEqual(md_prev["confirmCard"]["itemCount"], md_prev["itemCount"])
+
+            # Mock PDF 上传（base64）触发原生 extract-pdf-text 提取拆解
+            pdf_req = urllib.request.Request(
+                f"{base}/api/workos/doc-ingest/preview",
+                data=json.dumps({
+                    "file_bytes_b64": base64.b64encode(b"%PDF-1.4\n%mock-pdf\n").decode("ascii"),
+                    "filename": "星云净水器Pro.pdf",
+                    "instruction": "希望你能够替代我去和顾客聊天",
+                    "use_llm": False,
+                }).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(pdf_req, timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                pdf_prev = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(pdf_prev["ok"])
+                self.assertEqual(pdf_prev["sourceType"], "pdf")
+                self.assertEqual(pdf_prev["pageCount"], 2)
+                self.assertGreaterEqual(pdf_prev["itemCount"], 3)
+                self.assertTrue(any(c and c[0] == "extract-pdf-text" for c in native_calls))
+
+            # 5) POST /api/workos/doc-ingest/confirm 入库后，preview_smart_reply 立即命中并遵循顾问式回答
+            conf_req = urllib.request.Request(
+                f"{base}/api/workos/doc-ingest/confirm",
+                data=json.dumps({
+                    "items": pdf_prev["items"],
+                    "strategy": "bind_kb",
+                    "doc_name": pdf_prev["docName"],
+                }).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(conf_req, timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                conf_res = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(conf_res["ok"])
+                self.assertEqual(conf_res["strategy"], "bind_kb")
+                self.assertEqual(conf_res["savedCount"], len(pdf_prev["items"]))
+                self.assertFalse(conf_res["promptUpdated"])
+
+            hit_reply = work_engine.preview_smart_reply(
+                "安晓心",
+                "安晓心: 星云净水器 Pro 怎么使用？",
+                use_llm=False,
+            )
+            self.assertTrue(hit_reply["ok"])
+            self.assertGreaterEqual(hit_reply["matchedCount"], 1)
+            self.assertIn("星云净水器", hit_reply["replyText"])
+            self.assertIn("接通电源", hit_reply["replyText"])
+
+            # 验证 LLM 路径注入顾问式两段回复提示词
+            recorded_msgs = []
+
+            class _MockConsultHub:
+                def is_llm_enabled(self):
+                    return True
+
+                def generate_chat_reply(self, messages, *, model_id=None, contact_name=None):
+                    recorded_msgs.append(messages)
+                    return {
+                        "ok": True,
+                        "replyText": "您好，理解您的需求，星云净水器 Pro 先接通电源冲洗5分钟即可直饮。",
+                        "modelId": "mock-consult",
+                        "providerId": "mock",
+                        "latencyMs": 10,
+                    }
+
+            orig_models = work_engine.models
+            work_engine.models = _MockConsultHub()  # type: ignore[assignment]
+            try:
+                llm_prev = work_engine.preview_smart_reply(
+                    "安晓心",
+                    "星云净水器 Pro 怎么使用？",
+                    use_llm=True,
+                )
+                self.assertTrue(llm_prev["ok"])
+                self.assertIn("先共情/给专业判断或安全排查", recorded_msgs[0][0]["content"])
+                self.assertIn("绝不编造承诺", recorded_msgs[0][0]["content"])
+            finally:
+                work_engine.models = orig_models
+
+            # 6) needsHumanReview 在退款/投诉场景为 True
+            refund_prev = work_engine.preview_smart_reply(
+                "安晓心",
+                "安晓心: 这台机器用不了我要申请退款并投诉",
+                use_llm=False,
+            )
+            self.assertTrue(refund_prev["ok"])
+            self.assertTrue(refund_prev["needsHumanReview"])
+            self.assertTrue(bool(refund_prev["humanReviewReason"]))
+
+            # 7) 联系白名单严守仅 ["安晓心", "心安", "openbot"] 及合规助手（拒绝 "陌生人"）
+            stranger_req = urllib.request.Request(
+                f"{base}/api/wechat-ai-assist",
+                data=json.dumps({
+                    "target": "陌生人",
+                    "content_hint": "https://example.com",
+                    "dry_run": True,
+                }).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                urllib.request.urlopen(stranger_req, timeout=10)
+            self.assertEqual(ctx.exception.code, 400)
+            err_body = json.loads(ctx.exception.read().decode("utf-8"))
+            self.assertFalse(err_body["ok"])
+            self.assertEqual(err_body["error_code"], "target_not_allowed")
+
+            assist_ok_req = urllib.request.Request(
+                f"{base}/api/wechat-ai-assist",
+                data=json.dumps({
+                    "target": "小微",
+                    "content_hint": "请总结这篇文章",
+                    "bubbles": [{"direction": "peer", "text": "小微: 已整理文章核心要点与产品说明。"}],
+                    "dry_run": True,
+                }).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(assist_ok_req, timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                self.assertTrue(json.loads(resp.read().decode("utf-8"))["ok"])
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_popout_window_full_width_ocr_and_zero_switch_direct_inspect(self):
+        from wechat_control.live_inspector import WeChatLiveInspector
+
+        popout_dir = self.data / "popout_case"
+        inspector = WeChatLiveInspector(
+            lambda args, timeout=15.0: {"ok": False},
+            snapshots_dir=popout_dir / "snap",
+            reports_dir=popout_dir / "reports",
+        )
+        # 独立小窗无左栏（isMainWindow=False, splitX=0.0），左半侧 x=70 来信气泡绝不能被丢弃
+        popout_ocr = {
+            "ok": True,
+            "windowID": 11503,
+            "isMainWindow": False,
+            "splitX": 0.0,
+            "windowTitle": "安晓心",
+            "windowBounds": {"x": 1380, "y": 484, "width": 598, "height": 640},
+            "elements": [
+                {"text": "安晓心", "bbox": {"x": 28, "y": 20, "width": 52, "height": 16}, "center": {"x": 54, "y": 28}, "confidence": 0.99},
+                {"text": "请问企业版支持离线部署吗？", "bbox": {"x": 40, "y": 142, "width": 200, "height": 18}, "center": {"x": 70, "y": 151}, "confidence": 0.98},
+                {"text": "支持离线部署与内网私有化", "bbox": {"x": 340, "y": 212, "width": 195, "height": 18}, "center": {"x": 438, "y": 221}, "confidence": 0.97},
+            ],
+        }
+        structured = inspector.extract_structured_bubbles(popout_ocr)
+        self.assertEqual(structured["headerTitle"], "安晓心")
+        self.assertEqual(len(structured["bubbles"]), 2)
+        self.assertEqual(structured["bubbles"][0]["direction"], "peer")
+        self.assertIn("离线部署", structured["bubbles"][0]["text"])
+        self.assertEqual(structured["bubbles"][1]["direction"], "self")
+
+        # 验证 find_popout_window("安晓心") 与 inspect_messages("安晓心") 走免切换直连（无 click 切换主窗）
+        native_cmds = []
+
+        def fake_native_popout(args, timeout=15.0):
+            native_cmds.append(list(args))
+            cmd = args[0] if args else ""
+            if cmd == "list-app-windows":
+                return {
+                    "ok": True,
+                    "windows": [
+                        {
+                            "windowID": 3258,
+                            "appId": "wechat",
+                            "appLabel": "微信",
+                            "title": "微信",
+                            "isMainWindow": True,
+                            "bounds": {"x": 20, "y": 40, "width": 900, "height": 720},
+                        },
+                        {
+                            "windowID": 11503,
+                            "appId": "wechat",
+                            "appLabel": "微信",
+                            "title": "安晓心",
+                            "isMainWindow": False,
+                            "bounds": {"x": 1380, "y": 484, "width": 598, "height": 640},
+                        },
+                    ],
+                }
+            if cmd == "capture-ocr":
+                return dict(popout_ocr)
+            return {"ok": True}
+
+        inspector._run_native = fake_native_popout  # type: ignore[method-assign]
+        found = inspector.find_popout_window("安晓心")
+        self.assertIsNotNone(found)
+        self.assertEqual(found["windowID"], 11503)
+
+        inspected = inspector.inspect_messages("安晓心")
+        self.assertTrue(inspected["ok"])
+        self.assertTrue(inspected["popoutWindow"])
+        self.assertTrue(inspected["zeroSwitch"])
+        self.assertEqual(inspected["windowID"], 11503)
+        self.assertEqual(inspected["headerTitle"], "安晓心")
+        self.assertEqual(len(inspected["bubbles"]), 2)
+        self.assertIn("离线部署", inspected["bubbles"][0]["text"])
+        self.assertFalse(any(c and c[0] == "click" for c in native_cmds))
+        self.assertTrue(any(
+            c and c[0] == "capture-ocr" and "--window-id" in c and "11503" in c and "--no-activate" in c
+            for c in native_cmds
+        ))
+
 
 if __name__ == "__main__":
     unittest.main()

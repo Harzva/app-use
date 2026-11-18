@@ -338,8 +338,43 @@ class WeChatRealtimeMonitor:
         in_row: Optional[Dict[str, Any]],
         contact_state: Dict[str, Any],
         force_open: bool,
+        popout_windows: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
-        """Inspect a single contact's chat pane, minimizing unnecessary UI clicks."""
+        """Inspect a single contact's chat pane, preferring direct pop-out capture (zero-switch)."""
+        popout_win = (
+            self.engine.inspector._match_popout_window(target, popout_windows)
+            if popout_windows is not None
+            else self.engine.inspector.find_popout_window(target)
+        )
+        if popout_win is not None and popout_win.get("windowID"):
+            popout_res = self.engine.inspector.inspect_popout_window(
+                popout_win,
+                target=target,
+                snapshot_prefix="monitor_popout",
+            )
+            wid = int(popout_win["windowID"])
+            if not popout_res.get("ok"):
+                return {
+                    "checked": False,
+                    "error": popout_res.get("error", f"Failed to capture pop-out window #{wid}"),
+                    "skipReason": popout_res.get("error_code") or "popout_capture_failed",
+                    "popoutWindow": True,
+                    "popoutWindowID": wid,
+                    "zeroSwitch": True,
+                }
+            return {
+                "checked": True,
+                "source": "popout_window",
+                "matchedTitle": popout_res.get("matchedTitle") or target,
+                "structured": popout_res["structured"],
+                "snapshotPath": popout_res.get("snapshotPath"),
+                "rowPreview": str((in_row or {}).get("previewSnippet") or ""),
+                "popoutWindow": True,
+                "popoutWindowID": wid,
+                "windowID": wid,
+                "zeroSwitch": True,
+            }
+
         if _matches_target(target, active_header):
             return {
                 "checked": True,
@@ -595,29 +630,45 @@ class WeChatRealtimeMonitor:
                         "idleResumeSeconds": guard_state.get("idleResumeSeconds"),
                     },
                 )
+        popout_windows: List[Dict[str, Any]] = []
+        if hasattr(self.engine, "inspector") and hasattr(self.engine.inspector, "list_popout_windows"):
+            popout_windows = self.engine.inspector.list_popout_windows()
+
         cap = self._capture_live_window()
         if not cap.get("ok"):
-            state["daemon"]["lastPollAt"] = _utc_iso_now()
-            state["daemon"]["lastError"] = str(cap.get("error") or cap.get("error_code"))
-            self._save_state(state)
-            self._append_event("poll_error", cap)
-            return cap
+            if popout_windows:
+                bounds = {}
+                elements = []
+                rows = []
+                active_structured = {"headerTitle": "", "bubbles": [], "lastBubble": None}
+                active_header = ""
+            else:
+                state["daemon"]["lastPollAt"] = _utc_iso_now()
+                state["daemon"]["lastError"] = str(cap.get("error") or cap.get("error_code"))
+                self._save_state(state)
+                self._append_event("poll_error", cap)
+                return cap
+        else:
+            bounds = cap["bounds"]
+            win_w = float(bounds.get("width", 585.0) or 585.0)
+            win_h = float(bounds.get("height", 640.0) or 640.0)
+            elements = cap["ocrPayload"].get("elements") or []
+            if self.engine.inspector._is_popout_window(cap["ocrPayload"], elements):
+                split_x = 0.0
+            elif cap["ocrPayload"].get("splitX") is not None:
+                split_x = float(cap["ocrPayload"]["splitX"])
+            else:
+                split_x = self.engine.inspector._infer_split_x(elements, win_w)
 
-        bounds = cap["bounds"]
-        win_w = float(bounds["width"])
-        win_h = float(bounds["height"])
-        elements = cap["ocrPayload"].get("elements") or []
-        split_x = float(cap["ocrPayload"].get("splitX") or self.engine.inspector._infer_split_x(elements, win_w))
-
-        rows = self.engine.inspector._cluster_session_rows(
-            elements, split_x, win_h, image_path=cap["snapshotPath"],
-        )
-        active_structured = self.engine.inspector.extract_structured_bubbles(
-            cap["ocrPayload"],
-            snapshot_path=cap["snapshotPath"],
-            bounds=bounds,
-        )
-        active_header = str(active_structured.get("headerTitle") or "")
+            rows = self.engine.inspector._cluster_session_rows(
+                elements, split_x, win_h, image_path=cap["snapshotPath"],
+            )
+            active_structured = self.engine.inspector.extract_structured_bubbles(
+                cap["ocrPayload"],
+                snapshot_path=cap["snapshotPath"],
+                bounds=bounds,
+            )
+            active_header = str(active_structured.get("headerTitle") or "")
 
         all_bindings = self.engine.bindings.list_bindings()
         # 托管范围过滤：首页「一键托管」勾选的好友列表（hosting targets）是唯一的自动回复范围——
@@ -683,6 +734,12 @@ class WeChatRealtimeMonitor:
                 in_row=matched_row,
                 contact_state=c_state,
                 force_open=bool(target_filter),
+                popout_windows=popout_windows,
+            )
+            popout_meta: Dict[str, Any] = (
+                {"popoutWindowID": int(inspected["popoutWindowID"]), "zeroSwitch": True}
+                if inspected.get("popoutWindow") and inspected.get("popoutWindowID")
+                else {}
             )
             if not inspected.get("checked"):
                 actions.append({
@@ -691,6 +748,7 @@ class WeChatRealtimeMonitor:
                     "specialCare": is_special_care,
                     "status": inspected.get("skipReason", "skipped"),
                     "error": inspected.get("error"),
+                    **popout_meta,
                 })
                 continue
 
@@ -699,13 +757,14 @@ class WeChatRealtimeMonitor:
             structured = inspected["structured"]
             bubbles: List[Dict[str, Any]] = list(structured.get("bubbles") or [])
             if not bubbles:
-                actions.append({"target": target, "status": "no_visible_bubbles"})
+                actions.append({"target": target, "status": "no_visible_bubbles", **popout_meta})
                 continue
 
             last_bubble = bubbles[-1]
-            # Update active cache when navigation switched screens so next loop iteration has fresh active_header
-            active_header = str(inspected.get("matchedTitle") or active_header)
-            active_structured = structured
+            # Only update main-pane active cache when navigation actually switched the main window
+            if not inspected.get("popoutWindow"):
+                active_header = str(inspected.get("matchedTitle") or active_header)
+                active_structured = structured
 
             if last_bubble.get("direction") != "peer":
                 if new_row_preview:
@@ -716,6 +775,7 @@ class WeChatRealtimeMonitor:
                     "target": target,
                     "status": "skipped_last_is_self",
                     "lastBubbleText": last_bubble.get("text", ""),
+                    **popout_meta,
                 })
                 continue
 
@@ -738,6 +798,7 @@ class WeChatRealtimeMonitor:
                     "status": "skipped_already_replied",
                     "signature": msg_sig,
                     "incomingText": incoming_text,
+                    **popout_meta,
                 })
                 continue
 
@@ -753,11 +814,11 @@ class WeChatRealtimeMonitor:
                 c_state["takeoverReason"] = "customer_requested_human"
                 c_state["takeoverAt"] = _utc_iso_now()
                 handoff_line = "好的，已为您转接人工客服，请稍候；人工不在时您可以留言，看到会第一时间回复您。"
-                self._append_event("takeover", {"target": target, "reason": c_state["takeoverReason"]})
+                self._append_event("takeover", {"target": target, "reason": c_state["takeoverReason"], **popout_meta})
                 self._append_event(
                     "handoff_requested",
                     {"target": target, "incomingText": incoming_text, "replyText": handoff_line,
-                     "careLevel": care_level, "specialCare": is_special_care},
+                     "careLevel": care_level, "specialCare": is_special_care, **popout_meta},
                 )
                 takeover_res = {"ok": True, "contactState": dict(c_state)}
                 try:
@@ -782,6 +843,7 @@ class WeChatRealtimeMonitor:
                     "incomingText": incoming_text,
                     "send": send_res,
                     "takeover": takeover_res,
+                    **popout_meta,
                 })
                 continue
             if c_state.get("lastOutboundText"):
@@ -795,6 +857,7 @@ class WeChatRealtimeMonitor:
                     "target": target,
                     "status": "skipped_matches_outbound",
                     "incomingText": incoming_text,
+                    **popout_meta,
                 })
                 continue
 
@@ -829,6 +892,7 @@ class WeChatRealtimeMonitor:
                         "sender": sender_name or inline_speaker,
                         "incomingText": incoming_text[:240],
                         "harvestedNotes": harvested_ai_notes,
+                        **popout_meta,
                     },
                 )
                 actions.append({
@@ -838,6 +902,7 @@ class WeChatRealtimeMonitor:
                     "status": "skipped_ai_assistant_bubble",
                     "incomingText": incoming_text,
                     "harvestedNotes": harvested_ai_notes,
+                    **popout_meta,
                 })
                 continue
 
@@ -849,7 +914,7 @@ class WeChatRealtimeMonitor:
                 c_state.pop("lastRateLimitReason", None)
                 self._append_event(
                     "deferred_for_wechat_ai_assistant",
-                    {"target": target, "incomingText": incoming_text[:240]},
+                    {"target": target, "incomingText": incoming_text[:240], **popout_meta},
                 )
                 actions.append({
                     "target": target,
@@ -857,6 +922,7 @@ class WeChatRealtimeMonitor:
                     "specialCare": is_special_care,
                     "status": "deferred_for_wechat_ai_assistant",
                     "incomingText": incoming_text,
+                    **popout_meta,
                 })
                 continue
 
@@ -888,6 +954,7 @@ class WeChatRealtimeMonitor:
                 "basis": smart["basis"],
                 "dispatchedAgentTask": dispatched_receipt,
                 "draftedAt": _utc_iso_now(),
+                **popout_meta,
             }
 
             if c_state.get("takenOver"):
@@ -896,7 +963,7 @@ class WeChatRealtimeMonitor:
                     c_state["lastSeenPreview"] = new_row_preview
                 self._append_event(
                     "takeover_draft_only",
-                    {"target": target, "careLevel": care_level, "specialCare": is_special_care, "draft": draft_record},
+                    {"target": target, "careLevel": care_level, "specialCare": is_special_care, "draft": draft_record, **popout_meta},
                 )
                 # 同步进待办审阅台：人工接管期间客户发的新消息，人工要真的看得到、能一键发送
                 try:
@@ -914,6 +981,7 @@ class WeChatRealtimeMonitor:
                     "specialCare": is_special_care,
                     "status": "skipped_taken_over",
                     "pendingDraft": draft_record,
+                    **popout_meta,
                 })
                 continue
 
@@ -940,6 +1008,7 @@ class WeChatRealtimeMonitor:
                         "replyText": reply_text,
                         "personaId": smart["persona"]["id"],
                         "send": send_res,
+                        **popout_meta,
                     },
                 )
                 actions.append({
@@ -952,6 +1021,7 @@ class WeChatRealtimeMonitor:
                     "persona": smart["persona"],
                     "basis": smart["basis"],
                     "send": send_res,
+                    **popout_meta,
                 })
                 continue
 
@@ -970,13 +1040,14 @@ class WeChatRealtimeMonitor:
                     c_state.pop("pendingGapRetry", None)
                 self._append_event(
                     "auto_reply_rate_limited",
-                    {"target": target, "reason": limit_reason},
+                    {"target": target, "reason": limit_reason, **popout_meta},
                 )
                 actions.append({
                     "target": target,
                     "status": "rate_limited",
                     "reason": limit_reason,
                     "incomingText": incoming_text,
+                    **popout_meta,
                 })
                 continue
 
@@ -1014,6 +1085,7 @@ class WeChatRealtimeMonitor:
                         "replyText": reply_text,
                         "personaId": smart["persona"]["id"],
                         "postSendSnapshot": send_res.get("postSendSnapshot"),
+                        **popout_meta,
                     },
                 )
                 actions.append({
@@ -1026,6 +1098,7 @@ class WeChatRealtimeMonitor:
                     "persona": smart["persona"],
                     "basis": smart["basis"],
                     "send": send_res,
+                    **popout_meta,
                 })
             else:
                 c_state["pendingDraft"] = draft_record
@@ -1038,6 +1111,7 @@ class WeChatRealtimeMonitor:
                         "incomingText": incoming_text,
                         "replyText": reply_text,
                         "send": send_res,
+                        **popout_meta,
                     },
                 )
                 actions.append({
@@ -1048,6 +1122,7 @@ class WeChatRealtimeMonitor:
                     "incomingText": incoming_text,
                     "replyText": reply_text,
                     "send": send_res,
+                    **popout_meta,
                 })
 
         daemon = state["daemon"]
@@ -1058,7 +1133,8 @@ class WeChatRealtimeMonitor:
         daemon["lastError"] = ""
         self._save_state(state)
 
-        return {
+        popout_ids_used = [int(a["popoutWindowID"]) for a in actions if a.get("popoutWindowID")]
+        poll_resp: Dict[str, Any] = {
             "ok": True,
             "confirmSend": bool(confirm_send),
             "autoReply": bool(auto_reply),
@@ -1068,6 +1144,12 @@ class WeChatRealtimeMonitor:
             "actions": actions,
             "stateFile": str(self.state_path),
         }
+        if popout_ids_used:
+            poll_resp["zeroSwitch"] = True
+            poll_resp["popoutWindowIDs"] = popout_ids_used
+            if len(popout_ids_used) == 1:
+                poll_resp["popoutWindowID"] = popout_ids_used[0]
+        return poll_resp
 
     def run_loop(
         self,

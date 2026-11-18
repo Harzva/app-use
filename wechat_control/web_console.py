@@ -1,4 +1,4 @@
-"""YoBot / wechat-rpa-bot-skill inspired Web Control Console HTML & UI renderer."""
+"""YoBot / wechat-rpa-bot-skill inspired Web Control Console HTML & UI renderer (v2.4.70)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from typing import Any, Dict
 
 
 WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
+<!-- WeChat Bot Web Control Console v2.4.70 -->
 <html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="utf-8" />
@@ -620,7 +621,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       transition: all 0.2s ease;
     }
     .toast.show { opacity: 1; transform: translateY(0); }
-    /* ===== WeChat Bot v2.4.0 · Astryx × Uncodixfy × Modern Web Guidance ===== */
+    /* ===== WeChat Bot v2.4.70 · Astryx × Uncodixfy × Modern Web Guidance ===== */
     :root {
       color-scheme: light dark;
       --bg: #fafafa;
@@ -1686,7 +1687,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       #tab-monitor .chat-context-bar, #tab-monitor .chat-tools-drawer .grid-2 { grid-template-columns: minmax(0,1fr); }
     }
 
-    /* BotStudio-Inspired Workbench Layout, Viewport-Locked Chat & Settings Center (v2.4.69) */
+    /* BotStudio-Inspired Workbench Layout, Viewport-Locked Chat & Settings Center (v2.4.70) */
     nav.tabs {
       padding: 4px 12px !important;
       gap: 3px !important;
@@ -1801,7 +1802,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       font-size: 11.5px;
     }
     #tab-monitor .hosting-actions { flex-wrap: nowrap; flex-shrink: 0; gap: 5px; }
-    #tab-monitor .hosting-actions button { padding: 4px 9px !important; font-size: 12px !important; min-height: 28px; }
+    #tab-monitor .hosting-actions > button, #tab-monitor #appWindowPickerBtn { padding: 4px 9px !important; font-size: 12px !important; min-height: 28px; }
     #tab-monitor .hosting-picker { position: static; flex-shrink: 0; }
     #tab-monitor .hosting-picker > summary {
       font-size: 12px; font-weight: 500;
@@ -1977,7 +1978,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
     }
     .settings-card h3 { margin: 0; font-size: 13.5px; }
     .settings-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 10px; font-size: 13px; }
-    /* Thiflow See-Think-Act & Yingdao AI WorkOS Extensions (v2.4.69) */
+    /* Thiflow See-Think-Act & Yingdao AI WorkOS Extensions (v2.4.70) */
     #tab-monitor .workos-goal-bar {
       flex-shrink: 0;
       display: flex;
@@ -2040,6 +2041,349 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
     }
     .workos-pillar-box h4 { margin: 0 0 4px; font-size: 12.5px; color: var(--work-pine); }
     .workos-list { margin: 4px 0 0; padding-left: 16px; max-height: 125px; overflow-y: auto; font-size: 11.5px; }
+    .workos-human-review-alert {
+      padding: 6px 10px;
+      margin-bottom: 6px;
+      border-radius: 7px;
+      border: 1px solid rgba(217, 119, 6, 0.45);
+      background: rgba(217, 119, 6, 0.10);
+      color: var(--work-alert);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    /* WeChat + WeCom Window Picker Popover (#appWindowPickerBtn / #windowPickerPopover) v2.4.70 */
+    .window-picker-wrap { position: relative; flex-shrink: 0; }
+    #appWindowPickerBtn {
+      max-width: 176px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    #appWindowPickerBtn.is-bound {
+      border-color: var(--work-pine) !important;
+      color: var(--work-pine) !important;
+      background: color-mix(in srgb, var(--work-pine) 9%, var(--surface)) !important;
+      font-weight: 600 !important;
+    }
+    @supports (position-area: block-end) {
+      #appWindowPickerBtn { anchor-name: --app-window-picker; }
+      #windowPickerPopover {
+        position-anchor: --app-window-picker;
+        inset: auto;
+        margin: 0;
+        position-area: block-end span-inline-start;
+        position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+      }
+    }
+    @supports not (position-area: block-end) {
+      #windowPickerPopover {
+        position: fixed;
+        inset: auto;
+        margin: 0;
+      }
+    }
+    .window-picker-popover {
+      display: none;
+      width: min(440px, calc(100vw - 24px));
+      max-height: min(460px, calc(100dvh - 96px));
+      padding: 0;
+      border: 1px solid var(--border-strong);
+      border-radius: 12px;
+      background: var(--surface);
+      color: var(--text);
+      box-shadow: 0 14px 36px rgba(0, 0, 0, 0.18);
+      z-index: 9500;
+      overflow: hidden;
+    }
+    .window-picker-popover:is(:popover-open, .open) {
+      display: flex;
+      flex-direction: column;
+    }
+    .window-picker-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface-soft);
+      flex-shrink: 0;
+    }
+    .window-picker-head strong { font-size: 13px; color: var(--text); }
+    .window-picker-sub { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+    .window-picker-head-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .window-picker-apps {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      padding: 7px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      font-size: 11.5px;
+      flex-shrink: 0;
+    }
+    .window-picker-body {
+      overflow-y: auto;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+    .window-group { display: flex; flex-direction: column; gap: 5px; }
+    .window-group-popout {
+      padding: 7px;
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--work-pine) 6%, var(--surface-soft));
+      border: 1px solid color-mix(in srgb, var(--work-pine) 25%, var(--border));
+    }
+    .window-group-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--text-secondary);
+      padding: 1px 3px;
+    }
+    .window-group-popout .window-group-title { color: var(--work-pine); }
+    .window-item-btn {
+      width: 100%;
+      text-align: left;
+      display: flex !important;
+      flex-direction: column;
+      align-items: stretch !important;
+      gap: 3px;
+      padding: 7px 9px !important;
+      min-height: 0 !important;
+      background: var(--surface) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 8px !important;
+      cursor: pointer;
+    }
+    .window-item-btn:hover {
+      border-color: var(--work-pine) !important;
+      background: var(--surface-hover) !important;
+    }
+    .window-item-btn.active {
+      border-color: var(--work-pine) !important;
+      background: var(--work-selection) !important;
+    }
+    .window-item-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      width: 100%;
+    }
+    .window-item-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+    .window-item-title {
+      font-size: 12.5px;
+      font-weight: 650;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .window-item-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .win-tag {
+      font-size: 10.5px;
+      padding: 1px 7px;
+      border-radius: 999px;
+      font-weight: 600;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .win-tag.allow { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+    html[data-theme="dark"] .win-tag.allow { background: rgba(16, 185, 129, 0.16); color: #6ee7b7; border-color: rgba(16, 185, 129, 0.35); }
+    .win-tag.protected { background: var(--surface-soft); color: var(--text-secondary); border: 1px solid var(--border-strong); }
+    .win-tag.app { background: var(--surface-soft); color: var(--text-secondary); border: 1px solid var(--border); }
+    .window-picker-foot {
+      padding: 7px 12px;
+      border-top: 1px solid var(--border);
+      background: var(--surface-soft);
+      font-size: 11px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    /* Conversational Document & PDF Knowledge Ingest Dialog (#docIngestOverlay) v2.4.70 */
+    dialog.doc-ingest-dialog {
+      width: min(780px, calc(100vw - 32px));
+      max-height: min(88dvh, 780px);
+      margin: auto;
+      padding: 0;
+      border: 1px solid var(--border-strong);
+      border-radius: 14px;
+      background: var(--bg);
+      color: var(--text);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.36);
+      overflow: hidden;
+      accent-color: var(--work-pine);
+    }
+    dialog.doc-ingest-dialog[open] {
+      display: flex;
+      flex-direction: column;
+    }
+    dialog.doc-ingest-dialog:modal {
+      overscroll-behavior: contain;
+    }
+    dialog.doc-ingest-dialog::backdrop {
+      background: rgba(15, 18, 25, 0.56);
+      backdrop-filter: blur(3px);
+      overflow: hidden;
+      overscroll-behavior: contain;
+    }
+    .doc-ingest-dialog input[type="checkbox"],
+    .doc-ingest-dialog input[type="radio"] {
+      width: auto;
+      flex: none;
+      accent-color: var(--work-pine);
+    }
+    .doc-ingest-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 13px 18px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface-soft);
+      flex-shrink: 0;
+    }
+    .doc-ingest-head h2 { margin: 0; font-size: 15.5px; }
+    .doc-ingest-head p { margin: 3px 0 0; font-size: 12px; color: var(--text-secondary); }
+    .doc-ingest-body {
+      padding: 14px 18px;
+      overflow-y: auto;
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .doc-ingest-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .doc-ingest-field { display: flex; flex-direction: column; gap: 4px; }
+    .doc-ingest-field label { font-size: 12.5px; font-weight: 600; color: var(--text); }
+    .doc-ingest-row-2 { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 10px; }
+    .doc-ingest-file-box {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 8px 10px;
+      border: 1px dashed var(--border-strong);
+      border-radius: 8px;
+      background: var(--surface-soft);
+    }
+    .doc-ingest-file-box input[type="file"] { font-size: 12.5px; max-width: 100%; }
+    .doc-ingest-file-meta { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+    .doc-ingest-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .doc-ingest-status { font-size: 12px; color: var(--text-secondary); }
+    .doc-ingest-status[data-tone="error"] { color: var(--danger); font-weight: 600; }
+    .doc-ingest-preview-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--text-secondary);
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+    }
+    .doc-strategy-fieldset { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+    .doc-strategy-fieldset legend { font-size: 12.5px; font-weight: 700; color: var(--text); padding: 0; margin-bottom: 2px; }
+    .doc-strategy-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .doc-strategy-card {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: var(--surface-soft);
+      cursor: pointer;
+      font-size: 12.5px;
+      transition: border-color 140ms var(--ease-out), background-color 140ms var(--ease-out);
+    }
+    .doc-strategy-card.selected {
+      border-color: var(--work-pine);
+      background: color-mix(in srgb, var(--work-pine) 8%, var(--surface));
+    }
+    .doc-strategy-card input[type="radio"] { margin-top: 2px; }
+    .doc-strategy-title { font-weight: 650; color: var(--text); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .doc-strategy-desc { font-size: 11.5px; color: var(--text-secondary); margin-top: 3px; line-height: 1.45; }
+    .doc-draft-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+    .doc-draft-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 250px;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+    .doc-draft-item {
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 9px 10px;
+      background: var(--surface-soft);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .doc-draft-item.unchecked { opacity: 0.58; }
+    .doc-draft-item-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .doc-draft-item-head select { padding: 3px 8px !important; font-size: 11.5px !important; width: auto; }
+    .doc-draft-item-title { flex: 1 1 200px; padding: 4px 8px !important; font-size: 12.5px !important; font-weight: 600; }
+    .doc-draft-item-body { min-block-size: 50px !important; max-block-size: 110px !important; font-size: 12.5px !important; padding: 6px 8px !important; }
+    .doc-draft-item-kw { font-size: 11.5px !important; padding: 3px 8px !important; }
+    .doc-confirm-card {
+      background: color-mix(in srgb, var(--work-pine) 7%, var(--surface));
+      border: 1px solid color-mix(in srgb, var(--work-pine) 34%, var(--border));
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .doc-confirm-title { font-size: 13.5px; font-weight: 700; color: var(--work-pine); }
+    .doc-confirm-summary { font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; }
+    .doc-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+
+    @media (max-width: 1180px) {
+      #tab-monitor .hosting-top-row { flex-wrap: wrap; }
+      #tab-monitor .hosting-actions { flex-wrap: wrap; }
+    }
     @media (max-width: 900px) {
       #tab-monitor .chat-workspace { height: auto; min-height: auto; overflow: visible; }
       #tab-monitor .home-conversations { height: auto; max-height: 270px; }
@@ -2053,6 +2397,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       .settings-rail { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border); }
       .settings-nav-btn { width: auto; white-space: nowrap; }
       .settings-row { grid-template-columns: 1fr; gap: 4px; }
+      .doc-ingest-row-2, .doc-strategy-grid { grid-template-columns: 1fr; }
     }
 
   </style>
@@ -2297,6 +2642,71 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       </div>
     </div>
 
+    <!-- Conversational Document & PDF Knowledge Ingest Dialog (#docIngestOverlay) -->
+    <dialog id="docIngestOverlay" class="doc-ingest-dialog" closedby="any" aria-labelledby="docIngestModalTitle">
+      <div class="doc-ingest-head">
+        <div>
+          <h2 id="docIngestModalTitle">📄 喂资料入库 · AI 自动学习与知识沉淀</h2>
+          <p>上传 PDF / TXT / MD / JSON 手册或直接粘贴产品资料，一句话说明客服要求，AI 自动拆解并可选绑进知识库</p>
+        </div>
+        <button type="button" class="btn-outline sm" onclick="hideDocIngestModal()" aria-label="关闭喂资料入库弹窗">关闭</button>
+      </div>
+      <div class="doc-ingest-body" id="docIngestModalBody">
+        <section class="doc-ingest-section" aria-label="上传或粘贴产品资料">
+          <div class="doc-ingest-row-2">
+            <div class="doc-ingest-field">
+              <label for="docIngestFile">1. 选择资料文件（.pdf / .txt / .md / .json）</label>
+              <div class="doc-ingest-file-box">
+                <input type="file" id="docIngestFile" name="docIngestFile" accept=".pdf,.txt,.md,.json" onchange="handleDocIngestFileChange(this)" />
+                <div id="docIngestFileMeta" class="doc-ingest-file-meta">支持 PDF 文本与扫描页自动识别（≤25MB）</div>
+              </div>
+            </div>
+            <div class="doc-ingest-field">
+              <label for="docIngestDocName">资料名称（可选，留空自动识别）</label>
+              <input type="text" id="docIngestDocName" name="docIngestDocName" placeholder="例如：极光净水器 S1 产品手册" />
+            </div>
+          </div>
+          <div class="doc-ingest-field">
+            <label for="docIngestText">2. 或直接粘贴长文本产品资料 / 问答口径</label>
+            <textarea id="docIngestText" name="docIngestText" rows="5" placeholder="粘贴产品介绍、核心卖点、使用方法、注意事项或常见客户问答…（如已选择 PDF 文件可留空或补充重点）"></textarea>
+          </div>
+          <div class="doc-ingest-field">
+            <label for="docIngestInstruction">3. 你的接待需求指令</label>
+            <input type="text" id="docIngestInstruction" name="docIngestInstruction" value="希望你能够替代我去和顾客聊天" placeholder="例如：希望你能够替代我去和顾客聊天，先共情再按资料作答" />
+          </div>
+          <div class="doc-ingest-actions">
+            <button type="button" id="docIngestPreviewBtn" class="btn-solid" onclick="previewDocIngest()">🤖 AI 解析资料</button>
+            <button type="button" class="btn-outline sm" onclick="resetDocIngestForm()">清空重填</button>
+            <span id="docIngestStatus" class="doc-ingest-status" role="status" aria-live="polite"></span>
+          </div>
+        </section>
+
+        <section id="docIngestResultPane" class="doc-ingest-section" hidden aria-label="解析结果与确认执行任务">
+          <div id="docIngestPreviewMeta" class="doc-ingest-preview-meta"></div>
+          <fieldset class="doc-strategy-fieldset">
+            <legend>方案对比（请选择执行策略）</legend>
+            <div id="docIngestStrategyGrid" class="doc-strategy-grid"></div>
+          </fieldset>
+          <div class="doc-draft-toolbar">
+            <strong id="docIngestItemsHeading" style="font-size:12.5px;">拆解后的结构化知识卡片（可勾选 / 微调）</strong>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <button type="button" class="link-btn" onclick="docIngestSelectAll(true)">全选</button>
+              <button type="button" class="link-btn" onclick="docIngestSelectAll(false)">全不选</button>
+            </div>
+          </div>
+          <div id="docIngestItemsList" class="doc-draft-list"></div>
+          <div id="docIngestConfirmCard" class="doc-confirm-card">
+            <div id="docIngestConfirmTitle" class="doc-confirm-title">确认执行任务 · 绑进知识库</div>
+            <div id="docIngestConfirmSummary" class="doc-confirm-summary">保持现有营销人设不变，将已勾选条目批量写入 FTS5 知识库。</div>
+            <div class="doc-confirm-actions">
+              <button type="button" id="docIngestContinueEditBtn" class="btn-outline" onclick="continueEditingDocIngest()">继续修改</button>
+              <button type="button" id="docIngestConfirmBtn" class="btn-solid" onclick="confirmDocIngest()">确认</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </dialog>
+
     <!-- Tab 2 (Default Chat-First Home): Live Chat & AI Copilot -->
     <section id="tab-monitor" class="tab-panel active">
       <div class="chat-workspace">
@@ -2350,6 +2760,26 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
                     <ul class="hosting-friend-list" id="hostingFriendList"><li class="hosting-empty">正在读取好友列表…</li></ul>
                   </div>
                 </details>
+                <div class="window-picker-wrap">
+                  <button type="button" id="appWindowPickerBtn" class="btn-outline sm" aria-expanded="false" aria-controls="windowPickerPopover" onclick="toggleWindowPickerPopover()" title="选择并绑定微信或企业微信窗口（支持独立聊天小窗免切换直连）">🪟 窗口: 自动</button>
+                  <div id="windowPickerPopover" class="window-picker-popover" popover="auto" aria-label="微信与企业微信窗口选择器">
+                    <div class="window-picker-head">
+                      <div>
+                        <strong>🪟 选择应用 / 聊天窗口</strong>
+                        <div class="window-picker-sub">微信 + 企业微信 · 独立小窗免切换直连</div>
+                      </div>
+                      <div class="window-picker-head-actions">
+                        <button type="button" class="link-btn" onclick="refreshAppWindows(true)">🔄 刷新</button>
+                        <button type="button" class="link-btn" onclick="bindAppWindow({ appId: 'auto', windowID: null, windowTitle: '' })">自动跟随</button>
+                      </div>
+                    </div>
+                    <div id="windowPickerAppsSummary" class="window-picker-apps">正在检测应用状态…</div>
+                    <div id="windowPickerBody" class="window-picker-body">
+                      <div class="hosting-empty">正在扫描微信与企业微信可见窗口…</div>
+                    </div>
+                    <div class="window-picker-foot">🔒 非白名单独立小窗仅作只读保护，禁止一键开启发送托管</div>
+                  </div>
+                </div>
                 <button type="button" id="hostingEnableBtn" class="btn-solid hosting-btn" onclick="applyHosting(true)">🚀 一键托管</button>
                 <button type="button" id="hostingDisableBtn" class="btn-outline sm" onclick="applyHosting(false)">⏹ 停止</button>
                 <button type="button" id="speedModeBtn" class="btn-outline sm" onclick="toggleWorkosSpeedMode()" title="在「⚡ 极速」低延迟与「🔬 深思」深度推理档位间切换">⚡ 极速</button>
@@ -2415,6 +2845,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
                 <button type="button" id="saveDraftBtn" class="btn-outline" aria-describedby="saveDraftHint" onclick="saveConversationDraft()">加入待办</button>
                 <button type="button" id="sendActionLabel" class="btn-outline" onclick="executeSafeSend()" aria-describedby="sendModeHint">模拟检查</button>
                 <button type="button" id="learnCorrectionBtn" class="btn-outline" onclick="learnFromDraftCorrection()" title="将当前来信与修改后定稿一键沉淀进知识库 SOP，越用越懂你的业务">✨ 纠偏沉淀 SOP</button>
+                <button type="button" id="docIngestBtn" class="btn-outline" onclick="openDocIngestModal()" title="上传 PDF / Markdown / TXT 资料或粘贴长文本，AI 自动拆解并绑进知识库">📄 喂资料入库</button>
                 <button type="button" id="composerSettingsBtn" class="btn-outline" onclick="openSettingsModal('reply')" title="打开回复性格、模型与发送安全设置">⚙️ 设置</button>
               </div>
               <div class="saved-draft-feedback">
@@ -2646,7 +3077,10 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
             <h2 class="section-title">微信企业客服知识库与专业术语管理 (FTS5)</h2>
             <div class="section-desc" id="kbDbPathDesc">支持 OpenBot 本地知识库同步 + 术语 / 话术 / FAQ / 知识条目在线检索与发布</div>
           </div>
-          <button class="sm accent" onclick="syncOpenBotKb()">🔄 同步 OpenBot SQLite 知识库</button>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <button type="button" id="kbDocIngestBtn" class="sm primary" onclick="openDocIngestModal()">📄 喂资料 / PDF 入库</button>
+            <button class="sm accent" onclick="syncOpenBotKb()">🔄 同步 OpenBot SQLite 知识库</button>
+          </div>
         </div>
 
         <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:6px;">
@@ -2814,7 +3248,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
         <div class="panel-card">
           <div class="section-header">
             <div>
-              <h2 class="section-title">独立桌面软件与网页控制端 (`v2.4.0`)</h2>
+              <h2 class="section-title">独立桌面软件与网页控制端 (`v2.4.70`)</h2>
               <div class="section-desc">可脱离 Bot Studio 独立运行：原生 macOS `.app` (Swift Cocoa + WKWebView) + Web Console + CLI</div>
             </div>
             <span class="pill ok" id="standaloneStatusPill"><span class="dot"></span> 检测中</span>
@@ -5267,6 +5701,9 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       const refs = data.basis?.documentRefs || data.matchedEntries || [];
       const personaLabel = data.persona?.name || "默认人格";
       const personaMeta = data.persona?.mbti ? `${personaLabel} · ${data.persona.mbti}` : personaLabel;
+      const reviewBanner = data.needsHumanReview
+        ? `<div class="workos-human-review-alert" role="status">⚠️ <b>建议人工核实</b>：${escapeHtml(data.humanReviewReason || "涉及退款/投诉或当前资料未覆盖，请人工核实后再发送")}</div>`
+        : "";
       const sta = data.seeThinkAct || null;
       const staHtml = sta ? `
         <div class="see-think-act-grid" id="seeThinkActBar">
@@ -5280,6 +5717,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         : "知识库规则匹配";
       el.innerHTML = `
         <div>
+          ${reviewBanner}
           ${staHtml}
           ${edited ? `<div class="draft-suggestion"><strong>新建议</strong><p>${escapeHtml(data.replyText)}</p></div>` : ""}
           <details class="chat-thinking-details">
@@ -6627,6 +7065,24 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       lastEscAt: 0,
     };
 
+    const WINDOW_BIND_STATE = {
+      apps: [],
+      windows: [],
+      boundWindow: { appId: "auto", appLabel: "自动跟随", windowID: null, windowTitle: "", followUpIsolation: true },
+      loading: false,
+      lastClosedAt: 0,
+    };
+
+    const DOC_INGEST_STATE = {
+      fileUpload: null,
+      preview: null,
+      items: [],
+      strategy: "bind_kb",
+      docName: "",
+      busy: false,
+      lastClosedAt: 0,
+    };
+
     function _renderWorkosControls(harness) {
       if (!harness) return;
       WORKOS_STATE.harness = harness;
@@ -6634,6 +7090,10 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       WORKOS_STATE.speedMode = gov.speedMode || "fast";
       WORKOS_STATE.postPreset = gov.postPreset || "private_ops";
       if (gov.taskGoal) WORKOS_STATE.taskGoal = gov.taskGoal;
+      if (gov.boundWindow && typeof gov.boundWindow === "object") {
+        WINDOW_BIND_STATE.boundWindow = gov.boundWindow;
+        renderBoundWindowButton();
+      }
 
       const sBtn = document.getElementById("speedModeBtn");
       if (sBtn) {
@@ -6654,14 +7114,15 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       if (govBox) {
         const targets = (gov.allowedTargets || []).join("、") || "未设置";
         const hgActive = gov.humanGuard?.enabled ? "已启用让路" : "已关闭";
-        govBox.innerHTML = `<div>允许联系人：<b>${escapeHtml(targets)}</b></div><div>防抢鼠标：${escapeHtml(hgActive)} · 当前档位：<b>${WORKOS_STATE.speedMode === "deep" ? "🔬 深思" : "⚡ 极速"}</b></div><div>岗位：${escapeHtml(gov.postLabel || "私域运营专员")}</div>`;
+        const winLabel = formatBoundWindowLabel(gov.boundWindow || WINDOW_BIND_STATE.boundWindow);
+        govBox.innerHTML = `<div>允许联系人：<b>${escapeHtml(targets)}</b></div><div>防抢鼠标：${escapeHtml(hgActive)} · 当前档位：<b>${WORKOS_STATE.speedMode === "deep" ? "🔬 深思" : "⚡ 极速"}</b></div><div>岗位：${escapeHtml(gov.postLabel || "私域运营专员")} · 窗口：<b>${escapeHtml(winLabel)}</b></div>`;
       }
       const evalBox = document.getElementById("workosEvalBox");
       if (evalBox) {
         const ev = harness.evaluation || {};
         const b = ev.benchmark || {};
         const benchLine = b.totalCases ? `基准评测：${b.passed}/${b.totalCases}（术语泄漏 ${b.jargonLeaks ?? 0} 条）` : "基准评测：暂无离线报告";
-        evalBox.innerHTML = `<div>知识库总条目：<b>${ev.knowledgeEntriesCount ?? 0}</b> 条</div><div>自学习沉淀 SOP：<b>${ev.selfLearnedCount ?? 0}</b> 条</div><div>${escapeHtml(benchLine)}</div>`;
+        evalBox.innerHTML = `<div>知识库总条目：<b>${ev.knowledgeEntriesCount ?? 0}</b> 条</div><div>自学习沉淀 SOP：<b>${ev.selfLearnedCount ?? 0}</b> 条 · 文档入库：<b>${ev.docIngestedCount ?? 0}</b> 条</div><div>${escapeHtml(benchLine)}</div>`;
       }
       const refBox = document.getElementById("workosReflectBox");
       if (refBox) {
@@ -6826,6 +7287,646 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
 
     function hideSettingsModal() {
       document.getElementById("settingsOverlay")?.classList.remove("visible");
+    }
+
+    function supportsPopoverApi() {
+      return typeof HTMLElement !== "undefined" && Object.hasOwn(HTMLElement.prototype, "popover");
+    }
+
+    function isWindowPickerOpen() {
+      const pop = document.getElementById("windowPickerPopover");
+      if (!pop) return false;
+      if (supportsPopoverApi()) {
+        try { return pop.matches(":popover-open"); } catch (e) {}
+      }
+      return pop.classList.contains("open");
+    }
+
+    function positionWindowPickerPopover() {
+      const btn = document.getElementById("appWindowPickerBtn");
+      const pop = document.getElementById("windowPickerPopover");
+      if (!btn || !pop) return;
+      if (typeof CSS !== "undefined" && CSS.supports && CSS.supports("position-area: block-end")) {
+        pop.style.top = "";
+        pop.style.left = "";
+        return;
+      }
+      const rect = btn.getBoundingClientRect();
+      const popWidth = Math.min(440, window.innerWidth - 24);
+      const popHeight = Math.min(460, pop.offsetHeight || 360);
+      const spaceBelow = window.innerHeight - rect.bottom - 12;
+      const spaceAbove = rect.top - 12;
+      let top = rect.bottom + 6;
+      if (spaceBelow < 220 && spaceAbove > spaceBelow) {
+        top = Math.max(8, rect.top - Math.min(popHeight, spaceAbove) - 6);
+      } else {
+        top = Math.min(top, Math.max(8, window.innerHeight - Math.min(popHeight, 260) - 8));
+      }
+      let left = rect.right - popWidth;
+      if (left < 12) left = Math.max(12, rect.left);
+      if (left + popWidth > window.innerWidth - 12) {
+        left = Math.max(12, window.innerWidth - popWidth - 12);
+      }
+      pop.style.top = `${Math.round(top)}px`;
+      pop.style.left = `${Math.round(left)}px`;
+    }
+
+    function formatBoundWindowLabel(bound) {
+      const b = bound || {};
+      const appId = String(b.appId || "auto").toLowerCase();
+      const wid = b.windowID;
+      const title = String(b.windowTitle || "").trim();
+      if (appId === "auto" && !wid && !title) {
+        return "🪟 窗口: 自动";
+      }
+      const appShort = appId === "wecom" ? "企业微信" : (appId === "wechat" ? "微信" : (b.appLabel || "自动"));
+      if (title) {
+        if (title === appShort || ["微信", "WeChat", "企业微信", "WeCom"].includes(title)) {
+          return `🪟 ${appShort}主窗`;
+        }
+        return `🪟 ${appShort} · ${title}`;
+      }
+      if (wid) return `🪟 ${appShort} #${wid}`;
+      return `🪟 ${appShort}主窗`;
+    }
+
+    function renderBoundWindowButton() {
+      const btn = document.getElementById("appWindowPickerBtn");
+      if (!btn) return;
+      const b = WINDOW_BIND_STATE.boundWindow || {};
+      const label = formatBoundWindowLabel(b);
+      const isBound = (String(b.appId || "auto") !== "auto") || Boolean(b.windowID);
+      btn.textContent = label;
+      btn.classList.toggle("is-bound", isBound);
+      btn.title = isBound
+        ? `当前已绑定目标窗口：${label}${b.windowID ? " (#" + b.windowID + ")" : ""} · 点击切换微信 / 企业微信窗口`
+        : "选择并绑定微信或企业微信窗口（支持独立聊天小窗免切换直连）";
+    }
+
+    function _isWindowAllowlisted(win) {
+      if (typeof win?.isAllowlistedTarget === "boolean") return win.isAllowlistedTarget;
+      const rawTitle = String(win?.title || "").trim().toLowerCase();
+      if (!rawTitle) return false;
+      const allowed = WORKOS_STATE?.harness?.governance?.allowedTargets || ["安晓心", "心安", "openbot"];
+      return allowed.some((t) => {
+        const clean = String(t || "").trim().toLowerCase();
+        return clean && (rawTitle === clean || rawTitle.includes(clean));
+      });
+    }
+
+    function _isWindowActiveBinding(win) {
+      const b = WINDOW_BIND_STATE.boundWindow || {};
+      if (b.windowID && win.windowID) return Number(b.windowID) === Number(win.windowID);
+      if (b.appId && b.appId !== "auto" && b.appId === win.appId && !b.windowID) {
+        return Boolean(win.isMainWindow);
+      }
+      return false;
+    }
+
+    function renderAppWindowPickerList() {
+      const appsBox = document.getElementById("windowPickerAppsSummary");
+      const bodyBox = document.getElementById("windowPickerBody");
+      if (!appsBox || !bodyBox) return;
+
+      const apps = Array.isArray(WINDOW_BIND_STATE.apps) ? WINDOW_BIND_STATE.apps : [];
+      if (apps.length) {
+        appsBox.innerHTML = apps.map((a) => {
+          const icon = a.appId === "wecom" ? "🏢" : "💬";
+          const cls = a.running ? "win-tag allow" : "win-tag protected";
+          const statusTxt = a.running ? `运行中 · ${a.windowCount ?? 0} 窗` : "未运行";
+          return `<span class="${cls}">${icon} ${escapeHtml(a.appLabel || a.appId)} · ${escapeHtml(statusTxt)}</span>`;
+        }).join("");
+      } else {
+        appsBox.innerHTML = `<span class="win-tag app">等待扫描微信 / 企业微信…</span>`;
+      }
+
+      const b = WINDOW_BIND_STATE.boundWindow || {};
+      const isAuto = (!b.appId || b.appId === "auto") && !b.windowID;
+      const windows = Array.isArray(WINDOW_BIND_STATE.windows) ? WINDOW_BIND_STATE.windows : [];
+      const popouts = [];
+      const mains = [];
+      windows.forEach((w, idx) => {
+        const isPopout = w.isPopout === true || w.isMainWindow === false;
+        if (isPopout) popouts.push({ win: w, idx });
+        else mains.push({ win: w, idx });
+      });
+
+      const autoRowHtml = `
+        <button type="button" class="window-item-btn${isAuto ? " active" : ""}" onclick="bindAppWindow({ appId: 'auto', windowID: null, windowTitle: '' })">
+          <div class="window-item-top">
+            <span class="window-item-title">✨ 自动跟随当前前台微信 / 企业微信</span>
+            <span class="win-tag ${isAuto ? "allow" : "app"}">${isAuto ? "当前使用" : "默认"}</span>
+          </div>
+          <div class="window-item-meta">不锁定特定 windowID，按托管与安全白名单自动跟随</div>
+        </button>
+      `;
+
+      const renderItem = ({ win, idx }, isPopoutSection) => {
+        const icon = win.appId === "wecom" ? "🏢" : "💬";
+        const appTxt = win.appLabel || (win.appId === "wecom" ? "企业微信" : "微信");
+        const active = _isWindowActiveBinding(win);
+        const allowlisted = isPopoutSection ? _isWindowAllowlisted(win) : true;
+        const sizeTxt = win.bounds ? `${Math.round(win.bounds.width || 0)}×${Math.round(win.bounds.height || 0)}` : "";
+        const titleTxt = win.title || (win.isMainWindow === false ? "独立聊天小窗" : `${appTxt}主窗`);
+        const statusTag = isPopoutSection
+          ? (allowlisted ? `<span class="win-tag allow">🟢 免切换直连</span>` : `<span class="win-tag protected">🔒 非白名单只读保护</span>`)
+          : `<span class="win-tag app">🖥️ 主窗口</span>`;
+        return `
+          <button type="button" class="window-item-btn${active ? " active" : ""}" onclick="selectAppWindowByIndex(${idx})">
+            <div class="window-item-top">
+              <span class="window-item-title-wrap">
+                <span class="win-tag app">${icon} ${escapeHtml(appTxt)}</span>
+                <span class="window-item-title" title="${escapeHtml(titleTxt)}">${escapeHtml(titleTxt)}</span>
+              </span>
+              ${statusTag}
+            </div>
+            <div class="window-item-meta">
+              <span>windowID: #${escapeHtml(String(win.windowID ?? "-"))}</span>
+              ${sizeTxt ? `<span>尺寸 ${escapeHtml(sizeTxt)}</span>` : ""}
+              ${active ? `<span style="color:var(--work-pine); font-weight:650;">✓ 已绑定</span>` : ""}
+            </div>
+          </button>
+        `;
+      };
+
+      const popoutGroupHtml = `
+        <div class="window-group window-group-popout">
+          <div class="window-group-title">
+            <span>📌 独立聊天小窗（免切换直连）</span>
+            <span>${popouts.length} 窗</span>
+          </div>
+          ${popouts.length
+            ? popouts.map((entry) => renderItem(entry, true)).join("")
+            : `<div class="hosting-empty" style="font-size:11.5px; padding:4px 2px;">暂未检测到独立弹出的聊天小窗（双击微信/企业微信好友会话即可独立成窗）</div>`}
+        </div>
+      `;
+
+      const mainGroupHtml = `
+        <div class="window-group">
+          <div class="window-group-title">
+            <span>🖥️ 应用主窗口</span>
+            <span>${mains.length} 窗</span>
+          </div>
+          ${mains.length
+            ? mains.map((entry) => renderItem(entry, false)).join("")
+            : `<div class="hosting-empty" style="font-size:11.5px; padding:4px 2px;">未检测到微信或企业微信主窗口</div>`}
+        </div>
+      `;
+
+      bodyBox.innerHTML = autoRowHtml + popoutGroupHtml + mainGroupHtml;
+    }
+
+    async function refreshAppWindows(notify = false) {
+      if (WINDOW_BIND_STATE.loading) return;
+      WINDOW_BIND_STATE.loading = true;
+      const bodyBox = document.getElementById("windowPickerBody");
+      if (bodyBox && !WINDOW_BIND_STATE.windows.length) {
+        bodyBox.innerHTML = `<div class="hosting-empty">正在扫描微信与企业微信可见窗口…</div>`;
+      }
+      try {
+        const { status, data } = await apiJson("/api/workos/windows?app=all");
+        if (status !== 200 || !data.ok) throw new Error(data.error || "扫描窗口失败");
+        WINDOW_BIND_STATE.apps = Array.isArray(data.apps) ? data.apps : [];
+        WINDOW_BIND_STATE.windows = Array.isArray(data.windows) ? data.windows : [];
+        if (data.boundWindow) {
+          WINDOW_BIND_STATE.boundWindow = data.boundWindow;
+          renderBoundWindowButton();
+        }
+        renderAppWindowPickerList();
+        if (isWindowPickerOpen()) positionWindowPickerPopover();
+        if (notify) showToast(`🪟 已扫描到 ${WINDOW_BIND_STATE.windows.length} 个可见窗口`);
+      } catch (err) {
+        if (bodyBox) {
+          bodyBox.innerHTML = `<div class="hosting-empty" style="color:var(--danger);">扫描窗口失败：${escapeHtml(err.message || err)}</div>`;
+        }
+        if (notify) showToast("扫描窗口失败: " + (err.message || err));
+      } finally {
+        WINDOW_BIND_STATE.loading = false;
+      }
+    }
+
+    function openWindowPickerPopover() {
+      const pop = document.getElementById("windowPickerPopover");
+      const btn = document.getElementById("appWindowPickerBtn");
+      if (!pop || !btn) return;
+      if (supportsPopoverApi()) {
+        try {
+          if (!pop.matches(":popover-open")) pop.showPopover();
+        } catch (e) {
+          pop.classList.add("open");
+        }
+      } else {
+        pop.classList.add("open");
+      }
+      btn.setAttribute("aria-expanded", "true");
+      positionWindowPickerPopover();
+      refreshAppWindows(false);
+    }
+
+    function hideWindowPickerPopover() {
+      const pop = document.getElementById("windowPickerPopover");
+      const btn = document.getElementById("appWindowPickerBtn");
+      if (!pop) return;
+      if (supportsPopoverApi()) {
+        try {
+          if (pop.matches(":popover-open")) pop.hidePopover();
+        } catch (e) {}
+      }
+      pop.classList.remove("open");
+      if (btn) btn.setAttribute("aria-expanded", "false");
+    }
+
+    function toggleWindowPickerPopover() {
+      if (isWindowPickerOpen()) hideWindowPickerPopover();
+      else openWindowPickerPopover();
+    }
+
+    function selectAppWindowByIndex(index) {
+      const win = WINDOW_BIND_STATE.windows?.[index];
+      if (!win) return;
+      const isPopout = win.isPopout === true || win.isMainWindow === false;
+      const allowlisted = isPopout ? _isWindowAllowlisted(win) : true;
+      bindAppWindow({
+        appId: win.appId || "auto",
+        windowID: win.windowID ?? null,
+        windowTitle: win.title || win.appLabel || "",
+        appLabel: win.appLabel || "",
+        isMainWindow: !isPopout,
+        isAllowlistedTarget: allowlisted,
+      });
+    }
+
+    async function bindAppWindow(opts) {
+      const payload = {
+        appId: opts?.appId || "auto",
+        windowID: opts?.windowID ?? null,
+        windowTitle: opts?.windowTitle || "",
+        followUpIsolation: true,
+      };
+      if (opts?.appLabel) payload.appLabel = opts.appLabel;
+      try {
+        const { status, data } = await apiJson("/api/workos/bind-window", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        if (status !== 200 || !data.ok) throw new Error(data.error || "绑定窗口失败");
+        WINDOW_BIND_STATE.boundWindow = data.binding || data;
+        renderBoundWindowButton();
+        renderAppWindowPickerList();
+        hideWindowPickerPopover();
+        const label = formatBoundWindowLabel(WINDOW_BIND_STATE.boundWindow);
+        if (payload.appId === "auto") {
+          showToast("🪟 已切回自动跟随当前窗口");
+        } else if (opts?.isMainWindow === false) {
+          showToast(
+            opts.isAllowlistedTarget
+              ? `🟢 已绑定免切换直连小窗：${label} (#${data.windowID})`
+              : `🔒 已切至只读观察小窗：${label}（非白名单目标，禁止开启发送托管）`
+          );
+        } else {
+          showToast(`🪟 已绑定目标窗口：${label}`);
+        }
+        loadWorkosHarness(false);
+      } catch (err) {
+        showToast("绑定窗口失败: " + (err.message || err));
+      }
+    }
+
+    function arrayBufferToBase64(buffer) {
+      const bytes = new Uint8Array(buffer);
+      const chunkSize = 0x8000;
+      const chunks = [];
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        chunks.push(String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize)));
+      }
+      return btoa(chunks.join(""));
+    }
+
+    function setDocIngestStatus(msg, tone = "") {
+      const el = document.getElementById("docIngestStatus");
+      if (!el) return;
+      el.textContent = msg || "";
+      if (tone) el.dataset.tone = tone;
+      else el.removeAttribute("data-tone");
+    }
+
+    function openDocIngestModal() {
+      const dlg = document.getElementById("docIngestOverlay");
+      if (!dlg) return;
+      if (typeof dlg.showModal === "function") {
+        if (!dlg.open) dlg.showModal();
+      } else {
+        dlg.setAttribute("open", "");
+      }
+      const textEl = document.getElementById("docIngestText");
+      if (textEl) textEl.focus();
+    }
+
+    function hideDocIngestModal() {
+      const dlg = document.getElementById("docIngestOverlay");
+      if (!dlg) return;
+      if (typeof dlg.close === "function" && dlg.open) {
+        dlg.close();
+      } else {
+        dlg.removeAttribute("open");
+        DOC_INGEST_STATE.lastClosedAt = Date.now();
+      }
+    }
+
+    function clearDocIngestFile() {
+      const fileEl = document.getElementById("docIngestFile");
+      if (fileEl) fileEl.value = "";
+      DOC_INGEST_STATE.fileUpload = null;
+      const metaEl = document.getElementById("docIngestFileMeta");
+      if (metaEl) metaEl.textContent = "支持 PDF 文本与扫描页自动识别（≤25MB）";
+    }
+
+    function resetDocIngestForm() {
+      clearDocIngestFile();
+      const docNameEl = document.getElementById("docIngestDocName");
+      const textEl = document.getElementById("docIngestText");
+      const instrEl = document.getElementById("docIngestInstruction");
+      const resPane = document.getElementById("docIngestResultPane");
+      if (docNameEl) docNameEl.value = "";
+      if (textEl) textEl.value = "";
+      if (instrEl) instrEl.value = "希望你能够替代我去和顾客聊天";
+      if (resPane) resPane.hidden = true;
+      DOC_INGEST_STATE.preview = null;
+      DOC_INGEST_STATE.items = [];
+      DOC_INGEST_STATE.strategy = "bind_kb";
+      DOC_INGEST_STATE.docName = "";
+      setDocIngestStatus("");
+    }
+
+    async function handleDocIngestFileChange(inputEl) {
+      const file = inputEl?.files?.[0];
+      if (!file) {
+        clearDocIngestFile();
+        return;
+      }
+      const ext = (file.name.match(/\.[^.]+$/)?.[0] || "").toLowerCase();
+      if (![".pdf", ".txt", ".md", ".markdown", ".json"].includes(ext)) {
+        setDocIngestStatus(`不支持的文件格式 ${ext || "未知"}，请选择 .pdf / .txt / .md / .json`, "error");
+        clearDocIngestFile();
+        return;
+      }
+      if (file.size > 25 * 1024 * 1024) {
+        setDocIngestStatus("文件大小超过 25MB 限制，请拆分后再上传。", "error");
+        clearDocIngestFile();
+        return;
+      }
+      const metaEl = document.getElementById("docIngestFileMeta");
+      if (metaEl) metaEl.textContent = `正在读取 ${file.name}…`;
+      try {
+        const buf = await file.arrayBuffer();
+        const b64 = arrayBufferToBase64(buf);
+        DOC_INGEST_STATE.fileUpload = { filename: file.name, file_bytes_b64: b64, size: file.size };
+        const kb = Math.max(1, Math.round(file.size / 1024));
+        if (metaEl) {
+          metaEl.innerHTML = `<span>已加载：<b>${escapeHtml(file.name)}</b> (${kb} KB)</span> <button type="button" class="link-btn" onclick="clearDocIngestFile()">清除</button>`;
+        }
+        setDocIngestStatus(`已就绪「${file.name}」，点击「🤖 AI 解析资料」开始拆解。`);
+      } catch (err) {
+        setDocIngestStatus("读取文件失败: " + (err.message || err), "error");
+        clearDocIngestFile();
+      }
+    }
+
+    function renderDocIngestStrategyOptions() {
+      const grid = document.getElementById("docIngestStrategyGrid");
+      if (!grid) return;
+      const options = DOC_INGEST_STATE.preview?.strategyOptions || [
+        { id: "bind_kb", recommended: true, title: "绑进知识库（推荐）", desc: "保持现有营销人设不变，AI 回答精准按产品资料作答" },
+        { id: "merge_prompt", recommended: false, title: "直接优化岗位提示词", desc: "把关键卖点并入 AI 员工任务目标" },
+      ];
+      grid.innerHTML = options.map((opt) => {
+        const checked = DOC_INGEST_STATE.strategy === opt.id;
+        const badge = opt.recommended ? `<span class="win-tag allow">推荐 · 营销人设不变</span>` : `<span class="win-tag app">同步改写目标</span>`;
+        return `
+          <label class="doc-strategy-card${checked ? " selected" : ""}">
+            <input type="radio" name="docIngestStrategy" value="${escapeHtml(opt.id)}" ${checked ? "checked" : ""} onchange="selectDocIngestStrategy('${escapeHtml(opt.id)}')" />
+            <div>
+              <div class="doc-strategy-title"><span>${escapeHtml(opt.title)}</span>${badge}</div>
+              <div class="doc-strategy-desc">${escapeHtml(opt.desc)}</div>
+            </div>
+          </label>
+        `;
+      }).join("");
+    }
+
+    function renderDocIngestConfirmCard() {
+      const titleEl = document.getElementById("docIngestConfirmTitle");
+      const summaryEl = document.getElementById("docIngestConfirmSummary");
+      const headingEl = document.getElementById("docIngestItemsHeading");
+      const confirmBtn = document.getElementById("docIngestConfirmBtn");
+      const total = DOC_INGEST_STATE.items.length;
+      const selectedCount = DOC_INGEST_STATE.items.filter((it) => it.selected !== false).length;
+      if (headingEl) {
+        headingEl.textContent = `拆解后的结构化知识卡片（已选 ${selectedCount} / ${total} 条，可勾选 / 微调）`;
+      }
+      const docLabel = DOC_INGEST_STATE.docName || "当前资料";
+      if (DOC_INGEST_STATE.strategy === "merge_prompt") {
+        if (titleEl) titleEl.textContent = "确认执行任务 · 直接优化岗位提示词";
+        if (summaryEl) {
+          summaryEl.textContent = `将把《${docLabel}》已选的 ${selectedCount} 条内容写入 FTS5 知识库，并同步将核心卖点合并进 AI 员工岗位任务目标。`;
+        }
+      } else {
+        const cardTitle = DOC_INGEST_STATE.preview?.confirmCard?.title || "确认执行任务 · 绑进知识库";
+        if (titleEl) titleEl.textContent = cardTitle;
+        if (summaryEl) {
+          summaryEl.textContent = `已将《${docLabel}》拆解并勾选 ${selectedCount} 条结构化知识，推荐绑进共享知识库：保持现有营销人设不变，AI 回复精准按产品资料作答。`;
+        }
+      }
+      if (confirmBtn) {
+        confirmBtn.textContent = DOC_INGEST_STATE.preview?.confirmCard?.confirmLabel || "确认";
+      }
+    }
+
+    function renderDocIngestItems() {
+      const listEl = document.getElementById("docIngestItemsList");
+      if (!listEl) return;
+      const items = DOC_INGEST_STATE.items || [];
+      if (!items.length) {
+        listEl.innerHTML = `<div class="hosting-empty">未拆解出知识条目。</div>`;
+        renderDocIngestConfirmCard();
+        return;
+      }
+      const kindOpts = [
+        { val: "knowledge", label: "knowledge · 业务知识" },
+        { val: "faq", label: "faq · 常见问题" },
+        { val: "script", label: "script · 推荐话术" },
+        { val: "terminology", label: "terminology · 注意事项/术语" },
+      ];
+      listEl.innerHTML = items.map((it, idx) => {
+        const checked = it.selected !== false;
+        const kwText = Array.isArray(it.keywords) ? it.keywords.join(", ") : String(it.keywords || "");
+        const confPct = it.confidence ? Math.round(Number(it.confidence) * 100) + "%" : "";
+        return `
+          <div class="doc-draft-item${checked ? "" : " unchecked"}">
+            <div class="doc-draft-item-head">
+              <input type="checkbox" aria-label="勾选条目 ${idx + 1}" ${checked ? "checked" : ""} onchange="updateDocIngestItemField(${idx}, 'selected', this.checked)" />
+              <span class="win-tag allow">${escapeHtml(it.category || "产品知识")}</span>
+              <select aria-label="条目分类 ${idx + 1}" onchange="updateDocIngestItemField(${idx}, 'kind', this.value)">
+                ${kindOpts.map((o) => `<option value="${o.val}" ${it.kind === o.val ? "selected" : ""}>${o.label}</option>`).join("")}
+              </select>
+              <input type="text" class="doc-draft-item-title" aria-label="条目标题 ${idx + 1}" value="${escapeHtml(it.title || "")}" oninput="updateDocIngestItemField(${idx}, 'title', this.value)" />
+              ${confPct ? `<span class="win-tag app">置信度 ${confPct}</span>` : ""}
+            </div>
+            <textarea class="doc-draft-item-body" aria-label="条目正文 ${idx + 1}" oninput="updateDocIngestItemField(${idx}, 'body', this.value)">${escapeHtml(it.body || "")}</textarea>
+            <input type="text" class="doc-draft-item-kw" aria-label="条目关键词 ${idx + 1}" placeholder="关键词（逗号分隔）" value="${escapeHtml(kwText)}" oninput="updateDocIngestItemField(${idx}, 'keywords', this.value)" />
+          </div>
+        `;
+      }).join("");
+      renderDocIngestConfirmCard();
+    }
+
+    function updateDocIngestItemField(idx, field, value) {
+      const it = DOC_INGEST_STATE.items?.[idx];
+      if (!it) return;
+      if (field === "selected") {
+        it.selected = Boolean(value);
+        const card = document.querySelectorAll("#docIngestItemsList .doc-draft-item")[idx];
+        if (card) card.classList.toggle("unchecked", !it.selected);
+        renderDocIngestConfirmCard();
+      } else if (field === "keywords") {
+        it.keywords = String(value || "").split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+      } else {
+        it[field] = String(value || "");
+      }
+    }
+
+    function docIngestSelectAll(flag) {
+      (DOC_INGEST_STATE.items || []).forEach((it) => { it.selected = Boolean(flag); });
+      renderDocIngestItems();
+    }
+
+    function selectDocIngestStrategy(strategyId) {
+      DOC_INGEST_STATE.strategy = strategyId === "merge_prompt" ? "merge_prompt" : "bind_kb";
+      renderDocIngestStrategyOptions();
+      renderDocIngestConfirmCard();
+    }
+
+    function continueEditingDocIngest() {
+      setDocIngestStatus("可继续修改原始资料或微调下方卡片，确认无误后点「确认」入库。");
+      const textEl = document.getElementById("docIngestText");
+      if (textEl) {
+        textEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        textEl.focus();
+      }
+    }
+
+    async function previewDocIngest() {
+      if (DOC_INGEST_STATE.busy) return;
+      const rawText = document.getElementById("docIngestText")?.value || "";
+      const hasFile = Boolean(DOC_INGEST_STATE.fileUpload?.file_bytes_b64);
+      if (!hasFile && !rawText.trim()) {
+        setDocIngestStatus("请先上传 PDF/文本文件，或粘贴产品资料长文本。", "error");
+        document.getElementById("docIngestText")?.focus();
+        return;
+      }
+      const instruction = (document.getElementById("docIngestInstruction")?.value || "").trim() || "希望你能够替代我去和顾客聊天";
+      const docName = (document.getElementById("docIngestDocName")?.value || "").trim();
+      const btn = document.getElementById("docIngestPreviewBtn");
+      DOC_INGEST_STATE.busy = true;
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "🤖 AI 正在解析资料…";
+      }
+      setDocIngestStatus(hasFile ? "正在提取文件内容并拆解结构化知识卡片…" : "正在分析长文本并拆解结构化知识卡片…");
+      try {
+        const { status, data } = await apiJson("/api/workos/doc-ingest/preview", {
+          method: "POST",
+          body: JSON.stringify({
+            filename: DOC_INGEST_STATE.fileUpload?.filename || "",
+            file_bytes_b64: DOC_INGEST_STATE.fileUpload?.file_bytes_b64 || "",
+            raw_text: rawText,
+            instruction,
+            doc_name: docName,
+            max_pages: 12,
+          }),
+        });
+        if (status !== 200 || !data.ok) throw new Error(data.error || "解析资料失败");
+        DOC_INGEST_STATE.preview = data;
+        DOC_INGEST_STATE.docName = data.docName || docName || "上传产品资料";
+        DOC_INGEST_STATE.strategy = data.recommendedStrategy || "bind_kb";
+        DOC_INGEST_STATE.items = (data.items || []).map((it) => ({
+          ...it,
+          selected: it.selected !== false,
+          keywords: Array.isArray(it.keywords) ? [...it.keywords] : [],
+        }));
+        const metaBox = document.getElementById("docIngestPreviewMeta");
+        if (metaBox) {
+          const pageInfo = data.pageCount ? ` · 页数 ${data.processedPages ?? data.pageCount}/${data.pageCount}${data.truncated ? "（已截断前12页）" : ""}` : "";
+          const modeLabel = data.extractionMode === "llm_structured" ? "大模型智能拆解" : "结构化规则切块";
+          metaBox.innerHTML = `
+            <span class="win-tag allow">解析完成</span>
+            <span><b>${escapeHtml(DOC_INGEST_STATE.docName)}</b> · 提取 ${data.extractedTextLength ?? 0} 字${escapeHtml(pageInfo)} · ${escapeHtml(modeLabel)}</span>
+          `;
+        }
+        renderDocIngestStrategyOptions();
+        renderDocIngestItems();
+        const resPane = document.getElementById("docIngestResultPane");
+        if (resPane) {
+          resPane.hidden = false;
+          resPane.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+        setDocIngestStatus(`已拆解出 ${DOC_INGEST_STATE.items.length} 条知识卡片，请确认执行策略后点「确认」。`);
+      } catch (err) {
+        setDocIngestStatus("解析失败: " + (err.message || err), "error");
+      } finally {
+        DOC_INGEST_STATE.busy = false;
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "🤖 AI 解析资料";
+        }
+      }
+    }
+
+    async function confirmDocIngest() {
+      if (DOC_INGEST_STATE.busy) return;
+      const selected = (DOC_INGEST_STATE.items || []).filter((it) => it.selected !== false && String(it.title || "").trim() && String(it.body || "").trim());
+      if (!selected.length) {
+        setDocIngestStatus("请至少勾选 1 条标题与正文非空的知识卡片后再确认入库。", "error");
+        return;
+      }
+      const btn = document.getElementById("docIngestConfirmBtn");
+      DOC_INGEST_STATE.busy = true;
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "写入知识库中…";
+      }
+      setDocIngestStatus("正在批量写入 FTS5 知识库并刷新索引…");
+      try {
+        const strategy = DOC_INGEST_STATE.strategy || "bind_kb";
+        const instruction = (document.getElementById("docIngestInstruction")?.value || "").trim();
+        const docName = DOC_INGEST_STATE.docName || (document.getElementById("docIngestDocName")?.value || "").trim();
+        const { status, data } = await apiJson("/api/workos/doc-ingest/confirm", {
+          method: "POST",
+          body: JSON.stringify({
+            items: selected,
+            strategy,
+            doc_name: docName,
+            apply_prompt_target: strategy === "merge_prompt",
+            instruction,
+          }),
+        });
+        if (status !== 200 || !data.ok) throw new Error(data.error || "入库失败");
+        resetDocIngestForm();
+        hideDocIngestModal();
+        await Promise.all([loadWorkosHarness(false), loadOverview(false)]);
+        showToast(
+          `✅ 已将《${data.docName || docName || "资料"}》${data.savedCount ?? selected.length} 条知识写入 FTS5 知识库（共 ${data.knowledgeEntriesCount ?? "-"} 条）`
+          + (data.promptUpdated ? "，并已同步更新岗位目标" : "")
+        );
+      } catch (err) {
+        setDocIngestStatus("入库失败: " + (err.message || err), "error");
+      } finally {
+        DOC_INGEST_STATE.busy = false;
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = DOC_INGEST_STATE.preview?.confirmCard?.confirmLabel || "确认";
+        }
+      }
     }
 
     async function saveHumanGuardFromSettings() {
@@ -7302,14 +8403,63 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
     const moreActions = document.getElementById("topbarMore");
     const navMore = document.getElementById("navMore");
     const hostingPicker = document.querySelector("#hostingPanel .hosting-picker");
+    const windowPickerBtnEl = document.getElementById("appWindowPickerBtn");
+    const windowPickerPopEl = document.getElementById("windowPickerPopover");
+    const docIngestDialogEl = document.getElementById("docIngestOverlay");
+    if (windowPickerPopEl) {
+      windowPickerPopEl.addEventListener("toggle", (e) => {
+        const isOpen = e.newState === "open";
+        if (windowPickerBtnEl) windowPickerBtnEl.setAttribute("aria-expanded", String(isOpen));
+        if (!isOpen) WINDOW_BIND_STATE.lastClosedAt = Date.now();
+      });
+    }
+    if (docIngestDialogEl) {
+      docIngestDialogEl.addEventListener("close", () => {
+        docIngestDialogEl.returnValue = "";
+        DOC_INGEST_STATE.lastClosedAt = Date.now();
+      });
+      if (!("closedBy" in HTMLDialogElement.prototype)) {
+        const outsideDialog = (e, dlg) => {
+          const r = dlg.getBoundingClientRect();
+          return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+        };
+        let pressedOutsideDlg = false;
+        docIngestDialogEl.addEventListener("pointerdown", (e) => {
+          pressedOutsideDlg = docIngestDialogEl.open && outsideDialog(e, docIngestDialogEl);
+        });
+        docIngestDialogEl.addEventListener("pointerup", (e) => {
+          if (pressedOutsideDlg && docIngestDialogEl.open && outsideDialog(e, docIngestDialogEl)) {
+            hideDocIngestModal();
+          }
+          pressedOutsideDlg = false;
+        });
+      }
+    }
+    window.addEventListener("resize", () => {
+      if (isWindowPickerOpen()) positionWindowPickerPopover();
+    });
     document.addEventListener("click", event => {
       if (moreActions && (!moreActions.contains(event.target) || event.target.closest(".menu-item"))) moreActions.open = false;
       if (navMore && !navMore.contains(event.target)) navMore.open = false;
       if (hostingPicker && !hostingPicker.contains(event.target)) hostingPicker.open = false;
+      if (!supportsPopoverApi() && isWindowPickerOpen() && windowPickerPopEl && windowPickerBtnEl) {
+        if (!windowPickerPopEl.contains(event.target) && !windowPickerBtnEl.contains(event.target)) {
+          hideWindowPickerPopover();
+        }
+      }
     });
     document.addEventListener("keydown", event => {
       if (event.key === "Escape") {
         let closedAny = false;
+        const now = Date.now();
+        if (docIngestDialogEl?.open || (now - DOC_INGEST_STATE.lastClosedAt) < 120) {
+          if (docIngestDialogEl?.open) hideDocIngestModal();
+          closedAny = true;
+        }
+        if (isWindowPickerOpen() || (now - WINDOW_BIND_STATE.lastClosedAt) < 120) {
+          if (isWindowPickerOpen()) hideWindowPickerPopover();
+          closedAny = true;
+        }
         if (document.getElementById("mobileRemoteOverlay")?.classList.contains("visible")) {
           hideMobileRemoteOverlay();
           closedAny = true;
@@ -7333,7 +8483,6 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
           closedAny = true;
         }
         if (!closedAny) {
-          const now = Date.now();
           if (WORKOS_STATE.lastEscAt && (now - WORKOS_STATE.lastEscAt) <= 420) {
             WORKOS_STATE.lastEscAt = 0;
             if (HOSTING_STATE?.hosting?.running) {
@@ -7350,6 +8499,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
     });
     document.getElementById("sendText").addEventListener("input", () => { draftRevision++; });
     syncSendModeLabel();
+    renderBoundWindowButton();
     renderSalesCrmTab();
     loadOverview();
     loadWorkosHarness(false);

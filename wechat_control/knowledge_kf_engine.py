@@ -1157,6 +1157,15 @@ class PersonaSwitchEngine:
             base = self._clean_single_line(base, budget)
         return f"{base}。{suffix}" if base[-1] not in "。！？～…" else f"{base}{suffix}"
 
+    _HIGH_RISK_REVIEW_RE = re.compile(
+        r"(退款|退货|投诉|纠纷|维权|索赔|赔偿|假货|差评|举报|refund|return\s*goods|complaint|dispute)",
+        re.I,
+    )
+    _GREETING_ONLY_RE = re.compile(
+        r"^(?:你好|您好|嗨+|哈喽|hello|hi|hey|早上好|上午好|下午好|晚上好|早安|晚安|拜拜|再见|谢谢(?:啦|了)?|多谢|感谢|好的|好哒|收到|明白|了解|ok|okay)[呀啊哈啦呢哦嘛~～!！。.,，\s]*$",
+        re.I,
+    )
+
     # 内部术语（客户看不懂）：LLM 模仿知识库技术条目时可能外泄，出口统一温和改写为面向用户的自然表述
     _INTERNAL_JARGON_RE = re.compile(
         r"(FTS5|AXUIElement|熔断|读回|Takeover|3x\b|prompt|system prompt|RealtimeMessageMonitor|RealtimeMonitor|preview_reply|脏输入|CGWindow|VNRecognize|CGEvent|零注入)",
@@ -1369,6 +1378,8 @@ class PersonaSwitchEngine:
                 "providerUsed": None,
                 "latencyMs": None,
                 "llmError": None,
+                "needsHumanReview": False,
+                "humanReviewReason": "",
                 "basis": {"personaId": persona["id"], "personaName": persona["name"],
                           "generationMode": "empty_input_guard", "speedMode": clean_speed},
                 "seeThinkAct": self._build_see_think_act(
@@ -1399,6 +1410,37 @@ class PersonaSwitchEngine:
                        "人工接管", "人工在线", "找主管", "你们主管", "找经理", "找负责人", "要投诉",
                        "transfer to human", "human agent", "real person")
         is_explicit_handoff = any(kw in in_cf for kw in _handoff_kw)
+
+        has_media_notes = media_notes_count > 0 or any(
+            str(m or "").strip().startswith("[识别指令:") for m in (recent_messages or [])
+        )
+        is_high_risk_query = bool(self._HIGH_RISK_REVIEW_RE.search(in_cf))
+        is_bracket_media_stub = bool(re.fullmatch(r"\[[^\[\]]{1,16}\]", norm_in))
+        has_han_or_q = bool(re.search(r"[\u4e00-\u9fff]", norm_in)) or ("?" in norm_in) or ("？" in norm_in)
+        is_real_external_question = (
+            bool(_substantive)
+            and not is_reply_check
+            and not self._GREETING_ONLY_RE.match(norm_in)
+            and not is_bracket_media_stub
+            and (
+                has_han_or_q
+                or is_external_link
+                or is_media_followup
+                or any(kw in in_cf for kw in ("price", "cost", "refund", "how", "what", "why", "help", "spec"))
+            )
+            and (len(_substantive) >= 4 or "?" in norm_in or "？" in norm_in or is_media_followup)
+        )
+        needs_human_review = False
+        human_review_reason = ""
+        if is_explicit_handoff:
+            needs_human_review = True
+            human_review_reason = "对方明确请求转人工客服或主管处理"
+        elif is_high_risk_query:
+            needs_human_review = True
+            human_review_reason = "涉及退款/退货/投诉/纠纷等高风险售后场景，先礼貌安抚并交人工核实"
+        elif is_real_external_question and not entries and not has_media_notes:
+            needs_human_review = True
+            human_review_reason = "未命中知识库且无深读解析依据，建议人工核实并沉淀 SOP"
 
         card_m = re.match(r"^(?:[CVWXYMcvwxym]\s+(\S.*)|([◎•·∞♡〇])\s*(\S.*))$", norm_in)
         is_card_source_only = bool(card_m) and len(norm_in) <= 24 and "?" not in norm_in and "？" not in norm_in
@@ -1490,11 +1532,18 @@ class PersonaSwitchEngine:
                 matched_term_titles = [t["title"].split(" (")[0] for t in terms_hit[:2]]
                 term_badge = f"（参考术语：{'、'.join(matched_term_titles)}）" if matched_term_titles else ""
                 if pid == "wecom-kf-pro":
-                    if fact_excerpt.endswith("…"):
+                    topic_label = str(top.get("title") or "").split(" · ")[0].strip()
+                    has_topic = bool(topic_label) and (
+                        topic_label in fact_excerpt or topic_label.startswith("纠偏SOP")
+                    )
+                    lead = f"关于「{topic_label[:18]}」，" if (topic_label and not has_topic) else ""
+                    if is_high_risk_query and "政策" not in in_cf and "多少钱" not in in_cf:
+                        reply = "您好，非常理解您的心情，请您先别着急～关于退款、退货或售后问题，我已优先记录并立即转交人工客服为您核实跟进。"
+                    elif fact_excerpt.endswith("…"):
                         # 摘要以省略号收尾（长条目压缩）时不再硬接尾巴
-                        reply = f"您好，针对您咨询的「{norm_in[:22]}」，为您说明：{fact_excerpt}更多细节欢迎随时问我～"
+                        reply = f"您好，理解您的需求，{lead}为您确认：{fact_excerpt}更多细节欢迎随时问我～"
                     else:
-                        reply = f"您好，针对您咨询的「{norm_in[:22]}」，为您说明：{fact_excerpt}如仍需人工核对，我可以为您转接人工客服。"
+                        reply = f"您好，理解您的需求，{lead}为您确认：{fact_excerpt}如仍需人工核对，我可以为您转接人工客服。"
                 elif pid == "rpa-tech-expert":
                     reply = f"命中知识库《{top['title']}》{term_badge}：{fact_excerpt}" + ("" if fact_excerpt.endswith(("。", "！", "？", "…")) else "。")
                 elif pid == "concise-assistant":
@@ -1521,10 +1570,12 @@ class PersonaSwitchEngine:
                 if ai_insight and any(kw in norm_in for kw in ("视频", "文章", "链接", "卡片", "讲了", "什么", "总结", "要点", "分享")):
                     ai_body = ai_insight.split("]", 1)[-1].strip()
                     reply = f"结合已解析的内容要点，为您说明：{ai_body[:120]}"
+                elif is_high_risk_query:
+                    reply = "您好，非常理解您的心情，请您先别着急～该情况涉及退款/退货或投诉核实，我已记录详情并立即安排人工客服为您专人跟进。"
                 elif is_media_followup:
                     reply = f"您好，已收到您的消息「{clean_in}」；当前尚未读取到该文章或视频的完整正文，方便贴一下原文链接或点击「@元宝 解析 / 转发小微」，我立即为您梳理核心要点。"
                 else:
-                    reply = f"您好，我已实时收到您的消息「{clean_in}」。当前知识库暂未收录该细分条款，我已为您记录并可转人工客服核对确认。"
+                    reply = f"您好，理解您的咨询，关于「{clean_in}」暂未查到确切参数条款，为避免误导已先记录并安排人工客服为您核实确认。"
             elif pid == "rpa-tech-expert":
                 reply = f"关于「{clean_in}」{recent_hint}，我已记录要点；如有具体文档、链接或报错细节可继续发我，也可以为您转交人工跟进。"
             elif pid == "concise-assistant":
@@ -1594,6 +1645,8 @@ class PersonaSwitchEngine:
                 f"表达原则：{persona.get('styleDirective', '')}\n"
                 f"企业知识库与术语参考（仅在对方确实咨询我们的产品、定价、功能、权限或服务政策时引用；若对方询问通用技术原理、行业问题或分享第三方 GitHub/文章/视频，请直接就事论事给出专业解答或点评，切勿生硬推销或强行附加无关产品链接）：\n{kb_snippets}"
                 f"{media_block}{soul_block}{card_hint}\n"
+                "顾问式两段回复与高风险护栏：\n"
+                "1. 先共情/给专业判断或安全排查 ➔ 2. 再结合知识库给出具体使用步骤与产品方案；遇未知参数、退款、投诉绝不编造承诺，先礼貌安抚并说明交人工核实。\n"
                 "高质量专业回复标准：\n"
                 "1) 结论清晰、信息密度高：先给出明确判断或核心结论，再补充 1-2 条关键依据、机制拆解或可执行建议。\n"
                 "2) 若「深读解析上下文」已有识别结论，优先紧扣其中的具体项目/观点作答。\n"
@@ -1656,6 +1709,8 @@ class PersonaSwitchEngine:
             "providerUsed": provider_used,
             "latencyMs": latency_ms,
             "llmError": llm_error,
+            "needsHumanReview": needs_human_review,
+            "humanReviewReason": human_review_reason,
             "basis": basis,
             "seeThinkAct": self._build_see_think_act(
                 target=target,

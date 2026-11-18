@@ -233,6 +233,31 @@ class WeChatLiveInspector:
         return base
 
     @staticmethod
+    def _is_popout_window(ocr_payload: Dict[str, Any], elements: List[Dict[str, Any]]) -> bool:
+        """Detect standalone pop-out chat windows (no left sidebar / session column)."""
+        if not isinstance(ocr_payload, dict):
+            return False
+        if ocr_payload.get("isMainWindow") is False:
+            return True
+        if "splitX" in ocr_payload and ocr_payload.get("splitX") is not None:
+            try:
+                if float(ocr_payload["splitX"]) <= 0.0:
+                    return True
+            except (TypeError, ValueError):
+                pass
+        win_title = str(ocr_payload.get("windowTitle") or "").strip()
+        if win_title and win_title not in ("微信", "WeChat", "企业微信", "WeCom"):
+            has_search_box = any(
+                "搜索" in str(el.get("text") or "")
+                and float((el.get("center") or {}).get("x", 9999.0) or 9999.0) <= 260.0
+                and float((el.get("center") or {}).get("y", 9999.0) or 9999.0) <= 80.0
+                for el in (elements or [])
+            )
+            if not has_search_box:
+                return True
+        return False
+
+    @staticmethod
     def _cluster_session_rows(
         elements: List[Dict[str, Any]],
         split_x: float,
@@ -341,23 +366,75 @@ class WeChatLiveInspector:
         return summarized
 
     @staticmethod
-    def _parse_right_pane(elements: List[Dict[str, Any]], split_x: float, win_h: float) -> Dict[str, Any]:
-        """Extract untruncated header title and chat message lines from the right pane."""
-        header_els = sorted(
-            [
+    def _parse_right_pane(
+        elements: List[Dict[str, Any]],
+        split_x: float,
+        win_h: float,
+        *,
+        window_title: str = "",
+    ) -> Dict[str, Any]:
+        """Extract untruncated header title and chat message lines from the right pane (or full pop-out window)."""
+        if split_x <= 0.0:
+            raw_headers = [
                 el for el in elements
-                if el["center"]["x"] > split_x + 4.0 and 6.0 <= el["center"]["y"] <= 46.0
-            ],
-            key=lambda e: (e["center"]["y"], e["center"]["x"]),
-        )
-        msg_els = sorted(
-            [
-                el for el in elements
-                if el["center"]["x"] > split_x + 4.0 and 48.0 < el["center"]["y"] <= (win_h - 140.0)
-            ],
-            key=lambda e: (e["center"]["y"], e["center"]["x"]),
-        )
-        header_text = " ".join(el["text"] for el in header_els).strip()
+                if el["center"]["x"] >= 8.0
+                and 6.0 <= el["center"]["y"] <= 56.0
+                and str(el.get("text") or "").strip()
+            ]
+            non_chrome = [
+                el for el in raw_headers
+                if not (
+                    len(str(el.get("text") or "").strip()) == 1
+                    and str(el.get("text") or "").strip().lower() in "x×+-÷|□〇•·…—"
+                )
+            ]
+            pool = non_chrome if non_chrome else raw_headers
+            chosen_headers: List[Dict[str, Any]] = []
+            if pool:
+                pool_sorted = sorted(pool, key=lambda e: (e["center"]["x"], e["center"]["y"]))
+                first = pool_sorted[0]
+                chosen_headers.append(first)
+                first_cy = float(first["center"]["y"])
+                first_bbox = first.get("bbox") or {}
+                prev_right = float(first_bbox.get("x", first["center"]["x"])) + float(first_bbox.get("width", 0.0))
+                for cand in pool_sorted[1:]:
+                    cand_cy = float(cand["center"]["y"])
+                    cand_bbox = cand.get("bbox") or {}
+                    cand_left = float(cand_bbox.get("x", cand["center"]["x"]))
+                    if abs(cand_cy - first_cy) <= 12.0 and (cand_left - prev_right) <= 45.0:
+                        chosen_headers.append(cand)
+                        prev_right = max(prev_right, cand_left + float(cand_bbox.get("width", 0.0)))
+            header_els = sorted(chosen_headers, key=lambda e: (e["center"]["y"], e["center"]["x"]))
+            header_ids = {id(el) for el in header_els}
+            min_msg_y = 56.0 if any(float(el["center"]["y"]) > 46.0 for el in header_els) else 48.0
+            msg_els = sorted(
+                [
+                    el for el in elements
+                    if id(el) not in header_ids
+                    and el["center"]["x"] >= 8.0
+                    and min_msg_y < el["center"]["y"] <= (win_h - 140.0)
+                ],
+                key=lambda e: (e["center"]["y"], e["center"]["x"]),
+            )
+            header_text = " ".join(str(el["text"]).strip() for el in header_els).strip()
+            if not header_text and window_title:
+                header_text = str(window_title).strip()
+        else:
+            header_els = sorted(
+                [
+                    el for el in elements
+                    if el["center"]["x"] > split_x + 4.0 and 6.0 <= el["center"]["y"] <= 46.0
+                ],
+                key=lambda e: (e["center"]["y"], e["center"]["x"]),
+            )
+            msg_els = sorted(
+                [
+                    el for el in elements
+                    if el["center"]["x"] > split_x + 4.0 and 48.0 < el["center"]["y"] <= (win_h - 140.0)
+                ],
+                key=lambda e: (e["center"]["y"], e["center"]["x"]),
+            )
+            header_text = " ".join(el["text"] for el in header_els).strip()
         # Filter noise such as single tiny glyphs in empty state
         messages: List[Dict[str, Any]] = []
         for el in msg_els:
@@ -400,8 +477,9 @@ class WeChatLiveInspector:
         if sampler is not None:
             right_px = (bx + bw) if bw > 0 else cx
             bottom_px = (by + bh) if bh > 0 else (cy + 8.0)
+            left_floor = (split_x + 12.0) if split_x > 0.0 else 8.0
             sample_points = (
-                (max(split_x + 12.0, bx - 4.0), cy),
+                (max(left_floor, bx - 4.0), cy),
                 (cx if bw <= 0 else (bx + bw * 0.5), max(49.0, by - 3.0)),
                 (min(win_w - 18.0, right_px + 8.0), cy),
                 (cx if bw <= 0 else (bx + bw * 0.5), bottom_px + 3.0),
@@ -409,9 +487,14 @@ class WeChatLiveInspector:
             green_hits = sum(1 for px, py in sample_points if _is_wechat_green_rgb(sampler(px, py)))
             return "self" if green_hits >= 1 else "peer"
 
-        pane_w = max(1.0, win_w - split_x)
         mid_x = bx + bw / 2.0 if bw > 0 else cx
         right_edge = bx + bw if bw > 0 else cx
+        if split_x <= 0.0:
+            if bw > 0 and bx < win_w * 0.25 and mid_x <= win_w * 0.58:
+                return "peer"
+            is_self = (mid_x > win_w * 0.45 and (bw <= 0 or bx >= win_w * 0.25)) or (right_edge > win_w * 0.78)
+            return "self" if is_self else "peer"
+        pane_w = max(1.0, win_w - split_x)
         is_self = (mid_x > split_x + pane_w * 0.56) or (right_edge > split_x + pane_w * 0.78)
         return "self" if is_self else "peer"
 
@@ -522,12 +605,28 @@ class WeChatLiveInspector:
         bounds: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Extract right-pane header + clustered message bubbles from a capture-ocr payload."""
-        resolved_bounds = bounds or ocr_payload.get("window") or ocr_payload.get("bounds") or {}
+        resolved_bounds = (
+            bounds
+            or ocr_payload.get("windowBounds")
+            or ocr_payload.get("window")
+            or ocr_payload.get("bounds")
+            or (
+                {"width": ocr_payload["imageWidth"], "height": ocr_payload["imageHeight"]}
+                if ocr_payload.get("imageWidth") and ocr_payload.get("imageHeight")
+                else {}
+            )
+        )
         win_w = float(resolved_bounds.get("width", 585.0) or 585.0)
         win_h = float(resolved_bounds.get("height", 640.0) or 640.0)
         elements = ocr_payload.get("elements") or []
-        split_x = float(ocr_payload.get("splitX") or self._infer_split_x(elements, win_w))
-        right_info = self._parse_right_pane(elements, split_x, win_h)
+        if self._is_popout_window(ocr_payload, elements):
+            split_x = 0.0
+        elif ocr_payload.get("splitX") is not None:
+            split_x = float(ocr_payload["splitX"])
+        else:
+            split_x = self._infer_split_x(elements, win_w)
+        win_title = str(ocr_payload.get("windowTitle") or "")
+        right_info = self._parse_right_pane(elements, split_x, win_h, window_title=win_title)
         resolved_image = snapshot_path or ocr_payload.get("imagePath") or ocr_payload.get("snapshotPath")
         img_path = Path(resolved_image) if resolved_image else None
         bubbles = self.cluster_message_bubbles(
@@ -1109,3 +1208,196 @@ class WeChatLiveInspector:
         }
         atomic_write_json(history_path, payload)
         return payload
+
+    # ------------------------------------------------------------------
+    # Standalone Pop-Out Chat Window Discovery & Zero-Switch Inspection
+    # ------------------------------------------------------------------
+
+    def list_popout_windows(self, app: str = "all") -> List[Dict[str, Any]]:
+        """List visible standalone pop-out chat windows (`isMainWindow` is False)."""
+        try:
+            res = self._run_native(["list-app-windows", "--app", str(app or "all")], 8.0)
+        except Exception:
+            return []
+        if not isinstance(res, dict) or not res.get("ok"):
+            return []
+        windows = res.get("windows") or []
+        return [
+            w for w in windows
+            if isinstance(w, dict) and w.get("windowID") and not w.get("isMainWindow")
+        ]
+
+    @staticmethod
+    def _match_popout_window(target: str, popouts: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        clean_target = str(target or "").strip()
+        if not clean_target or not popouts:
+            return None
+        norm_target = normalize_chat_name(_clean_title_for_match(clean_target)).casefold()
+        for w in popouts:
+            title = str(w.get("title") or "").strip()
+            if not title:
+                continue
+            if normalize_chat_name(_clean_title_for_match(title)).casefold() == norm_target:
+                return w
+        for w in popouts:
+            title = str(w.get("title") or "").strip()
+            if title and _matches_target(clean_target, title):
+                return w
+        return None
+
+    def find_popout_window(self, target: str, app: str = "all") -> Optional[Dict[str, Any]]:
+        """Find a standalone pop-out chat window whose title matches `target`."""
+        if not target or not str(target).strip():
+            return None
+        return self._match_popout_window(target, self.list_popout_windows(app=app))
+
+    def inspect_popout_window(
+        self,
+        popout_window: Dict[str, Any],
+        *,
+        target: Optional[str] = None,
+        snapshot_prefix: str = "popout",
+        timeout: float = 30.0,
+    ) -> Dict[str, Any]:
+        """Directly capture and parse bubbles from a pop-out window without switching main chat list."""
+        wid = int(popout_window["windowID"])
+        win_title = str(popout_window.get("title") or target or "").strip()
+        slug = _slugify_target(target or win_title or str(wid))
+        self.snapshots_dir.mkdir(parents=True, exist_ok=True)
+        snap_path = self.snapshots_dir / f"{snapshot_prefix}_{slug}_{wid}.png"
+        ocr_payload = self._run_native(
+            ["capture-ocr", "--window-id", str(wid), "--no-activate", "--out", str(snap_path)],
+            timeout,
+        )
+        if not isinstance(ocr_payload, dict) or not ocr_payload.get("ok"):
+            return {
+                "ok": False,
+                "error_code": (ocr_payload or {}).get("error_code", "capture_failed") if isinstance(ocr_payload, dict) else "capture_failed",
+                "error": (ocr_payload or {}).get("error", f"Failed to capture pop-out window #{wid}.") if isinstance(ocr_payload, dict) else f"Failed to capture pop-out window #{wid}.",
+                "popoutWindow": True,
+                "windowID": wid,
+                "popoutWindowID": wid,
+                "zeroSwitch": True,
+            }
+        enriched_ocr = dict(ocr_payload)
+        if not enriched_ocr.get("windowTitle") and win_title:
+            enriched_ocr["windowTitle"] = win_title
+        enriched_ocr["isMainWindow"] = False
+        enriched_ocr["splitX"] = 0.0
+        bounds = (
+            enriched_ocr.get("windowBounds")
+            or enriched_ocr.get("bounds")
+            or popout_window.get("bounds")
+            or {}
+        )
+        structured = self.extract_structured_bubbles(
+            enriched_ocr,
+            snapshot_path=snap_path,
+            bounds=bounds,
+        )
+        bubbles = list(structured.get("bubbles") or [])
+        header = str(structured.get("headerTitle") or win_title)
+        return {
+            "ok": True,
+            "target": target or header,
+            "matchedTitle": header,
+            "headerTitle": header,
+            "popoutWindow": True,
+            "windowID": wid,
+            "popoutWindowID": wid,
+            "appId": str(popout_window.get("appId") or enriched_ocr.get("appId") or "wechat"),
+            "zeroSwitch": True,
+            "bounds": bounds,
+            "snapshotPath": str(snap_path),
+            "bubbles": bubbles,
+            "lastBubble": structured.get("lastBubble"),
+            "messageCount": len(bubbles),
+            "ocrPayload": enriched_ocr,
+            "structured": structured,
+        }
+
+    def inspect_messages(
+        self,
+        target: Optional[str] = None,
+        *,
+        app: str = "all",
+        window_id: Optional[int] = None,
+        max_pages: int = 5,
+        timeout: float = 30.0,
+    ) -> Dict[str, Any]:
+        """Inspect visible chat messages for `target` (direct pop-out capture if open, else main pane)."""
+        self.snapshots_dir.mkdir(parents=True, exist_ok=True)
+        popout: Optional[Dict[str, Any]] = None
+        if window_id is not None:
+            for pw in self.list_popout_windows(app=app):
+                if int(pw.get("windowID") or 0) == int(window_id):
+                    popout = pw
+                    break
+        elif target:
+            popout = self.find_popout_window(target, app=app)
+
+        if popout is not None and popout.get("windowID"):
+            return self.inspect_popout_window(popout, target=target, timeout=timeout)
+
+        if target:
+            nav = self.select_session(target, max_pages=max_pages)
+            if not nav.get("ok"):
+                return nav
+            snap_path = Path(nav["snapshotPath"]) if nav.get("snapshotPath") else (
+                self.snapshots_dir / f"inspect_{_slugify_target(target)}.png"
+            )
+            ocr_payload = nav.get("ocrPayload")
+            if not isinstance(ocr_payload, dict) or not ocr_payload.get("elements"):
+                ocr_payload = self._capture_wechat_ocr(snap_path, timeout=timeout)
+            structured = self.extract_structured_bubbles(
+                ocr_payload,
+                snapshot_path=snap_path,
+                bounds=nav.get("bounds"),
+            )
+            bubbles = list(structured.get("bubbles") or [])
+            header = str(structured.get("headerTitle") or nav.get("matchedTitle") or target)
+            return {
+                "ok": True,
+                "target": target,
+                "matchedTitle": header,
+                "headerTitle": header,
+                "popoutWindow": False,
+                "zeroSwitch": False,
+                "bounds": nav.get("bounds") or {},
+                "snapshotPath": str(snap_path),
+                "bubbles": bubbles,
+                "lastBubble": structured.get("lastBubble"),
+                "messageCount": len(bubbles),
+                "ocrPayload": ocr_payload,
+                "structured": structured,
+            }
+
+        snap_path = self.snapshots_dir / "inspect_active_pane.png"
+        ocr_payload = self._capture_wechat_ocr(snap_path, timeout=timeout)
+        if not isinstance(ocr_payload, dict) or not ocr_payload.get("ok"):
+            return {
+                "ok": False,
+                "error_code": (ocr_payload or {}).get("error_code", "capture_failed") if isinstance(ocr_payload, dict) else "capture_failed",
+                "error": (ocr_payload or {}).get("error", "Failed to capture active window.") if isinstance(ocr_payload, dict) else "Failed to capture active window.",
+                "popoutWindow": False,
+                "zeroSwitch": False,
+            }
+        structured = self.extract_structured_bubbles(ocr_payload, snapshot_path=snap_path)
+        bubbles = list(structured.get("bubbles") or [])
+        header = str(structured.get("headerTitle") or ocr_payload.get("windowTitle") or "")
+        return {
+            "ok": True,
+            "target": header,
+            "matchedTitle": header,
+            "headerTitle": header,
+            "popoutWindow": self._is_popout_window(ocr_payload, ocr_payload.get("elements") or []),
+            "windowID": ocr_payload.get("windowID"),
+            "zeroSwitch": False,
+            "bounds": ocr_payload.get("windowBounds") or ocr_payload.get("bounds") or {},
+            "snapshotPath": str(snap_path),
+            "bubbles": bubbles,
+            "lastBubble": structured.get("lastBubble"),
+            "messageCount": len(bubbles),
+            "ocrPayload": ocr_payload,
+            "structured": structured,
+        }

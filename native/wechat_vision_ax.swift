@@ -4,6 +4,7 @@ import AVFoundation
 import CoreGraphics
 import Foundation
 import ImageIO
+import PDFKit
 import Vision
 
 // MARK: - JSON Helpers
@@ -59,9 +60,42 @@ func parseArgs() -> (command: String, flags: Set<String>, options: [String: Stri
     return (cmd, flags, options)
 }
 
-// MARK: - Accessibility Helpers
+// MARK: - Accessibility & Dual-App Helpers
 
 let wechatBundleID = "com.tencent.xinWeChat"
+let wecomBundleID = "com.tencent.WeWorkMac"
+
+enum AppKind: String, CaseIterable {
+    case wechat
+    case wecom
+
+    var appId: String { rawValue }
+    var appLabel: String {
+        switch self {
+        case .wechat: return "微信"
+        case .wecom: return "企业微信"
+        }
+    }
+    var bundleID: String {
+        switch self {
+        case .wechat: return wechatBundleID
+        case .wecom: return wecomBundleID
+        }
+    }
+    var mainTitles: [String] {
+        switch self {
+        case .wechat: return ["微信", "WeChat"]
+        case .wecom: return ["企业微信", "WeCom"]
+        }
+    }
+    var notRunningErrorCode: String {
+        switch self {
+        case .wechat: return "wechat_not_running"
+        case .wecom: return "wecom_not_running"
+        }
+    }
+}
+
 let inputIdentifiers: Set<String> = [
     "chat_input",
     "chat_input_field",
@@ -111,47 +145,138 @@ func axSize(_ element: AXUIElement, _ key: String) -> CGSize? {
     return nil
 }
 
-func findWeChatApp() -> NSRunningApplication? {
-    if let byBundle = NSRunningApplication.runningApplications(withBundleIdentifier: wechatBundleID).first {
-        return byBundle
+func matchesRunningApp(_ app: NSRunningApplication, kind: AppKind) -> Bool {
+    guard !app.isTerminated else { return false }
+    let bid = app.bundleIdentifier ?? ""
+    if bid == kind.bundleID {
+        return true
     }
-    for app in NSWorkspace.shared.runningApplications {
-        let name = app.localizedName ?? ""
-        if name == "WeChat" || name == "微信" {
-            return app
-        }
+    let bidLower = bid.lowercased()
+    let name = app.localizedName ?? ""
+    let nameLower = name.lowercased()
+    switch kind {
+    case .wechat:
+        let isHelper = bidLower.contains("helper")
+            || bidLower.contains("wechatappex")
+            || bidLower.contains("inputmethod")
+            || bidLower.contains("openbot")
+            || bidLower.hasPrefix("com.apple.")
+        return !isHelper && (name == "WeChat" || name == "微信")
+    case .wecom:
+        let isHelper = bidLower.contains("helper")
+            || bidLower.contains("agentassistant")
+            || bidLower.hasPrefix("com.apple.")
+            || bidLower == wechatBundleID.lowercased()
+        return !isHelper && (
+            bidLower == wecomBundleID.lowercased()
+            || name.contains("企业微信")
+            || nameLower.contains("wecom")
+        )
     }
-    return nil
 }
 
-func isWeChatFrontmost() -> (Bool, String) {
-    guard let front = NSWorkspace.shared.frontmostApplication else {
-        return (false, "none")
+func findRunningApps(for kind: AppKind) -> [NSRunningApplication] {
+    var seenPIDs = Set<pid_t>()
+    var result: [NSRunningApplication] = []
+    for app in NSRunningApplication.runningApplications(withBundleIdentifier: kind.bundleID) {
+        guard !app.isTerminated else { continue }
+        if seenPIDs.insert(app.processIdentifier).inserted {
+            result.append(app)
+        }
     }
-    let bid = front.bundleIdentifier ?? ""
-    let name = front.localizedName ?? ""
-    let match = (bid == wechatBundleID) || (name == "WeChat") || (name == "微信")
-    return (match, "\(name) (\(bid))")
+    if result.isEmpty {
+        for app in NSWorkspace.shared.runningApplications where matchesRunningApp(app, kind: kind) {
+            if seenPIDs.insert(app.processIdentifier).inserted {
+                result.append(app)
+            }
+        }
+    }
+    return result
+}
+
+func copyOnScreenWindowInfo() -> [[String: Any]] {
+    return (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]) ?? []
 }
 
 struct WindowCandidate {
     let windowID: CGWindowID
+    let appId: String
+    let appLabel: String
+    let bundleID: String
+    let pid: pid_t
     let title: String
+    let isMainWindow: Bool
     let x: Double
     let y: Double
     let width: Double
     let height: Double
     var area: Double { width * height }
+
+    func toDict() -> [String: Any] {
+        return [
+            "windowID": windowID,
+            "appId": appId,
+            "appLabel": appLabel,
+            "bundleID": bundleID,
+            "pid": Int(pid),
+            "title": title,
+            "isMainWindow": isMainWindow,
+            "bounds": ["x": x, "y": y, "width": width, "height": height],
+        ]
+    }
 }
 
-func listWeChatWindows(pid: pid_t) -> [WindowCandidate] {
-    guard let rawList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
-        return []
+private struct AXWindowMeta {
+    let element: AXUIElement
+    let frame: CGRect
+    let title: String
+    let subrole: String
+}
+
+private func collectAXWindowMeta(pid: pid_t) -> [AXWindowMeta] {
+    guard AXIsProcessTrusted() else { return [] }
+    let app = AXUIElementCreateApplication(pid)
+    AXUIElementSetMessagingTimeout(app, 0.25)
+    guard let windows = axAttr(app, kAXWindowsAttribute) as? [AXUIElement] else { return [] }
+    return windows.map { win in
+        let pt = axPoint(win, kAXPositionAttribute) ?? .zero
+        let sz = axSize(win, kAXSizeAttribute) ?? .zero
+        let title = axString(win, kAXTitleAttribute) ?? ""
+        let subrole = axString(win, kAXSubroleAttribute) ?? ""
+        return AXWindowMeta(element: win, frame: CGRect(origin: pt, size: sz), title: title, subrole: subrole)
     }
-    var result: [WindowCandidate] = []
+}
+
+func listAppWindows(
+    for kind: AppKind,
+    apps: [NSRunningApplication]? = nil,
+    rawWindowList: [[String: Any]]? = nil
+) -> [WindowCandidate] {
+    let targetApps = apps ?? findRunningApps(for: kind)
+    guard !targetApps.isEmpty else { return [] }
+
+    var appByPID: [pid_t: NSRunningApplication] = [:]
+    for app in targetApps {
+        appByPID[app.processIdentifier] = app
+    }
+
+    let rawList = rawWindowList ?? copyOnScreenWindowInfo()
+    struct RawWinEntry {
+        let wid: CGWindowID
+        let pid: pid_t
+        let bundleID: String
+        let cgTitle: String
+        let x: Double
+        let y: Double
+        let w: Double
+        let h: Double
+    }
+
+    var seenWindowIDs = Set<CGWindowID>()
+    var rawEntries: [RawWinEntry] = []
     for entry in rawList {
         guard let ownerPID = entry[kCGWindowOwnerPID as String] as? pid_t,
-              ownerPID == pid,
+              let ownerApp = appByPID[ownerPID],
               (entry[kCGWindowLayer as String] as? Int) == 0,
               let num = entry[kCGWindowNumber as String] as? NSNumber,
               let bounds = entry[kCGWindowBounds as String] as? [String: Any],
@@ -160,18 +285,252 @@ func listWeChatWindows(pid: pid_t) -> [WindowCandidate] {
               w >= 200, h >= 180 else {
             continue
         }
+        let wid = num.uint32Value
+        guard seenWindowIDs.insert(wid).inserted else { continue }
         let x = (bounds["X"] as? NSNumber)?.doubleValue ?? 0
         let y = (bounds["Y"] as? NSNumber)?.doubleValue ?? 0
-        let title = (entry[kCGWindowName as String] as? String) ?? ""
-        result.append(WindowCandidate(windowID: num.uint32Value, title: title, x: x, y: y, width: w, height: h))
+        let cgTitle = ((entry[kCGWindowName as String] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let bundleID = ownerApp.bundleIdentifier ?? kind.bundleID
+        rawEntries.append(RawWinEntry(wid: wid, pid: ownerPID, bundleID: bundleID, cgTitle: cgTitle, x: x, y: y, w: w, h: h))
     }
-    result.sort { lhs, rhs in
-        let lPref = (lhs.title == "微信" || lhs.title == "WeChat") ? 1 : 0
-        let rPref = (rhs.title == "微信" || rhs.title == "WeChat") ? 1 : 0
-        if lPref != rPref { return lPref > rPref }
-        return lhs.area > rhs.area
+
+    guard !rawEntries.isEmpty else { return [] }
+
+    let hasMainNamedTitle = rawEntries.contains { kind.mainTitles.contains($0.cgTitle) }
+    let needsAXEnrichment = AXIsProcessTrusted() && (!hasMainNamedTitle || rawEntries.contains { $0.cgTitle.isEmpty })
+    var axMetaByPID: [pid_t: [AXWindowMeta]] = [:]
+    if needsAXEnrichment {
+        for pid in Set(rawEntries.map { $0.pid }) {
+            axMetaByPID[pid] = collectAXWindowMeta(pid: pid)
+        }
     }
-    return result
+
+    struct ResolvedEntry {
+        let raw: RawWinEntry
+        let resolvedTitle: String
+        let axSubrole: String
+        var area: Double { raw.w * raw.h }
+    }
+
+    let resolvedEntries: [ResolvedEntry] = rawEntries.map { item in
+        var title = item.cgTitle
+        var subrole = ""
+        if let metas = axMetaByPID[item.pid] {
+            let targetRect = CGRect(x: item.x, y: item.y, width: item.w, height: item.h)
+            if let matched = metas.min(by: { lhs, rhs in
+                let dl = abs(lhs.frame.origin.x - targetRect.origin.x)
+                    + abs(lhs.frame.origin.y - targetRect.origin.y)
+                    + abs(lhs.frame.size.width - targetRect.size.width)
+                    + abs(lhs.frame.size.height - targetRect.size.height)
+                let dr = abs(rhs.frame.origin.x - targetRect.origin.x)
+                    + abs(rhs.frame.origin.y - targetRect.origin.y)
+                    + abs(rhs.frame.size.width - targetRect.size.width)
+                    + abs(rhs.frame.size.height - targetRect.size.height)
+                return dl < dr
+            }) {
+                let delta = abs(matched.frame.origin.x - targetRect.origin.x)
+                    + abs(matched.frame.origin.y - targetRect.origin.y)
+                    + abs(matched.frame.size.width - targetRect.size.width)
+                    + abs(matched.frame.size.height - targetRect.size.height)
+                if delta <= 32.0 {
+                    subrole = matched.subrole
+                    if title.isEmpty && !matched.title.isEmpty {
+                        title = matched.title
+                    }
+                }
+            }
+        }
+        return ResolvedEntry(raw: item, resolvedTitle: title, axSubrole: subrole)
+    }
+
+    // Choose at most one main window per app kind.
+    var mainIndex: Int? = nil
+    var bestMainScore = -1.0
+    for (idx, entry) in resolvedEntries.enumerated() {
+        var score = -1.0
+        if kind.mainTitles.contains(entry.resolvedTitle) {
+            score = 100_000_000.0 + entry.area
+        } else if kind == .wecom && (entry.resolvedTitle.contains("企业微信") || entry.resolvedTitle.localizedCaseInsensitiveContains("wecom")) && entry.raw.w >= 680 {
+            score = 60_000_000.0 + entry.area
+        } else if entry.resolvedTitle.isEmpty && (entry.axSubrole == "AXStandardWindow" || entry.raw.w >= 680 || resolvedEntries.count == 1) {
+            score = 30_000_000.0 + (entry.axSubrole == "AXStandardWindow" ? 5_000_000.0 : 0.0) + entry.area
+        }
+        if score > bestMainScore {
+            bestMainScore = score
+            mainIndex = idx
+        }
+    }
+
+    var candidates: [WindowCandidate] = []
+    for (idx, entry) in resolvedEntries.enumerated() {
+        let isMain = (mainIndex == idx)
+        let finalTitle = (entry.resolvedTitle.isEmpty && isMain) ? kind.appLabel : entry.resolvedTitle
+        candidates.append(WindowCandidate(
+            windowID: entry.raw.wid,
+            appId: kind.appId,
+            appLabel: kind.appLabel,
+            bundleID: entry.raw.bundleID,
+            pid: entry.raw.pid,
+            title: finalTitle,
+            isMainWindow: isMain,
+            x: entry.raw.x,
+            y: entry.raw.y,
+            width: entry.raw.w,
+            height: entry.raw.h
+        ))
+    }
+
+    candidates.sort { lhs, rhs in
+        if lhs.isMainWindow != rhs.isMainWindow {
+            return lhs.isMainWindow && !rhs.isMainWindow
+        }
+        if lhs.area != rhs.area {
+            return lhs.area > rhs.area
+        }
+        return lhs.windowID < rhs.windowID
+    }
+    return candidates
+}
+
+func listWeChatWindows(pid: pid_t) -> [WindowCandidate] {
+    let matchingApps = findRunningApps(for: .wechat).filter { $0.processIdentifier == pid }
+    if !matchingApps.isEmpty {
+        return listAppWindows(for: .wechat, apps: matchingApps)
+    }
+    if let app = NSRunningApplication(processIdentifier: pid) {
+        return listAppWindows(for: .wechat, apps: [app])
+    }
+    return []
+}
+
+func listWindows(for kind: AppKind, pid: pid_t? = nil) -> [WindowCandidate] {
+    if let pid = pid {
+        let matching = findRunningApps(for: kind).filter { $0.processIdentifier == pid }
+        if !matching.isEmpty {
+            return listAppWindows(for: kind, apps: matching)
+        }
+        if let app = NSRunningApplication(processIdentifier: pid) {
+            return listAppWindows(for: kind, apps: [app])
+        }
+        return []
+    }
+    return listAppWindows(for: kind)
+}
+
+func findBestRunningApp(for kind: AppKind) -> NSRunningApplication? {
+    let apps = findRunningApps(for: kind)
+    guard apps.count > 1 else { return apps.first }
+    let rawList = copyOnScreenWindowInfo()
+    let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+    var bestApp: NSRunningApplication?
+    var bestScore = -1.0
+    for app in apps {
+        let wins = listAppWindows(for: kind, apps: [app], rawWindowList: rawList)
+        var score = Double(wins.count) * 100_000.0
+        if wins.contains(where: { $0.isMainWindow }) {
+            score += 1_000_000.0
+        }
+        score += min(wins.reduce(0.0) { $0 + $1.area }, 5_000_000.0) / 100.0
+        if app.processIdentifier == frontPID {
+            score += 5_000_000.0
+        }
+        if wins.isEmpty && AXIsProcessTrusted() {
+            let axCount = collectAXWindowMeta(pid: app.processIdentifier).count
+            score += Double(axCount) * 500.0
+        }
+        if score > bestScore {
+            bestScore = score
+            bestApp = app
+        }
+    }
+    return bestApp ?? apps.first
+}
+
+func findWeChatApp() -> NSRunningApplication? {
+    return findBestRunningApp(for: .wechat)
+}
+
+func isAppFrontmost(_ kind: AppKind) -> (Bool, String) {
+    guard let front = NSWorkspace.shared.frontmostApplication else {
+        return (false, "none")
+    }
+    let bid = front.bundleIdentifier ?? ""
+    let name = front.localizedName ?? ""
+    return (matchesRunningApp(front, kind: kind), "\(name) (\(bid))")
+}
+
+func isWeChatFrontmost() -> (Bool, String) {
+    return isAppFrontmost(.wechat)
+}
+
+func selectTargetWindow(in windows: [WindowCandidate], options: [String: String]) -> WindowCandidate? {
+    if let widStr = options["window-id"], let wid = UInt32(widStr) {
+        return windows.first { $0.windowID == wid }
+    }
+    if let titleSub = options["window-title"]?.trimmingCharacters(in: .whitespacesAndNewlines), !titleSub.isEmpty {
+        let lowSub = titleSub.lowercased()
+        return windows.first { $0.title.lowercased() == lowSub }
+            ?? windows.first { $0.title.lowercased().contains(lowSub) }
+    }
+    return windows.first
+}
+
+func resolveAutoApp(options: [String: String] = [:]) -> AppKind {
+    let rawList = copyOnScreenWindowInfo()
+    let wechatWins = listAppWindows(for: .wechat, rawWindowList: rawList)
+    let wecomWins = listAppWindows(for: .wecom, rawWindowList: rawList)
+
+    if let widStr = options["window-id"], let wid = UInt32(widStr) {
+        if wecomWins.contains(where: { $0.windowID == wid }) { return .wecom }
+        if wechatWins.contains(where: { $0.windowID == wid }) { return .wechat }
+    }
+    if let titleSub = options["window-title"]?.trimmingCharacters(in: .whitespacesAndNewlines), !titleSub.isEmpty {
+        let lowSub = titleSub.lowercased()
+        let frontWeCom = isAppFrontmost(.wecom).0
+        let frontWeChat = isAppFrontmost(.wechat).0
+        let ordered: [(AppKind, [WindowCandidate])] = frontWeCom
+            ? [(.wecom, wecomWins), (.wechat, wechatWins)]
+            : (frontWeChat ? [(.wechat, wechatWins), (.wecom, wecomWins)] : [(.wechat, wechatWins), (.wecom, wecomWins)])
+        for (kind, wins) in ordered {
+            if wins.contains(where: { $0.title.lowercased() == lowSub || $0.title.lowercased().contains(lowSub) }) {
+                return kind
+            }
+        }
+    }
+    if isAppFrontmost(.wecom).0 { return .wecom }
+    if isAppFrontmost(.wechat).0 { return .wechat }
+    if !wechatWins.isEmpty { return .wechat }
+    if !wecomWins.isEmpty { return .wecom }
+    if !findRunningApps(for: .wechat).isEmpty { return .wechat }
+    if !findRunningApps(for: .wecom).isEmpty { return .wecom }
+    return .wechat
+}
+
+func resolveTargetApp(options: [String: String], allowWindowLookupWhenOmitted: Bool = false) -> (requested: String, kind: AppKind) {
+    let raw = (options["app"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if raw.isEmpty {
+        if allowWindowLookupWhenOmitted, let widStr = options["window-id"], let wid = UInt32(widStr) {
+            let rawList = copyOnScreenWindowInfo()
+            let wechatWins = listAppWindows(for: .wechat, rawWindowList: rawList)
+            if !wechatWins.contains(where: { $0.windowID == wid }) {
+                let wecomWins = listAppWindows(for: .wecom, rawWindowList: rawList)
+                if wecomWins.contains(where: { $0.windowID == wid }) {
+                    return ("default", .wecom)
+                }
+            }
+        }
+        return ("default", .wechat)
+    }
+    switch raw {
+    case "wechat":
+        return ("wechat", .wechat)
+    case "wecom", "wework":
+        return ("wecom", .wecom)
+    case "auto":
+        return ("auto", resolveAutoApp(options: options))
+    default:
+        failJSON("Unsupported --app value '\(raw)'. Expected wechat|wecom|auto.", code: "invalid_argument")
+    }
 }
 
 func axHasSessionList(_ root: AXUIElement, maxNodes: Int = 120) -> Bool {
@@ -196,7 +555,7 @@ func axHasSessionList(_ root: AXUIElement, maxNodes: Int = 120) -> Bool {
     return false
 }
 
-func findMainAXWindow(pid: pid_t) -> AXUIElement? {
+func findMainAXWindow(pid: pid_t, kind: AppKind = .wechat) -> AXUIElement? {
     guard AXIsProcessTrusted() else { return nil }
     let app = AXUIElementCreateApplication(pid)
     AXUIElementSetMessagingTimeout(app, 0.25)
@@ -210,14 +569,57 @@ func findMainAXWindow(pid: pid_t) -> AXUIElement? {
         if sz.width < 320 || sz.height < 240 { continue }
         var score = sz.width * sz.height
         let title = axString(win, kAXTitleAttribute) ?? ""
-        if title == "微信" || title == "WeChat" { score += 10_000_000 }
-        if axHasSessionList(win) { score += 50_000_000 }
+        if kind.mainTitles.contains(title) { score += 10_000_000 }
+        if kind == .wechat && axHasSessionList(win) { score += 50_000_000 }
         if score > bestScore {
             bestScore = score
             bestWindow = win
         }
     }
     return bestWindow ?? windows.first
+}
+
+func findAXWindow(pid: pid_t, kind: AppKind = .wechat, targetWin: WindowCandidate? = nil, reqTitle: String? = nil) -> AXUIElement? {
+    guard AXIsProcessTrusted() else { return nil }
+    let effectivePID = targetWin?.pid ?? pid
+    let app = AXUIElementCreateApplication(effectivePID)
+    AXUIElementSetMessagingTimeout(app, 0.25)
+    guard let windows = axAttr(app, kAXWindowsAttribute) as? [AXUIElement], !windows.isEmpty else {
+        return nil
+    }
+    if let tw = targetWin {
+        var best: AXUIElement?
+        var bestDist = Double.greatestFiniteMagnitude
+        for win in windows {
+            if let pt = axPoint(win, kAXPositionAttribute), let sz = axSize(win, kAXSizeAttribute) {
+                let d = abs(Double(pt.x) - tw.x) + abs(Double(pt.y) - tw.y)
+                    + abs(Double(sz.width) - tw.width) + abs(Double(sz.height) - tw.height)
+                if d < bestDist {
+                    bestDist = d
+                    best = win
+                }
+            }
+        }
+        if best != nil && bestDist <= 32.0 {
+            return best
+        }
+        let twTitle = tw.title.lowercased()
+        if !twTitle.isEmpty {
+            if let byTitle = windows.first(where: { (axString($0, kAXTitleAttribute) ?? "").lowercased() == twTitle }) {
+                return byTitle
+            }
+        }
+    }
+    if let titleSub = reqTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !titleSub.isEmpty {
+        let low = titleSub.lowercased()
+        if let exact = windows.first(where: { (axString($0, kAXTitleAttribute) ?? "").lowercased() == low }) {
+            return exact
+        }
+        if let partial = windows.first(where: { (axString($0, kAXTitleAttribute) ?? "").lowercased().contains(low) }) {
+            return partial
+        }
+    }
+    return findMainAXWindow(pid: effectivePID, kind: kind)
 }
 
 func readChatTitleFromAX(pid: pid_t) -> (name: String?, memberCount: Int?) {
@@ -543,10 +945,10 @@ func findInputElement(in root: AXUIElement, maxNodes: Int = 900) -> AXUIElement?
     return fallbackTextArea
 }
 
-func runOpenWeChatProcess() {
+func runOpenAppProcess(kind: AppKind) {
     let proc = Process()
     proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-    proc.arguments = ["-b", wechatBundleID]
+    proc.arguments = ["-b", kind.bundleID]
     proc.standardOutput = FileHandle.nullDevice
     proc.standardError = FileHandle.nullDevice
     try? proc.run()
@@ -560,7 +962,7 @@ func axBool(_ element: AXUIElement, _ key: String) -> Bool? {
     return nil
 }
 
-func axUnminimizeAndRaiseWeChatWindows(pid: pid_t) -> Bool {
+func axUnminimizeAndRaiseAppWindows(pid: pid_t, kind: AppKind = .wechat) -> Bool {
     guard AXIsProcessTrusted() else { return false }
     let app = AXUIElementCreateApplication(pid)
     AXUIElementSetMessagingTimeout(app, 1.5)
@@ -575,7 +977,7 @@ func axUnminimizeAndRaiseWeChatWindows(pid: pid_t) -> Bool {
         }
         let title = axString(win, kAXTitleAttribute) ?? ""
         let sz = axSize(win, kAXSizeAttribute) ?? .zero
-        if title == "微信" || title == "WeChat" || (sz.width >= 320 && sz.height >= 240) {
+        if kind.mainTitles.contains(title) || (sz.width >= 320 && sz.height >= 240) {
             _ = AXUIElementPerformAction(win, kAXRaiseAction as CFString)
             acted = true
         }
@@ -583,7 +985,7 @@ func axUnminimizeAndRaiseWeChatWindows(pid: pid_t) -> Bool {
     return acted
 }
 
-func pressWeChatWindowMenu(pid: pid_t) -> Bool {
+func pressAppWindowMenu(pid: pid_t, kind: AppKind = .wechat) -> Bool {
     guard AXIsProcessTrusted() else { return false }
     let app = AXUIElementCreateApplication(pid)
     AXUIElementSetMessagingTimeout(app, 1.5)
@@ -596,7 +998,7 @@ func pressWeChatWindowMenu(pid: pid_t) -> Bool {
         for subMenu in axChildren(top) {
             for item in axChildren(subMenu) {
                 let title = axString(item, kAXTitleAttribute) ?? ""
-                if title == "微信" || title == "WeChat" || title == "聊天" || title == "前置全部窗口" {
+                if kind.mainTitles.contains(title) || title == "聊天" || title == "前置全部窗口" {
                     if AXUIElementPerformAction(item, kAXPressAction as CFString) == .success {
                         return true
                     }
@@ -607,7 +1009,7 @@ func pressWeChatWindowMenu(pid: pid_t) -> Bool {
     return false
 }
 
-func findWeChatDockItem() -> AXUIElement? {
+func findAppDockItem(kind: AppKind = .wechat) -> AXUIElement? {
     guard AXIsProcessTrusted(),
           let dockApp = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first else {
         return nil
@@ -622,7 +1024,7 @@ func findWeChatDockItem() -> AXUIElement? {
         let subrole = axString(el, kAXSubroleAttribute) ?? ""
         let title = axString(el, kAXTitleAttribute) ?? ""
         if (subrole == "AXApplicationDockItem" || subrole == "AXMinimizedWindowDockItem") &&
-           (title == "微信" || title == "WeChat") {
+           kind.mainTitles.contains(title) {
             return el
         }
         queue.append(contentsOf: axChildren(el))
@@ -630,8 +1032,8 @@ func findWeChatDockItem() -> AXUIElement? {
     return nil
 }
 
-func clickWeChatInDock() -> String? {
-    guard let dockItem = findWeChatDockItem() else { return nil }
+func clickAppInDock(kind: AppKind = .wechat) -> String? {
+    guard let dockItem = findAppDockItem(kind: kind) else { return nil }
     if AXUIElementPerformAction(dockItem, kAXPressAction as CFString) == .success {
         return "dock_ax_press"
     }
@@ -645,17 +1047,17 @@ func clickWeChatInDock() -> String? {
     return nil
 }
 
-/// Ensures WeChat is running, unminimized, visible as an on-screen window, and frontmost.
-func ensureWeChatMainWindow() -> (app: NSRunningApplication?, windows: [WindowCandidate], recoveryMethod: String?) {
+/// Ensures target app (WeChat or WeCom) is running, unminimized, visible as an on-screen window, and frontmost.
+func ensureAppMainWindow(kind: AppKind = .wechat) -> (app: NSRunningApplication?, windows: [WindowCandidate], recoveryMethod: String?) {
     var recoveryMethod: String? = nil
-    var app = findWeChatApp()
+    var app = findBestRunningApp(for: kind)
 
-    // Stage 1: Launch WeChat via bundle ID if not running
+    // Stage 1: Launch target app via bundle ID if not running
     if app == nil {
-        runOpenWeChatProcess()
+        runOpenAppProcess(kind: kind)
         for _ in 0..<12 {
             usleep(250_000)
-            app = findWeChatApp()
+            app = findBestRunningApp(for: kind)
             if app != nil { break }
         }
         if app != nil { recoveryMethod = "open_launch" }
@@ -664,14 +1066,14 @@ func ensureWeChatMainWindow() -> (app: NSRunningApplication?, windows: [WindowCa
         return (nil, [], nil)
     }
 
-    var windows = listWeChatWindows(pid: runningApp.processIdentifier)
+    var windows = listWindows(for: kind)
     if windows.isEmpty {
         // Stage 2: Unhide + Activate + AX Unminimize & Raise
         _ = runningApp.unhide()
         _ = runningApp.activate(options: [.activateIgnoringOtherApps])
-        if axUnminimizeAndRaiseWeChatWindows(pid: runningApp.processIdentifier) {
+        if axUnminimizeAndRaiseAppWindows(pid: runningApp.processIdentifier, kind: kind) {
             usleep(350_000)
-            windows = listWeChatWindows(pid: runningApp.processIdentifier)
+            windows = listWindows(for: kind)
             if !windows.isEmpty {
                 recoveryMethod = recoveryMethod ?? "ax_unminimize"
             }
@@ -679,22 +1081,22 @@ func ensureWeChatMainWindow() -> (app: NSRunningApplication?, windows: [WindowCa
     }
 
     if windows.isEmpty {
-        // Stage 3a: `/usr/bin/open -b com.tencent.xinWeChat` (triggers macOS Reopen Application AppleEvent)
-        runOpenWeChatProcess()
+        // Stage 3a: `/usr/bin/open -b <bundleID>` (triggers macOS Reopen Application AppleEvent)
+        runOpenAppProcess(kind: kind)
         usleep(400_000)
-        windows = listWeChatWindows(pid: runningApp.processIdentifier)
+        windows = listWindows(for: kind)
         if !windows.isEmpty {
             recoveryMethod = recoveryMethod ?? "open_reopen"
         }
     }
 
     if windows.isEmpty {
-        // Stage 3b: Trigger WeChat menu bar "窗口" -> "微信"/"聊天"
+        // Stage 3b: Trigger app menu bar "窗口" -> main title/"聊天"
         _ = runningApp.activate(options: [.activateIgnoringOtherApps])
         usleep(180_000)
-        if pressWeChatWindowMenu(pid: runningApp.processIdentifier) {
+        if pressAppWindowMenu(pid: runningApp.processIdentifier, kind: kind) {
             usleep(350_000)
-            windows = listWeChatWindows(pid: runningApp.processIdentifier)
+            windows = listWindows(for: kind)
             if !windows.isEmpty {
                 recoveryMethod = recoveryMethod ?? "menu_bar_window"
             }
@@ -702,17 +1104,17 @@ func ensureWeChatMainWindow() -> (app: NSRunningApplication?, windows: [WindowCa
     }
 
     if windows.isEmpty {
-        // Stage 4: Find & click "微信" Dock icon (AXPress first, then physical CGEvent click)
-        if let dockMethod = clickWeChatInDock() {
+        // Stage 4: Find & click Dock icon (AXPress first, then physical CGEvent click)
+        if let dockMethod = clickAppInDock(kind: kind) {
             usleep(450_000)
-            windows = listWeChatWindows(pid: runningApp.processIdentifier)
-            if windows.isEmpty, let dockItem = findWeChatDockItem(), CGPreflightPostEventAccess(),
+            windows = listWindows(for: kind)
+            if windows.isEmpty, let dockItem = findAppDockItem(kind: kind), CGPreflightPostEventAccess(),
                let pt = axPoint(dockItem, kAXPositionAttribute),
                let sz = axSize(dockItem, kAXSizeAttribute),
                sz.width > 0 && sz.height > 0 {
                 moveAndClick(x: pt.x + sz.width / 2.0, y: pt.y + sz.height / 2.0)
                 usleep(450_000)
-                windows = listWeChatWindows(pid: runningApp.processIdentifier)
+                windows = listWindows(for: kind)
                 if !windows.isEmpty { recoveryMethod = "dock_cgevent_click" }
             } else if !windows.isEmpty {
                 recoveryMethod = recoveryMethod ?? dockMethod
@@ -723,19 +1125,24 @@ func ensureWeChatMainWindow() -> (app: NSRunningApplication?, windows: [WindowCa
     _ = runningApp.activate(options: [.activateIgnoringOtherApps])
     usleep(220_000)
     if windows.isEmpty {
-        windows = listWeChatWindows(pid: runningApp.processIdentifier)
+        windows = listWindows(for: kind)
     }
     return (runningApp, windows, recoveryMethod)
 }
 
+func ensureWeChatMainWindow() -> (app: NSRunningApplication?, windows: [WindowCandidate], recoveryMethod: String?) {
+    return ensureAppMainWindow(kind: .wechat)
+}
+
 // MARK: - Subcommands
 
-func cmdStatus(flags: Set<String> = []) {
+func cmdStatus(flags: Set<String> = [], options: [String: String] = [:]) {
+    let (requestedApp, targetKind) = resolveTargetApp(options: options, allowWindowLookupWhenOmitted: false)
     let axTrusted = AXIsProcessTrusted()
     let scTrusted = CGPreflightScreenCaptureAccess()
     let postTrusted = CGPreflightPostEventAccess()
-    let (frontOK, frontDesc) = isWeChatFrontmost()
-    let app = findWeChatApp()
+    let (frontOK, frontDesc) = isAppFrontmost(targetKind)
+    let app = findBestRunningApp(for: targetKind)
 
     let mainTop = NSScreen.screens.first { $0.frame.contains(NSPoint.zero) }?.frame.maxY ?? NSScreen.main?.frame.maxY ?? 0
     let screenList: [[String: Any]] = NSScreen.screens.map { scr in
@@ -757,6 +1164,11 @@ func cmdStatus(flags: Set<String> = []) {
     var payload: [String: Any] = [
         "ok": true,
         "reviewedSendProtocol": 1,
+        "appId": targetKind.appId,
+        "appLabel": targetKind.appLabel,
+        "appBundleID": app?.bundleIdentifier ?? targetKind.bundleID,
+        "appRunning": app != nil,
+        "appFrontmost": frontOK,
         "accessibilityTrusted": axTrusted,
         "postEventTrusted": postTrusted,
         "screenCaptureTrusted": scTrusted,
@@ -766,29 +1178,29 @@ func cmdStatus(flags: Set<String> = []) {
         "hidIdle": queryHIDIdleState(),
         "screens": screenList,
     ]
+    if requestedApp != "default" {
+        payload["requestedApp"] = requestedApp
+        payload["resolvedApp"] = targetKind.appId
+    }
 
     if let app = app {
         payload["wechatPID"] = app.processIdentifier
-        payload["wechatBundleID"] = app.bundleIdentifier ?? ""
-        let windows = listWeChatWindows(pid: app.processIdentifier)
+        payload["appPID"] = app.processIdentifier
+        payload["wechatBundleID"] = app.bundleIdentifier ?? targetKind.bundleID
+        let windows = listWindows(for: targetKind)
         payload["windowCount"] = windows.count
-        payload["windows"] = windows.map { win in
-            [
-                "windowID": win.windowID,
-                "title": win.title,
-                "bounds": ["x": win.x, "y": win.y, "width": win.width, "height": win.height],
-            ] as [String: Any]
-        }
+        payload["windows"] = windows.map { $0.toDict() }
 
         if flags.contains("with-chat-title") {
-            let axTitle = readChatTitleFromAX(pid: app.processIdentifier)
+            let axTitle: (name: String?, memberCount: Int?) = (targetKind == .wechat) ? readChatTitleFromAX(pid: app.processIdentifier) : (name: nil, memberCount: nil)
             if let name = axTitle.name {
                 payload["currentChatTitle"] = name
                 payload["currentChatSource"] = "accessibility"
                 if let count = axTitle.memberCount {
                     payload["currentChatMemberCount"] = count
                 }
-            } else if let mainWin = windows.first, let ocrTitle = parseTitleFromHeaderOCR(mainWin) {
+            } else if let mainWin = selectTargetWindow(in: windows, options: options),
+                      let ocrTitle = parseTitleFromHeaderOCR(mainWin) {
                 payload["currentChatTitle"] = ocrTitle
                 payload["currentChatSource"] = "vision_ocr"
             }
@@ -798,15 +1210,84 @@ func cmdStatus(flags: Set<String> = []) {
     writeJSON(payload)
 }
 
+func cmdListAppWindows(options: [String: String]) {
+    let rawApp = (options["app"] ?? "all").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let kinds: [AppKind]
+    var resolvedApp: String? = nil
+    switch rawApp {
+    case "", "all":
+        kinds = [.wechat, .wecom]
+    case "wechat":
+        kinds = [.wechat]
+        resolvedApp = AppKind.wechat.appId
+    case "wecom", "wework":
+        kinds = [.wecom]
+        resolvedApp = AppKind.wecom.appId
+    case "auto":
+        let autoKind = resolveAutoApp(options: options)
+        kinds = [autoKind]
+        resolvedApp = autoKind.appId
+    default:
+        failJSON("Unsupported --app value '\(rawApp)'. Expected wechat|wecom|all|auto.", code: "invalid_argument")
+    }
+
+    let rawList = copyOnScreenWindowInfo()
+    var appsOut: [[String: Any]] = []
+    var windowsOut: [[String: Any]] = []
+
+    for kind in kinds {
+        let runningApps = findRunningApps(for: kind)
+        let bestApp = findBestRunningApp(for: kind)
+        let wins = listAppWindows(for: kind, apps: runningApps, rawWindowList: rawList)
+        let (frontOK, _) = isAppFrontmost(kind)
+        var appDict: [String: Any] = [
+            "appId": kind.appId,
+            "appLabel": kind.appLabel,
+            "bundleID": bestApp?.bundleIdentifier ?? kind.bundleID,
+            "running": bestApp != nil,
+            "frontmost": frontOK,
+            "windowCount": wins.count,
+        ]
+        if let best = bestApp {
+            appDict["pid"] = Int(best.processIdentifier)
+            if let locName = best.localizedName, !locName.isEmpty {
+                appDict["localizedName"] = locName
+            }
+        }
+        appsOut.append(appDict)
+        for w in wins {
+            windowsOut.append(w.toDict())
+        }
+    }
+
+    var payload: [String: Any] = [
+        "ok": true,
+        "requestedApp": rawApp.isEmpty ? "all" : rawApp,
+        "apps": appsOut,
+        "windowCount": windowsOut.count,
+        "windows": windowsOut,
+    ]
+    if let resolved = resolvedApp {
+        payload["resolvedApp"] = resolved
+    }
+    writeJSON(payload)
+}
+
 func cmdAXTree(options: [String: String]) {
     guard AXIsProcessTrusted() else {
         failJSON("Accessibility permission (AXIsProcessTrusted) is not granted.", code: "ax_permission_denied")
     }
-    guard let app = findWeChatApp() else {
-        failJSON("WeChat (com.tencent.xinWeChat) is not running.", code: "wechat_not_running")
+    let (_, targetKind) = resolveTargetApp(options: options, allowWindowLookupWhenOmitted: true)
+    guard let app = findBestRunningApp(for: targetKind) else {
+        failJSON("\(targetKind.appLabel) (\(targetKind.bundleID)) is not running.", code: targetKind.notRunningErrorCode, extra: ["appId": targetKind.appId])
     }
-    guard let win = findMainAXWindow(pid: app.processIdentifier) else {
-        failJSON("No accessible WeChat main window found.", code: "no_ax_window")
+    let windows = listWindows(for: targetKind)
+    let targetWin = (options["window-id"] != nil || !(options["window-title"] ?? "").isEmpty)
+        ? selectTargetWindow(in: windows, options: options)
+        : nil
+    let pid = targetWin?.pid ?? app.processIdentifier
+    guard let win = findAXWindow(pid: pid, kind: targetKind, targetWin: targetWin, reqTitle: options["window-title"]) else {
+        failJSON("No accessible \(targetKind.appLabel) window found.", code: "no_ax_window", extra: ["appId": targetKind.appId])
     }
 
     let maxDepth = Int(options["depth"] ?? "8") ?? 8
@@ -877,7 +1358,9 @@ func cmdAXTree(options: [String: String]) {
 
     writeJSON([
         "ok": true,
-        "wechatPID": app.processIdentifier,
+        "appId": targetKind.appId,
+        "appLabel": targetKind.appLabel,
+        "wechatPID": pid,
         "currentChat": currentChat,
         "sessionItems": sessionItems,
         "messageItems": messageItems,
@@ -950,44 +1433,37 @@ func cmdCaptureOCR(options: [String: String], allowActivation: Bool = true) {
     guard CGPreflightScreenCaptureAccess() else {
         failJSON("Screen Recording permission (CGPreflightScreenCaptureAccess) is not granted.", code: "screen_capture_denied")
     }
+    let (_, targetKind) = resolveTargetApp(options: options, allowWindowLookupWhenOmitted: true)
     let reqWindowID = options["window-id"].flatMap { UInt32($0) }
     let reqWindowTitle = options["window-title"]?.trimmingCharacters(in: .whitespacesAndNewlines)
 
-    var app = findWeChatApp()
-    var windows: [WindowCandidate] = app.map { listWeChatWindows(pid: $0.processIdentifier) } ?? []
+    var app = findBestRunningApp(for: targetKind)
+    var windows: [WindowCandidate] = app != nil ? listWindows(for: targetKind) : []
     if allowActivation && (app == nil || (reqWindowID == nil && (reqWindowTitle == nil || reqWindowTitle!.isEmpty) && windows.isEmpty)) {
-        let ensured = ensureWeChatMainWindow()
+        let ensured = ensureAppMainWindow(kind: targetKind)
         app = ensured.app
         if !ensured.windows.isEmpty {
             windows = ensured.windows
-        } else if let a = app {
-            windows = listWeChatWindows(pid: a.processIdentifier)
+        } else if app != nil {
+            windows = listWindows(for: targetKind)
         }
     }
-    guard let runningApp = app else {
-        failJSON("WeChat is not running and could not be launched.", code: "wechat_not_running")
+    guard app != nil else {
+        failJSON("\(targetKind.appLabel) is not running and could not be launched.", code: targetKind.notRunningErrorCode, extra: ["appId": targetKind.appId])
     }
     if windows.isEmpty {
-        windows = listWeChatWindows(pid: runningApp.processIdentifier)
+        windows = listWindows(for: targetKind)
     }
 
-    let targetWin: WindowCandidate?
-    if let wid = reqWindowID {
-        targetWin = windows.first { $0.windowID == wid }
-    } else if let titleSub = reqWindowTitle, !titleSub.isEmpty {
-        let lowSub = titleSub.lowercased()
-        targetWin = windows.first { $0.title.lowercased() == lowSub }
-            ?? windows.first { $0.title.lowercased().contains(lowSub) }
-    } else {
-        targetWin = windows.first
-    }
+    let targetWin = selectTargetWindow(in: windows, options: options)
 
     guard let mainWin = targetWin else {
         failJSON(
-            "No matching visible WeChat window found.",
+            "No matching visible \(targetKind.appLabel) window found.",
             code: (reqWindowID != nil || reqWindowTitle != nil) ? "window_not_found" : "no_window",
             extra: [
-                "availableWindows": windows.map { ["windowID": $0.windowID, "title": $0.title] as [String: Any] }
+                "appId": targetKind.appId,
+                "availableWindows": windows.map { $0.toDict() }
             ]
         )
     }
@@ -998,8 +1474,9 @@ func cmdCaptureOCR(options: [String: String], allowActivation: Bool = true) {
     // 明确报 window_occluded，让上层区分「窗口被遮挡」与「OCR 真失败」。
     if isImageFullyTransparent(cgImage) {
         failJSON(
-            "WeChat window is fully occluded by another app (macOS returns a transparent image). Bring WeChat to front or minimize the covering window.",
-            code: "window_occluded"
+            "\(targetKind.appLabel) window is fully occluded by another app (macOS returns a transparent image). Bring \(targetKind.appLabel) to front or minimize the covering window.",
+            code: "window_occluded",
+            extra: ["appId": targetKind.appId, "windowID": mainWin.windowID]
         )
     }
 
@@ -1016,6 +1493,11 @@ func cmdCaptureOCR(options: [String: String], allowActivation: Bool = true) {
         let elapsedMs = Double(DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1_000_000.0
         var resp: [String: Any] = [
             "ok": true,
+            "appId": targetKind.appId,
+            "appLabel": targetKind.appLabel,
+            "bundleID": mainWin.bundleID,
+            "pid": Int(mainWin.pid),
+            "isMainWindow": mainWin.isMainWindow,
             "windowID": mainWin.windowID,
             "windowTitle": mainWin.title,
             "windowBounds": ["x": mainWin.x, "y": mainWin.y, "width": mainWin.width, "height": mainWin.height],
@@ -1038,25 +1520,18 @@ func cmdSetWindowFrame(options: [String: String]) {
     guard AXIsProcessTrusted() else {
         failJSON("Accessibility permission (AXIsProcessTrusted) is not granted.", code: "ax_permission_denied")
     }
-    guard let app = findWeChatApp() else {
-        failJSON("WeChat (com.tencent.xinWeChat) is not running.", code: "wechat_not_running")
+    let (_, targetKind) = resolveTargetApp(options: options, allowWindowLookupWhenOmitted: true)
+    guard let app = findBestRunningApp(for: targetKind) else {
+        failJSON("\(targetKind.appLabel) (\(targetKind.bundleID)) is not running.", code: targetKind.notRunningErrorCode, extra: ["appId": targetKind.appId])
     }
-    let axApp = AXUIElementCreateApplication(app.processIdentifier)
-    AXUIElementSetMessagingTimeout(axApp, 0.5)
-
-    var targetWin: AXUIElement? = nil
-    let reqTitle = options["window-title"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-    if let titleSub = reqTitle, !titleSub.isEmpty,
-       let windows = axAttr(axApp, kAXWindowsAttribute) as? [AXUIElement] {
-        let low = titleSub.lowercased()
-        targetWin = windows.first { (axString($0, kAXTitleAttribute) ?? "").lowercased() == low }
-            ?? windows.first { (axString($0, kAXTitleAttribute) ?? "").lowercased().contains(low) }
-    }
-    if targetWin == nil {
-        targetWin = findMainAXWindow(pid: app.processIdentifier)
-    }
+    let windows = listWindows(for: targetKind)
+    let matchedWin = (options["window-id"] != nil || !(options["window-title"] ?? "").isEmpty)
+        ? selectTargetWindow(in: windows, options: options)
+        : nil
+    let pid = matchedWin?.pid ?? app.processIdentifier
+    let targetWin = findAXWindow(pid: pid, kind: targetKind, targetWin: matchedWin, reqTitle: options["window-title"])
     guard let win = targetWin else {
-        failJSON("No matching accessible WeChat window found.", code: "no_ax_window")
+        failJSON("No matching accessible \(targetKind.appLabel) window found.", code: "no_ax_window", extra: ["appId": targetKind.appId])
     }
 
     let curPt = axPoint(win, kAXPositionAttribute) ?? .zero
@@ -1225,9 +1700,13 @@ func cmdScroll(options: [String: String]) {
     if (xOpt == nil || yOpt == nil),
        let rxStr = options["rx"], let ryStr = options["ry"],
        let rx = Double(rxStr), let ry = Double(ryStr) {
-        let ensured = ensureWeChatMainWindow()
-        guard let win = ensured.windows.first else {
-            failJSON("No visible WeChat main window for relative scroll.", code: "no_visible_wechat_window")
+        let (_, targetKind) = resolveTargetApp(options: options, allowWindowLookupWhenOmitted: true)
+        var windows = listWindows(for: targetKind)
+        if windows.isEmpty {
+            windows = ensureAppMainWindow(kind: targetKind).windows
+        }
+        guard let win = selectTargetWindow(in: windows, options: options) else {
+            failJSON("No visible \(targetKind.appLabel) window for relative scroll.", code: "no_visible_wechat_window", extra: ["appId": targetKind.appId])
         }
         xOpt = win.x + rx * win.width
         yOpt = win.y + ry * win.height
@@ -1254,34 +1733,56 @@ func cmdScroll(options: [String: String]) {
     ])
 }
 
-func cmdActivate() {
-    let ensured = ensureWeChatMainWindow()
+func cmdActivate(options: [String: String] = [:]) {
+    let (requestedApp, targetKind) = resolveTargetApp(options: options, allowWindowLookupWhenOmitted: true)
+    let ensured = ensureAppMainWindow(kind: targetKind)
     guard let app = ensured.app else {
-        failJSON("WeChat is not running and could not be launched.", code: "wechat_not_running")
+        failJSON("\(targetKind.appLabel) is not running and could not be launched.", code: targetKind.notRunningErrorCode, extra: ["appId": targetKind.appId])
     }
-    let activated = app.activate(options: [.activateIgnoringOtherApps])
+    var windows = ensured.windows.isEmpty ? listWindows(for: targetKind) : ensured.windows
+    let hasWindowSelector = options["window-id"] != nil || !(options["window-title"] ?? "").isEmpty
+    let selectedWin = hasWindowSelector ? selectTargetWindow(in: windows, options: options) : nil
+    if let targetWin = selectedWin,
+       let targetRunningApp = NSRunningApplication(processIdentifier: targetWin.pid) {
+        _ = targetRunningApp.unhide()
+        _ = targetRunningApp.activate(options: [.activateIgnoringOtherApps])
+        if let axWin = findAXWindow(pid: targetWin.pid, kind: targetKind, targetWin: targetWin, reqTitle: options["window-title"]) {
+            _ = AXUIElementSetAttributeValue(axWin, kAXMainAttribute as CFString, kCFBooleanTrue)
+            _ = AXUIElementPerformAction(axWin, kAXRaiseAction as CFString)
+        }
+    } else {
+        _ = app.activate(options: [.activateIgnoringOtherApps])
+    }
     usleep(200_000)
-    let (frontOK, frontDesc) = isWeChatFrontmost()
-    let windows = ensured.windows.isEmpty ? listWeChatWindows(pid: app.processIdentifier) : ensured.windows
+    let (frontOK, frontDesc) = isAppFrontmost(targetKind)
+    windows = listWindows(for: targetKind)
     var resp: [String: Any] = [
-        "ok": frontOK && !windows.isEmpty,
-        "activatedCall": activated,
+        "ok": frontOK && !windows.isEmpty && (!hasWindowSelector || selectedWin != nil),
+        "appId": targetKind.appId,
+        "appLabel": targetKind.appLabel,
+        "bundleID": app.bundleIdentifier ?? targetKind.bundleID,
+        "activatedCall": true,
+        "appFrontmost": frontOK,
+        "appPID": app.processIdentifier,
         "wechatFrontmost": frontOK,
         "frontmostApp": frontDesc,
         "wechatPID": app.processIdentifier,
         "windowCount": windows.count,
-        "windows": windows.map { win in
-            [
-                "windowID": win.windowID,
-                "title": win.title,
-                "bounds": ["x": win.x, "y": win.y, "width": win.width, "height": win.height],
-            ] as [String: Any]
-        },
+        "windows": windows.map { $0.toDict() },
     ]
+    if requestedApp != "default" {
+        resp["requestedApp"] = requestedApp
+        resp["resolvedApp"] = targetKind.appId
+    }
+    if let sel = selectedWin {
+        resp["targetWindowID"] = sel.windowID
+        resp["targetWindowTitle"] = sel.title
+    }
     if let method = ensured.recoveryMethod {
         resp["recoveryMethod"] = method
     }
-    writeJSON(resp, exitCode: (frontOK && !windows.isEmpty) ? 0 : 1)
+    let exitOK = frontOK && !windows.isEmpty && (!hasWindowSelector || selectedWin != nil)
+    writeJSON(resp, exitCode: exitOK ? 0 : 1)
 }
 
 func cmdRequestPermissions(flags: Set<String>) {
@@ -1309,12 +1810,16 @@ func cmdRequestPermissions(flags: Set<String>) {
     ])
 }
 
-func cmdFocusInput() {
-    let ensured = ensureWeChatMainWindow()
+func cmdFocusInput(options: [String: String] = [:]) {
+    let (_, targetKind) = resolveTargetApp(options: options, allowWindowLookupWhenOmitted: true)
+    let ensured = ensureAppMainWindow(kind: targetKind)
     guard let app = ensured.app else {
-        failJSON("WeChat is not running.", code: "wechat_not_running")
+        failJSON("\(targetKind.appLabel) is not running.", code: targetKind.notRunningErrorCode, extra: ["appId": targetKind.appId])
     }
-    if let axWin = findMainAXWindow(pid: app.processIdentifier),
+    let windows = listWindows(for: targetKind)
+    let targetWin = selectTargetWindow(in: windows, options: options)
+    let targetPID = targetWin?.pid ?? app.processIdentifier
+    if let axWin = findAXWindow(pid: targetPID, kind: targetKind, targetWin: targetWin, reqTitle: options["window-title"]),
        let inputEl = findInputElement(in: axWin) {
         let focusErr = AXUIElementSetAttributeValue(inputEl, kAXFocusedAttribute as CFString, kCFBooleanTrue)
         let pt = axPoint(inputEl, kAXPositionAttribute)
@@ -1325,43 +1830,45 @@ func cmdFocusInput() {
             moveAndClick(x: cx, y: cy)
             writeJSON([
                 "ok": true,
+                "appId": targetKind.appId,
                 "method": "ax_and_click",
                 "axFocusErr": focusErr.rawValue,
                 "clickPoint": ["x": cx, "y": cy],
             ])
         } else if focusErr == .success {
-            writeJSON(["ok": true, "method": "ax_focus_only"])
+            writeJSON(["ok": true, "appId": targetKind.appId, "method": "ax_focus_only"])
         }
     }
 
-    // Fallback to window bottom-center heuristic (dead-center in WeChat 4.x input box above bottom toolbar)
-    let windows = listWeChatWindows(pid: app.processIdentifier)
-    guard let win = windows.first else {
-        failJSON("No WeChat window found to focus input.", code: "no_window")
+    // Fallback to window bottom-center heuristic (dead-center in input box above bottom toolbar)
+    guard let win = targetWin ?? windows.first else {
+        failJSON("No \(targetKind.appLabel) window found to focus input.", code: "no_window", extra: ["appId": targetKind.appId])
     }
     let cx = win.x + win.width * 0.60
     let cy = win.y + win.height - 85.0
     moveAndClick(x: cx, y: cy)
     writeJSON([
         "ok": true,
+        "appId": targetKind.appId,
+        "windowID": win.windowID,
         "method": "window_geometry_fallback",
         "clickPoint": ["x": cx, "y": cy],
     ])
 }
 
 // Human-reviewed send: never navigate, use cursor geometry, or append to a user draft.
-func cmdReviewedSend(text: String, expectedID: UInt32, expectedTitle: String) {
+func cmdReviewedSend(text: String, expectedID: UInt32, expectedTitle: String, kind: AppKind = .wechat) {
     guard AXIsProcessTrusted(), CGPreflightPostEventAccess() else {
-        failJSON("WeChat input permissions required.", code: "review_ax_denied")
+        failJSON("\(kind.appLabel) input permissions required.", code: "review_ax_denied")
     }
-    guard let app = findWeChatApp() else {
-        failJSON("WeChat window changed.", code: "review_target_changed")
+    guard let app = findBestRunningApp(for: kind) else {
+        failJSON("\(kind.appLabel) window changed.", code: "review_target_changed")
     }
     let pid = app.processIdentifier
     func sameChat() -> Bool {
-        let windows = listWeChatWindows(pid: pid)
+        let windows = listWindows(for: kind, pid: pid)
         guard windows.count == 1, let win = windows.first, win.windowID == expectedID else { return false }
-        if let title = readChatTitleFromAX(pid: pid).name { return title == expectedTitle }
+        if kind == .wechat, let title = readChatTitleFromAX(pid: pid).name { return title == expectedTitle }
         guard CGPreflightScreenCaptureAccess(), let img = captureWindowImage(win) else { return false }
         let sx = Double(img.width) / win.width
         let sy = Double(img.height) / win.height
@@ -1375,11 +1882,11 @@ func cmdReviewedSend(text: String, expectedID: UInt32, expectedTitle: String) {
         }.sorted { ($0.0, $0.1) < ($1.0, $1.1) }.map { $0.2 }.joined(separator: " ")
         return header.trimmingCharacters(in: .whitespacesAndNewlines) == expectedTitle
     }
-    guard sameChat() else { failJSON("WeChat conversation changed.", code: "review_target_changed") }
+    guard sameChat() else { failJSON("\(kind.appLabel) conversation changed.", code: "review_target_changed") }
     _ = app.activate(options: [.activateIgnoringOtherApps])
     usleep(200_000)
     guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid, sameChat(),
-          let axWindow = findMainAXWindow(pid: pid), let input = findInputElement(in: axWindow),
+          let axWindow = findMainAXWindow(pid: pid, kind: kind), let input = findInputElement(in: axWindow),
           let ident = axString(input, kAXIdentifierAttribute), inputIdentifiers.contains(ident) else {
         failJSON("Cannot verify the current chat input.", code: "review_no_input")
     }
@@ -1416,6 +1923,7 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
     guard let text = options["text"], !text.isEmpty else {
         failJSON("Missing non-empty --text argument", code: "missing_argument")
     }
+    let (_, targetKind) = resolveTargetApp(options: options, allowWindowLookupWhenOmitted: true)
     let wantSend = flags.contains("send")
     let silentMode = flags.contains("silent") || !wantSend
     if options["review-window"] != nil || options["review-title"] != nil ||
@@ -1424,20 +1932,37 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
               let title = options["review-title"], !title.isEmpty else {
             failJSON("Invalid reviewed send target.", code: "review_target_changed")
         }
-        cmdReviewedSend(text: text, expectedID: id, expectedTitle: title)
+        cmdReviewedSend(text: text, expectedID: id, expectedTitle: title, kind: targetKind)
         return
     }
 
-    let ensured = ensureWeChatMainWindow()
+    let ensured = ensureAppMainWindow(kind: targetKind)
     guard let app = ensured.app else {
-        failJSON("WeChat is not running.", code: "wechat_not_running")
+        failJSON("\(targetKind.appLabel) is not running.", code: targetKind.notRunningErrorCode, extra: ["appId": targetKind.appId])
     }
-    _ = app.activate(options: [.activateIgnoringOtherApps])
+
+    let windows = listWindows(for: targetKind)
+    let hasWindowSelector = options["window-id"] != nil || !(options["window-title"] ?? "").isEmpty
+    let targetWin = selectTargetWindow(in: windows, options: options)
+    if hasWindowSelector && targetWin == nil {
+        failJSON(
+            "No matching visible \(targetKind.appLabel) window found.",
+            code: "window_not_found",
+            extra: ["appId": targetKind.appId, "availableWindows": windows.map { $0.toDict() }]
+        )
+    }
+
+    if let tw = targetWin, let twApp = NSRunningApplication(processIdentifier: tw.pid) {
+        _ = twApp.unhide()
+        _ = twApp.activate(options: [.activateIgnoringOtherApps])
+    } else {
+        _ = app.activate(options: [.activateIgnoringOtherApps])
+    }
     usleep(200_000)
 
-    let (frontOK, frontDesc) = isWeChatFrontmost()
+    let (frontOK, frontDesc) = isAppFrontmost(targetKind)
     guard frontOK else {
-        failJSON("Aborted: frontmost app is '\(frontDesc)', expected WeChat.", code: "not_frontmost")
+        failJSON("Aborted: frontmost app is '\(frontDesc)', expected \(targetKind.appLabel).", code: "not_frontmost", extra: ["appId": targetKind.appId])
     }
 
     // Save clipboard
@@ -1451,10 +1976,15 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
         }
     }
 
-    // Focus input element via AX or geometry
-    let mainWin = listWeChatWindows(pid: app.processIdentifier).first
+    // Focus input element via AX or geometry (supporting main or popup chat windows)
+    let effectivePID = targetWin?.pid ?? app.processIdentifier
     var axInputEl: AXUIElement? = nil
-    if let axWin = findMainAXWindow(pid: app.processIdentifier) {
+    if let axWin = findAXWindow(pid: effectivePID, kind: targetKind, targetWin: targetWin, reqTitle: options["window-title"]) {
+        if hasWindowSelector {
+            _ = AXUIElementSetAttributeValue(axWin, kAXMainAttribute as CFString, kCFBooleanTrue)
+            _ = AXUIElementPerformAction(axWin, kAXRaiseAction as CFString)
+            usleep(100_000)
+        }
         axInputEl = findInputElement(in: axWin)
         if let el = axInputEl {
             _ = AXUIElementSetAttributeValue(el, kAXFocusedAttribute as CFString, kCFBooleanTrue)
@@ -1463,10 +1993,17 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
             }
         }
     }
-    if axInputEl == nil, let win = mainWin {
+    if axInputEl == nil, let win = targetWin {
         moveAndClick(x: win.x + win.width * 0.60, y: win.y + win.height - 85.0)
     }
     usleep(180_000)
+
+    // Pre-clean: select all + delete any leftover text in the input box
+    // (粘贴前不清空会让新消息叠在旧消息后面，读回长度超 3x 触发熔断)
+    postKey(keyCode: kKeyA, flags: .maskCommand)
+    usleep(60_000)
+    postKey(keyCode: kKeyDelete, flags: [])
+    usleep(80_000)
 
     // Paste text
     pb.clearContents()
@@ -1491,14 +2028,16 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
 
     if readback.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
        CGPreflightScreenCaptureAccess(),
-       let win = mainWin,
+       let win = targetWin,
        let image = captureWindowImage(win) {
         let imgW = Double(image.width)
         let imgH = Double(image.height)
         let scale = imgW / max(win.width, 1.0)
-        let cropX = min(max(0.0, imgW * 0.36), max(0.0, imgW - 10.0))
+        let cropLeftFrac = win.isMainWindow ? 0.36 : 0.08
+        let cropWidthFrac = win.isMainWindow ? 0.62 : 0.88
+        let cropX = min(max(0.0, imgW * cropLeftFrac), max(0.0, imgW - 10.0))
         let cropY = max(0.0, imgH - 155.0 * scale)
-        let cropW = min(imgW * 0.62, imgW - cropX)
+        let cropW = min(imgW * cropWidthFrac, imgW - cropX)
         let cropH = min(115.0 * scale, imgH - cropY)
         if cropW > 10.0 && cropH > 10.0,
            let cropped = image.cropping(to: CGRect(x: cropX, y: cropY, width: cropW, height: cropH)),
@@ -1556,13 +2095,131 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
     }
 
     restoreClipboard()
-    writeJSON([
+    var resp: [String: Any] = [
         "ok": true,
+        "appId": targetKind.appId,
+        "appLabel": targetKind.appLabel,
         "verified": true,
         "sent": sent,
         "silentMode": silentMode,
         "readbackLength": readback.count,
         "readbackSource": readbackSource,
+    ]
+    if let win = targetWin {
+        resp["windowID"] = win.windowID
+        resp["windowTitle"] = win.title
+    }
+    writeJSON(resp)
+}
+
+func renderPDFPageToCGImage(_ page: PDFPage, maxDimension: CGFloat = 2200.0, scale: CGFloat = 2.0) -> CGImage? {
+    let cropBox = page.bounds(for: .cropBox)
+    guard cropBox.width > 1, cropBox.height > 1 else { return nil }
+    let rotation = ((page.rotation % 360) + 360) % 360
+    let displayWidth = (rotation == 90 || rotation == 270) ? cropBox.height : cropBox.width
+    let displayHeight = (rotation == 90 || rotation == 270) ? cropBox.width : cropBox.height
+    guard displayWidth > 1, displayHeight > 1 else { return nil }
+
+    let clampedScale = max(1.0, min(scale, maxDimension / max(displayWidth, displayHeight)))
+    let pixelW = max(1, Int((displayWidth * clampedScale).rounded()))
+    let pixelH = max(1, Int((displayHeight * clampedScale).rounded()))
+
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    guard let ctx = CGContext(
+        data: nil,
+        width: pixelW,
+        height: pixelH,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: colorSpace,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else {
+        return nil
+    }
+    ctx.setFillColor(NSColor.white.cgColor)
+    ctx.fill(CGRect(x: 0, y: 0, width: pixelW, height: pixelH))
+    ctx.saveGState()
+    ctx.scaleBy(x: clampedScale, y: clampedScale)
+    // PDFPage.draw(with:to:) applies the page's cropBox/rotation transform internally.
+    page.draw(with: .cropBox, to: ctx)
+    ctx.restoreGState()
+    return ctx.makeImage()
+}
+
+func cmdExtractPDFText(options: [String: String]) {
+    guard let pdfPath = options["pdf"], !pdfPath.isEmpty else {
+        failJSON("Missing --pdf <path>", code: "missing_argument")
+    }
+    var isDir: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: pdfPath, isDirectory: &isDir), !isDir.boolValue else {
+        failJSON("PDF file not found: \(pdfPath)", code: "file_not_found")
+    }
+    let pdfURL = URL(fileURLWithPath: pdfPath)
+    guard let doc = PDFDocument(url: pdfURL) else {
+        failJSON("Unable to open PDF document: \(pdfPath)", code: "invalid_pdf")
+    }
+    if doc.isLocked && !doc.unlock(withPassword: "") {
+        failJSON("PDF document is encrypted/locked: \(pdfPath)", code: "pdf_locked")
+    }
+
+    let pageCount = doc.pageCount
+    let maxPages: Int
+    if let rawMax = options["max-pages"] {
+        guard let parsedMax = Int(rawMax), parsedMax > 0 else {
+            failJSON("Invalid --max-pages value '\(rawMax)'. Must be a positive integer.", code: "invalid_argument")
+        }
+        maxPages = parsedMax
+    } else {
+        maxPages = pageCount
+    }
+
+    let langsRaw = options["langs"] ?? "zh-Hans,en-US"
+    let langs = langsRaw.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+
+    let pagesToProcess = min(pageCount, maxPages)
+    var pagesOut: [[String: Any]] = []
+    var nonEmptyTexts: [String] = []
+    let minDirectCharsForNoOCR = 20
+
+    for idx in 0..<pagesToProcess {
+        guard let page = doc.page(at: idx) else { continue }
+        let pdfText = (page.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let pdfCompactCount = pdfText.unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) }.count
+
+        var pageSource = "pdfkit"
+        var finalText = pdfText
+
+        if pdfCompactCount < minDirectCharsForNoOCR,
+           let cgImg = renderPDFPageToCGImage(page),
+           let ocrItems = try? runVisionOCR(cgImage: cgImg, languages: langs) {
+            let ocrText = ocrItems.compactMap { $0["text"] as? String }
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let ocrCompactCount = ocrText.unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) }.count
+            if !ocrText.isEmpty && (pdfCompactCount == 0 || ocrCompactCount > pdfCompactCount) {
+                pageSource = "ocr"
+                finalText = ocrText
+            }
+        }
+
+        pagesOut.append([
+            "page": idx + 1,
+            "source": pageSource,
+            "text": finalText,
+        ])
+        if !finalText.isEmpty {
+            nonEmptyTexts.append(finalText)
+        }
+    }
+
+    writeJSON([
+        "ok": true,
+        "pdfPath": pdfPath,
+        "pageCount": pageCount,
+        "processedPages": pagesOut.count,
+        "truncated": pagesOut.count < pageCount,
+        "text": nonEmptyTexts.joined(separator: "\n\n"),
+        "pages": pagesOut,
     ])
 }
 
@@ -1618,7 +2275,9 @@ func cmdExtractVideoFrames(options: [String: String]) {
 let parsed = parseArgs()
 switch parsed.command {
 case "status":
-    cmdStatus(flags: parsed.flags)
+    cmdStatus(flags: parsed.flags, options: parsed.options)
+case "list-app-windows":
+    cmdListAppWindows(options: parsed.options)
 case "hid-idle":
     writeJSON([
         "ok": true,
@@ -1632,6 +2291,8 @@ case "capture-ocr":
     cmdCaptureOCR(options: parsed.options, allowActivation: !parsed.flags.contains("no-activate"))
 case "set-window-frame":
     cmdSetWindowFrame(options: parsed.options)
+case "extract-pdf-text":
+    cmdExtractPDFText(options: parsed.options)
 case "extract-video-frames":
     cmdExtractVideoFrames(options: parsed.options)
 case "render-test-image":
@@ -1643,16 +2304,16 @@ case "right-click":
 case "scroll":
     cmdScroll(options: parsed.options)
 case "activate":
-    cmdActivate()
+    cmdActivate(options: parsed.options)
 case "request-permissions":
     cmdRequestPermissions(flags: parsed.flags)
 case "focus-input":
-    cmdFocusInput()
+    cmdFocusInput(options: parsed.options)
 case "paste-and-verify":
     cmdPasteAndVerify(flags: parsed.flags, options: parsed.options)
 default:
     writeJSON([
         "ok": true,
-        "usage": "wechat-vision-ax <status|hid-idle|ax-tree|ocr|capture-ocr|set-window-frame|extract-video-frames|render-test-image|click|scroll|activate|request-permissions|focus-input|paste-and-verify> [options]",
+        "usage": "wechat-vision-ax <status|list-app-windows|hid-idle|ax-tree|ocr|capture-ocr|set-window-frame|extract-pdf-text|extract-video-frames|render-test-image|click|right-click|scroll|activate|request-permissions|focus-input|paste-and-verify> [options]",
     ])
 }

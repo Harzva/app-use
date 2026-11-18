@@ -32,6 +32,7 @@ from .benchmark_suite import WeChatRPABenchmarkSuite
 from .botstudio_bridge import BotStudioBridgeManager
 from .bridge_importer import WeChatBridgeImporter
 from .contact_profiler import ContactBindingStore, ContactStyleProfiler, ContextualAIChatGenerator
+from .doc_ingestor import ALLOWED_TEST_CONTACTS, AppWindowBinder, DocumentKnowledgeIngestor
 from .human_activity_guard import HumanActivityGuard
 from .knowledge_kf_engine import DEFAULT_OPENBOT_KNOWLEDGE_DB, PersonaSwitchEngine, WeChatKnowledgeStore
 from .live_inspector import WeChatLiveInspector, _matches_target, _slugify_target
@@ -458,6 +459,8 @@ class WeChatControlEngine:
         self._workos_lock = threading.RLock()
         self.workos_state_path = resolved_auth.parent / "workos_state.json"
         self._workos_state = self._load_workos_state()
+        self.app_window_binder = AppWindowBinder(resolved_auth.parent / "app_window_binding.json")
+        self.doc_ingestor = DocumentKnowledgeIngestor(self)
         # 托管自动恢复：上次异常退出（enabled=true 未走 stop）时重启引擎恢复托管。
         # fail-closed：授权被撤销则不恢复，只落审计。
         try:
@@ -483,27 +486,39 @@ class WeChatControlEngine:
 
     def capture_wechat_ocr(self, out_path: Path, *, timeout: float = 30.0,
                            window_title: str = "微信") -> Dict[str, Any]:
-        """只截微信窗口做 OCR（--window-title 定位），避免截到覆盖在上面的无关窗口。
+        """只截微信/企业微信目标窗口做 OCR（优先使用已绑定的 --window-id / --app，默认 --window-title 定位）。
 
         两层兜底：
         1. 窗口不存在（window_not_found）→ 退回不带 title 的调用（保留自动拉起能力）
-        2. 截图成功但 OCR 为空（窗口被其他应用完全遮挡时 macOS 返回空白）→ 激活微信后重截一次
+        2. 截图成功但 OCR 为空（窗口被其他应用完全遮挡时 macOS 返回空白）→ 激活应用后重截一次
         """
-        res = self._run_native(["capture-ocr", "--window-title", window_title, "--out", str(out_path)], timeout)
+        bound = self.app_window_binder.get_binding() if hasattr(self, "app_window_binder") else {}
+        bound_app = str(bound.get("appId") or "auto")
+        bound_wid = bound.get("windowID")
+        bound_title = str(bound.get("windowTitle") or "").strip()
+        app_flags = ["--app", bound_app] if bound_app in ("wechat", "wecom") else []
+
+        if bound_wid:
+            target_flags = ["--window-id", str(int(bound_wid))]
+        else:
+            eff_title = bound_title if (bound_title and window_title == "微信") else window_title
+            target_flags = ["--window-title", eff_title]
+
+        capture_args = ["capture-ocr", *target_flags, *app_flags, "--out", str(out_path)]
+        res = self._run_native(capture_args, timeout)
         if not res.get("ok"):
             if res.get("error_code") in ("window_not_found", "no_window"):
-                fallback = self._run_native(["capture-ocr", "--out", str(out_path)], timeout)
+                fallback = self._run_native(["capture-ocr", *app_flags, "--out", str(out_path)], timeout)
                 fallback["fallbackUsed"] = True
                 fallback["fallbackReason"] = res.get("error_code")
                 return fallback
             if res.get("error_code") != "window_occluded":
                 return res
-        # 窗口被完全遮挡（原生层返回 window_occluded / 空结果）→ 激活微信后重截一次
+        # 窗口被完全遮挡（原生层返回 window_occluded / 空结果）→ 激活后重截一次
         if res.get("error_code") == "window_occluded" or not (res.get("elements") or []):
-            self._run_native(["activate"], 10.0)
+            self._run_native(["activate", *app_flags], 10.0)
             time.sleep(0.8)
-            retry = self._run_native(
-                ["capture-ocr", "--window-title", window_title, "--out", str(out_path)], timeout)
+            retry = self._run_native(capture_args, timeout)
             if retry.get("ok") and (retry.get("elements") or []):
                 retry["retriedAfterActivate"] = True
                 return retry
@@ -663,7 +678,10 @@ class WeChatControlEngine:
 
     def get_status(self) -> Dict[str, Any]:
         self._require("status")
-        res = self._run_native(["status"])
+        bound = self.get_bound_app_window() if hasattr(self, "app_window_binder") else {}
+        bound_app = str(bound.get("appId") or "auto")
+        args = ["status"] + (["--app", bound_app] if bound_app in ("wechat", "wecom") else [])
+        res = self._run_native(args)
         self.audit.log("status", "ok" if res.get("ok") else "error", {"wechatRunning": res.get("wechatRunning")})
         return res
 
@@ -747,7 +765,14 @@ class WeChatControlEngine:
 
     def ocr_wechat_window(self, save_path: Optional[Path] = None) -> Dict[str, Any]:
         self._require("ocr")
+        bound = self.get_bound_app_window() if hasattr(self, "app_window_binder") else {}
+        bound_app = str(bound.get("appId") or "auto")
+        bound_wid = bound.get("windowID")
         args = ["capture-ocr"]
+        if bound_wid:
+            args.extend(["--window-id", str(int(bound_wid))])
+        if bound_app in ("wechat", "wecom"):
+            args.extend(["--app", bound_app])
         if save_path is not None:
             Path(save_path).parent.mkdir(parents=True, exist_ok=True)
             args.extend(["--out", str(save_path)])
@@ -1835,7 +1860,10 @@ class WeChatControlEngine:
 
     def activate_wechat(self) -> Dict[str, Any]:
         self._require("status")
-        res = self._run_native(["activate"], 12.0)
+        bound = self.get_bound_app_window() if hasattr(self, "app_window_binder") else {}
+        bound_app = str(bound.get("appId") or "auto")
+        args = ["activate"] + (["--app", bound_app] if bound_app in ("wechat", "wecom") else [])
+        res = self._run_native(args, 12.0)
         self.audit.log(
             "activate_wechat",
             "ok" if res.get("ok") else "failed",
@@ -2025,8 +2053,11 @@ class WeChatControlEngine:
         属于只读系统前置体检（不依赖 Studio 插件授权门禁），每次真实调用原生 status（不缓存），
         确保用户在系统设置里改完点「重新检查」立即生效。
         """
+        bound = self.get_bound_app_window() if hasattr(self, "app_window_binder") else {}
+        bound_app = str(bound.get("appId") or "auto")
+        status_args = ["status"] + (["--app", bound_app] if bound_app in ("wechat", "wecom") else [])
         try:
-            res = self._run_native(["status"], 8.0)
+            res = self._run_native(status_args, 8.0)
         except Exception as exc:
             return {"ok": False, "error": f"native_probe_failed: {exc}"}
         if not res.get("ok"):
@@ -2054,6 +2085,7 @@ class WeChatControlEngine:
             "allGranted": accessibility and post_event and screen_capture,
             "wechatRunning": bool(res.get("wechatRunning")),
             "wechatPid": res.get("wechatPid"),
+            "boundWindow": bound,
         }
 
     def sync_hosting_histories(self) -> Dict[str, Any]:
@@ -3781,6 +3813,8 @@ class WeChatControlEngine:
         kb_list = self.knowledge.list_entries(include_drafts=False, limit=5000)
         kb_entries = kb_list.get("entries") or []
         self_learned_entries = [e for e in kb_entries if e.get("source") == "workos-self-learn"]
+        doc_ingested_entries = [e for e in kb_entries if e.get("source") == "doc-ingest"]
+        bound_window = self.get_bound_app_window() if hasattr(self, "app_window_binder") else {}
 
         bench_metrics: Dict[str, Any] = {}
         try:
@@ -3818,10 +3852,12 @@ class WeChatControlEngine:
                 "postPreset": state.get("postPreset", "private_ops"),
                 "postLabel": state.get("postLabel", WORKOS_POST_PRESETS["private_ops"]["label"]),
                 "taskGoal": state.get("taskGoal", WORKOS_POST_PRESETS["private_ops"]["goal"]),
+                "boundWindow": bound_window,
             },
             "evaluation": {
                 "knowledgeEntriesCount": int(kb_list.get("count") or len(kb_entries)),
                 "selfLearnedCount": len(self_learned_entries),
+                "docIngestedCount": len(doc_ingested_entries),
                 "benchmark": bench_metrics,
             },
             "reflection": {
@@ -3834,3 +3870,130 @@ class WeChatControlEngine:
             },
             "presets": WORKOS_POST_PRESETS,
         }
+
+    # ------------------------------------------------------------------
+    # Dual-App Window Binding (WeChat + WeCom) & Document Ingestion (v2.4.70)
+    # ------------------------------------------------------------------
+
+    def get_bound_app_window(self) -> Dict[str, Any]:
+        """Return currently persisted WeChat / WeCom / auto window binding."""
+        binding = self.app_window_binder.get_binding()
+        return {"ok": True, **binding}
+
+    def list_app_windows(self, app: str = "all") -> Dict[str, Any]:
+        """Scan visible desktop windows for WeChat (`wechat`) and WeCom (`wecom`)."""
+        self._require("status")
+        clean_app = str(app or "all").strip().lower()
+        if clean_app not in ("all", "wechat", "wecom", "auto"):
+            return {
+                "ok": False,
+                "error_code": "unsupported_app",
+                "error": f"Unsupported app filter {app!r}. Expected all, wechat, wecom, or auto.",
+                "windows": [],
+                "boundWindow": self.app_window_binder.get_binding(),
+            }
+        res = self._run_native(["list-app-windows", "--app", clean_app], timeout=12.0)
+        bound = self.app_window_binder.get_binding()
+        if not isinstance(res, dict):
+            res = {"ok": False, "error": "Invalid native response", "windows": [], "apps": []}
+        res.setdefault("windows", [])
+        res.setdefault("apps", [])
+        allowed_targets = (
+            list(self.allowlist.list_allowed())
+            if getattr(self.allowlist, "enabled", False)
+            else list(ALLOWED_TEST_CONTACTS)
+        )
+        enriched_windows: List[Dict[str, Any]] = []
+        for win in res.get("windows") or []:
+            if not isinstance(win, dict):
+                continue
+            item = dict(win)
+            is_main = bool(item.get("isMainWindow"))
+            title = str(item.get("title") or "").strip()
+            item["isPopout"] = not is_main
+            item["isAllowlistedTarget"] = bool(
+                not is_main
+                and title
+                and any(_matches_target(title, t) for t in allowed_targets)
+            )
+            enriched_windows.append(item)
+        res["windows"] = enriched_windows
+        res["boundWindow"] = bound
+        return res
+
+    def bind_app_window(
+        self,
+        app_id: str = "auto",
+        window_id: Optional[int] = None,
+        window_title: str = "",
+        *,
+        app_label: Optional[str] = None,
+        follow_up_isolation: bool = True,
+    ) -> Dict[str, Any]:
+        """Bind active target window (`wechat` | `wecom` | `auto`) without loosening contact allowlists."""
+        self._require("status")
+        try:
+            binding = self.app_window_binder.bind(
+                app_id,
+                window_id=window_id,
+                window_title=window_title,
+                app_label=app_label,
+                follow_up_isolation=follow_up_isolation,
+            )
+        except ValueError as exc:
+            return {"ok": False, "error_code": "unsupported_app", "error": str(exc)}
+        self.audit.log(
+            "workos_bind_window",
+            "ok",
+            {
+                "appId": binding.get("appId"),
+                "windowID": binding.get("windowID"),
+                "windowTitle": binding.get("windowTitle"),
+                "followUpIsolation": binding.get("followUpIsolation"),
+            },
+        )
+        return {"ok": True, "binding": binding, **binding}
+
+    def preview_doc_ingest(
+        self,
+        *,
+        raw_text: str = "",
+        file_path: Optional[str] = None,
+        file_bytes_b64: Optional[str] = None,
+        filename: str = "",
+        instruction: str = "希望你能够替代我去和顾客聊天",
+        doc_name: str = "",
+        use_llm: Optional[bool] = None,
+        max_pages: int = 12,
+    ) -> Dict[str, Any]:
+        """Extract & structure an uploaded PDF/Markdown/Text/JSON product doc into KB drafts."""
+        self._require("status")
+        return self.doc_ingestor.preview(
+            raw_text=raw_text,
+            file_path=file_path,
+            file_bytes_b64=file_bytes_b64,
+            filename=filename,
+            instruction=instruction,
+            doc_name=doc_name,
+            use_llm=use_llm,
+            max_pages=max_pages,
+        )
+
+    def confirm_doc_ingest(
+        self,
+        *,
+        items: List[Dict[str, Any]],
+        strategy: str = "bind_kb",
+        doc_name: str = "",
+        apply_prompt_target: bool = False,
+        instruction: str = "",
+    ) -> Dict[str, Any]:
+        """Commit confirmed document knowledge drafts to shared FTS5 KB (and optionally taskGoal)."""
+        self._require("status")
+        return self.doc_ingestor.confirm(
+            items=items,
+            strategy=strategy,
+            doc_name=doc_name,
+            apply_prompt_target=apply_prompt_target,
+            instruction=instruction,
+        )
