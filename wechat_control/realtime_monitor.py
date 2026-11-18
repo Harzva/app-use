@@ -16,6 +16,7 @@ import signal
 import struct
 import time
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
@@ -27,6 +28,7 @@ from .media_link_analyzer import (
     is_explicit_wechat_ai_mention,
     is_wechat_ai_assistant_name,
 )
+from .multi_window_scheduler import UnreadDeltaTracker
 from .safety import normalize_chat_name
 
 if TYPE_CHECKING:
@@ -344,6 +346,7 @@ class WeChatRealtimeMonitor:
         contact_state: Dict[str, Any],
         force_open: bool,
         popout_windows: Optional[List[Dict[str, Any]]] = None,
+        prefetched_popout: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Inspect a single contact's chat pane, preferring direct pop-out capture (zero-switch)."""
         popout_win = (
@@ -352,7 +355,7 @@ class WeChatRealtimeMonitor:
             else self.engine.inspector.find_popout_window(target)
         )
         if popout_win is not None and popout_win.get("windowID"):
-            popout_res = self.engine.inspector.inspect_popout_window(
+            popout_res = prefetched_popout or self.engine.inspector.inspect_popout_window(
                 popout_win,
                 target=target,
                 snapshot_prefix="monitor_popout",
@@ -367,12 +370,25 @@ class WeChatRealtimeMonitor:
                     "popoutWindowID": wid,
                     "zeroSwitch": True,
                 }
+            matched_title = str(popout_res.get("matchedTitle") or target)
+            bubbles = list((popout_res.get("structured") or {}).get("bubbles") or [])
+            if bubbles and hasattr(self.engine.inspector, "_persist_contact_history"):
+                try:
+                    self.engine.inspector._persist_contact_history(
+                        target,
+                        matched_title,
+                        bubbles,
+                        popout_res.get("snapshotPath"),
+                    )
+                except Exception:
+                    pass
             return {
                 "checked": True,
                 "source": "popout_window",
-                "matchedTitle": popout_res.get("matchedTitle") or target,
+                "matchedTitle": matched_title,
                 "structured": popout_res["structured"],
                 "snapshotPath": popout_res.get("snapshotPath"),
+                "bounds": popout_res.get("bounds") or popout_win.get("bounds"),
                 "rowPreview": str((in_row or {}).get("previewSnippet") or ""),
                 "popoutWindow": True,
                 "popoutWindowID": wid,
@@ -381,6 +397,17 @@ class WeChatRealtimeMonitor:
             }
 
         if _matches_target(target, active_header):
+            bubbles = list((active_structured or {}).get("bubbles") or [])
+            if bubbles and hasattr(self.engine.inspector, "_persist_contact_history"):
+                try:
+                    self.engine.inspector._persist_contact_history(
+                        target,
+                        active_header,
+                        bubbles,
+                        None,
+                    )
+                except Exception:
+                    pass
             return {
                 "checked": True,
                 "source": "active_pane",
@@ -438,12 +465,25 @@ class WeChatRealtimeMonitor:
             snapshot_path=snap_path,
             bounds=nav.get("bounds"),
         )
+        matched_title = str(structured.get("headerTitle") or nav.get("matchedTitle") or target)
+        bubbles = list(structured.get("bubbles") or [])
+        if bubbles and hasattr(self.engine.inspector, "_persist_contact_history"):
+            try:
+                self.engine.inspector._persist_contact_history(
+                    target,
+                    matched_title,
+                    bubbles,
+                    str(snap_path),
+                )
+            except Exception:
+                pass
         return {
             "checked": True,
             "source": trigger_reason or "selected_session",
-            "matchedTitle": structured.get("headerTitle") or nav.get("matchedTitle") or target,
+            "matchedTitle": matched_title,
             "structured": structured,
             "snapshotPath": str(snap_path),
+            "bounds": nav.get("bounds"),
             "rowPreview": row_preview,
         }
 
@@ -454,13 +494,75 @@ class WeChatRealtimeMonitor:
         bubbles: List[Dict[str, Any]],
         incoming_text: str,
         inspected: Dict[str, Any],
+        *,
+        active_cards: Optional[List[Dict[str, Any]]] = None,
     ) -> Tuple[List[str], Optional[Dict[str, Any]]]:
-        """Agent 分发与链接/图片/视频深读：产出注入回复上下文的识别备注（并持久化 media_note）。
+        """Agent 分发与链接/图片/视频/视频号/公众号卡片深读：产出注入回复上下文的识别备注（并持久化 media_note）。
 
         返回 (extra_notes, dispatched_receipt)；深读失败静默降级，不影响回复主流程。
         """
         extra_notes: List[str] = []
         dispatched_receipt: Optional[Dict[str, Any]] = None
+        card_targets: List[Dict[str, Any]] = []
+        deep_read_card_texts: set[str] = set()
+        vision_model = str(binding.get("visionModelId") or "auto/deepseek-v4.1-flash")
+
+        # 1) 优先识别当前屏幕可见的视频号/公众号文章/图片/视频卡片（并按需主动点击深读），防止旧历史笔记抢占焦点
+        try:
+            detected_cards = (
+                list(active_cards)
+                if active_cards is not None
+                else list(UnreadDeltaTracker.extract_unread_delta(bubbles).get("activeMediaCards") or [])
+            )
+            card_targets = [
+                c for c in detected_cards
+                if str(c.get("mediaType") or "") in ("channels_video", "wechat_article", "video", "image")
+            ]
+        except Exception:
+            card_targets = []
+
+        if card_targets and hasattr(self.engine, "media_analyzer"):
+            snap_path = Path(inspected["snapshotPath"]) if inspected.get("snapshotPath") else None
+            win_bounds = inspected.get("bounds") if isinstance(inspected.get("bounds"), dict) else None
+            win_id = inspected.get("windowID") or inspected.get("popoutWindowID")
+            for card in card_targets[-3:]:
+                card_txt = str(card.get("text") or "").strip()
+                if card_txt:
+                    deep_read_card_texts.add(card_txt[:120])
+                if hasattr(self.engine.media_analyzer, "click_and_deep_read_bubble"):
+                    try:
+                        cres = self.engine.media_analyzer.click_and_deep_read_bubble(
+                            card,
+                            window_bounds=win_bounds,
+                            window_id=int(win_id) if win_id else None,
+                            snapshot_path=snap_path,
+                            contact=target,
+                            context_text=incoming_text,
+                            click_to_open=bool(win_bounds),
+                            model_id=vision_model,
+                        )
+                        if cres.get("ok") and cres.get("note"):
+                            note_str = str(cres["note"]).strip()
+                            if note_str not in extra_notes:
+                                extra_notes.append(note_str)
+                                try:
+                                    self.engine.append_media_note(target, note_str)
+                                except Exception:
+                                    pass
+                            continue
+                    except Exception:
+                        pass
+                # 降级：直接把结构化卡片信息写入置顶上下文
+                cm = dict(card.get("cardMeta") or {})
+                mtype = str(card.get("mediaType") or "card")
+                tag = "当前画面视频号卡片" if mtype == "channels_video" else ("当前画面公众号文章卡片" if mtype == "wechat_article" else "当前画面媒体卡片")
+                fallback_note = f"[{tag}:{cm.get('cardSource') or mtype}] {cm.get('cardTitle') or card_txt[:120]}" + (
+                    f" — {cm.get('cardDigest')}" if cm.get("cardDigest") else ""
+                )
+                if fallback_note not in extra_notes:
+                    extra_notes.append(fallback_note)
+
+        # 2) 收割微信原生助手（元宝 / 小微）总结；仅在当前屏幕无明确媒体卡片时再回溯历史 media_note，避免旧链接张冠李戴
         try:
             for ai_note in extract_assistant_insights_from_bubbles(bubbles[-8:]):
                 if ai_note not in extra_notes:
@@ -469,20 +571,27 @@ class WeChatRealtimeMonitor:
                         self.engine.append_media_note(target, ai_note)
                     except Exception:
                         pass
-            if hasattr(self.engine, "recent_media_notes"):
+            if not card_targets and hasattr(self.engine, "recent_media_notes"):
                 for persisted_note in self.engine.recent_media_notes(target, limit=2):
                     if persisted_note not in extra_notes:
                         extra_notes.append(persisted_note)
         except Exception:
             pass
+
         if not (hasattr(self.engine, "agent_dispatcher") and (
             binding.get("boundAgentId") or binding.get("autoAnalyzeLinksAndMedia", True)
         )):
+            if card_targets and extra_notes:
+                dispatched_receipt = {
+                    "boundAgentId": binding.get("boundAgentId") or "bot_wechat_ecosystem",
+                    "tasks": [{"kind": "card_deep_read", "category": c.get("mediaType"), "rawText": str(c.get("text") or "")[:120]} for c in card_targets[:4]],
+                    "notes": extra_notes,
+                }
             return extra_notes, dispatched_receipt
         try:
             parsed_tasks = self.engine.agent_dispatcher.parse_messages_for_instructions(
                 target,
-                bubbles[-6:],
+                bubbles[-8:],
                 snapshot_path=Path(inspected["snapshotPath"]) if inspected.get("snapshotPath") else None,
             )
             interesting = [
@@ -506,9 +615,11 @@ class WeChatRealtimeMonitor:
                 any(t.get("kind") == "link_deep_read" for t in interesting)
                 or binding.get("autoDispatchInstructions", True)
             ):
-                vision_model = str(binding.get("visionModelId") or "auto/deepseek-v4.1-flash")
                 has_ai_insight = any(n.startswith(("[元宝深读:", "[小微深读:")) for n in extra_notes)
-                for it in interesting[:2]:
+                for it in interesting[:3]:
+                    raw_it_txt = str(it.get("rawText") or "").strip()
+                    if it.get("kind") in ("video_analysis", "image_card_analysis") and raw_it_txt[:120] in deep_read_card_texts:
+                        continue
                     if it.get("kind") == "link_deep_read" and it.get("url") and hasattr(self.engine, "media_analyzer"):
                         lres = self.engine.media_analyzer.analyze_link(
                             str(it["url"]),
@@ -519,49 +630,45 @@ class WeChatRealtimeMonitor:
                         if lres.get("summary"):
                             extra_notes.append(f"[链接深读:{lres.get('title','')}] {lres.get('summary')}")
                     elif it.get("kind") == "image_card_analysis" and hasattr(self.engine, "media_analyzer"):
-                        # 图片/图文卡片深读：对巡检快照做 2x Vision OCR + 视觉模型识别，
-                        # 让机器人"看懂"客户发来的图片而不仅看到 [图片] 占位符。
-                        # analyze_image_or_card 要求 crop_region（source_snapshot 只作底图），全图裁剪=整窗识别
+                        # 图片/图文卡片深读：对巡检快照做 2x Vision OCR + 视觉模型识别
                         snap_path = Path(inspected["snapshotPath"]) if inspected.get("snapshotPath") else None
                         crop_region = self._png_size(snap_path) if snap_path else None
-                        if crop_region:
+                        if crop_region and not extra_notes:
                             ires = self.engine.media_analyzer.analyze_image_or_card(
                                 source_snapshot=snap_path,
                                 crop_region=crop_region,
                                 from_viewer_window=False,
                                 contact=target,
-                                context_text=it.get("rawText") or incoming_text,
+                                context_text=raw_it_txt or incoming_text,
                                 model_id=vision_model,
                             )
                             if ires.get("summary"):
                                 extra_notes.append(f"[图片识别:{ires.get('title','') or '图片'}] {ires.get('summary')}")
                     elif it.get("kind") == "video_analysis" and hasattr(self.engine, "media_analyzer"):
-                        # 视频消息：若客户点开过（微信媒体查看窗存在）则抓帧 OCR；
-                        # 查看窗不在时 analyze_video 自行降级，摘要失败不影响回复主流程
-                        vres = self.engine.media_analyzer.analyze_video(
-                            from_viewer_window=True,
-                            window_title="图片和视频",
-                            contact=target,
-                            context_text=it.get("rawText") or incoming_text,
-                            model_id=vision_model,
-                        )
-                        if vres.get("summary"):
-                            extra_notes.append(f"[视频识别:{vres.get('title','') or '视频'}] {vres.get('summary')}")
-                        elif not has_ai_insight and binding.get("autoConsultWeChatAi", False):
-                            ares = self.engine.media_analyzer.consult_wechat_assistant(
-                                target,
-                                incoming_text,
-                                bubbles=bubbles,
-                                dry_run=False,
+                        if not card_targets:
+                            vres = self.engine.media_analyzer.analyze_video(
+                                from_viewer_window=True,
+                                window_title="图片和视频",
+                                contact=target,
+                                context_text=raw_it_txt or incoming_text,
                                 model_id=vision_model,
                             )
-                            if ares.get("note"):
-                                extra_notes.append(str(ares["note"]))
-                                has_ai_insight = True
+                            if vres.get("summary"):
+                                extra_notes.append(f"[视频识别:{vres.get('title','') or '视频'}] {vres.get('summary')}")
+                            elif not has_ai_insight and binding.get("autoConsultWeChatAi", False):
+                                ares = self.engine.media_analyzer.consult_wechat_assistant(
+                                    target,
+                                    incoming_text,
+                                    bubbles=bubbles,
+                                    dry_run=False,
+                                    model_id=vision_model,
+                                )
+                                if ares.get("note"):
+                                    extra_notes.append(str(ares["note"]))
+                                    has_ai_insight = True
                     else:
-                        extra_notes.append(f"[识别指令:{it.get('category')}] {it.get('rawText','')}")
+                        extra_notes.append(f"[识别指令:{it.get('category')}] {raw_it_txt}")
                 if extra_notes:
-                    # 深读结果持久化：客户下次再提同一链接/图片时机器人仍记得内容
                     for note in extra_notes:
                         try:
                             self.engine.append_media_note(target, note)
@@ -573,7 +680,12 @@ class WeChatRealtimeMonitor:
                         "notes": extra_notes,
                     }
         except Exception:
-            dispatched_receipt = None
+            if card_targets and extra_notes:
+                dispatched_receipt = {
+                    "boundAgentId": binding.get("boundAgentId") or "bot_wechat_ecosystem",
+                    "tasks": [{"kind": "card_deep_read", "category": c.get("mediaType")} for c in card_targets[:4]],
+                    "notes": extra_notes,
+                }
         return extra_notes, dispatched_receipt
 
     def _memory_context_with_history(self, target: str) -> Optional[Dict[str, Any]]:
@@ -673,46 +785,6 @@ class WeChatRealtimeMonitor:
                     },
                 )
 
-        cap = self._capture_live_window()
-        if not cap.get("ok"):
-            if popout_windows:
-                bounds = {}
-                elements = []
-                rows = []
-                active_structured = {"headerTitle": "", "bubbles": [], "lastBubble": None}
-                active_header = ""
-            else:
-                state["daemon"]["lastPollAt"] = _utc_iso_now()
-                state["daemon"]["lastError"] = str(cap.get("error") or cap.get("error_code"))
-                self._save_state(state)
-                self._append_event("poll_error", cap)
-                return cap
-        else:
-            bounds = cap["bounds"]
-            win_w = float(bounds.get("width", 585.0) or 585.0)
-            win_h = float(bounds.get("height", 640.0) or 640.0)
-            elements = cap["ocrPayload"].get("elements") or []
-            if self.engine.inspector._is_popout_window(cap["ocrPayload"], elements):
-                split_x = 0.0
-            elif cap["ocrPayload"].get("splitX") is not None:
-                split_x = float(cap["ocrPayload"]["splitX"])
-            else:
-                split_x = self.engine.inspector._infer_split_x(elements, win_w)
-
-            rows = (
-                []
-                if split_x <= 0.0
-                else self.engine.inspector._cluster_session_rows(
-                    elements, split_x, win_h, image_path=cap["snapshotPath"],
-                )
-            )
-            active_structured = self.engine.inspector.extract_structured_bubbles(
-                cap["ocrPayload"],
-                snapshot_path=cap["snapshotPath"],
-                bounds=bounds,
-            )
-            active_header = str(active_structured.get("headerTitle") or "")
-
         # Priority scanning: Special Care (P0) -> VIP (P1) -> Normal (P2)
         targets.sort(
             key=lambda b: (
@@ -721,8 +793,77 @@ class WeChatRealtimeMonitor:
             )
         )
 
+        # Match open standalone pop-out windows and skip main-window OCR when all targets already live in pop-outs
+        popout_by_target: Dict[str, Dict[str, Any]] = {}
+        if popout_windows and hasattr(self.engine, "inspector"):
+            for b in targets:
+                t_name = str(b.get("target") or "")
+                pw = self.engine.inspector._match_popout_window(t_name, popout_windows)
+                if pw is not None and pw.get("windowID"):
+                    popout_by_target[t_name] = pw
+
+        all_covered_by_popouts = bool(targets) and len(popout_by_target) == len(targets)
+        prefetched_popouts: Dict[str, Dict[str, Any]] = {}
+        if len(popout_by_target) >= 2:
+            def _fetch_pop(item: Tuple[str, Dict[str, Any]]) -> Tuple[str, Dict[str, Any]]:
+                t_name, pw_dict = item
+                return t_name, self.engine.inspector.inspect_popout_window(
+                    pw_dict, target=t_name, snapshot_prefix="monitor_popout"
+                )
+            with ThreadPoolExecutor(max_workers=min(5, len(popout_by_target))) as cap_pool:
+                for t_name, pres in cap_pool.map(_fetch_pop, list(popout_by_target.items())):
+                    prefetched_popouts[t_name] = pres
+
+        if all_covered_by_popouts:
+            bounds = {}
+            elements = []
+            rows = []
+            active_structured = {"headerTitle": "", "bubbles": [], "lastBubble": None}
+            active_header = ""
+        else:
+            cap = self._capture_live_window()
+            if not cap.get("ok"):
+                if popout_windows:
+                    bounds = {}
+                    elements = []
+                    rows = []
+                    active_structured = {"headerTitle": "", "bubbles": [], "lastBubble": None}
+                    active_header = ""
+                else:
+                    state["daemon"]["lastPollAt"] = _utc_iso_now()
+                    state["daemon"]["lastError"] = str(cap.get("error") or cap.get("error_code"))
+                    self._save_state(state)
+                    self._append_event("poll_error", cap)
+                    return cap
+            else:
+                bounds = cap["bounds"]
+                win_w = float(bounds.get("width", 585.0) or 585.0)
+                win_h = float(bounds.get("height", 640.0) or 640.0)
+                elements = cap["ocrPayload"].get("elements") or []
+                if self.engine.inspector._is_popout_window(cap["ocrPayload"], elements):
+                    split_x = 0.0
+                elif cap["ocrPayload"].get("splitX") is not None:
+                    split_x = float(cap["ocrPayload"]["splitX"])
+                else:
+                    split_x = self.engine.inspector._infer_split_x(elements, win_w)
+
+                rows = (
+                    []
+                    if split_x <= 0.0
+                    else self.engine.inspector._cluster_session_rows(
+                        elements, split_x, win_h, image_path=cap["snapshotPath"],
+                    )
+                )
+                active_structured = self.engine.inspector.extract_structured_bubbles(
+                    cap["ocrPayload"],
+                    snapshot_path=cap["snapshotPath"],
+                    bounds=bounds,
+                )
+                active_header = str(active_structured.get("headerTitle") or "")
+
         actions: List[Dict[str, Any]] = []
         replies_this_cycle = 0
+        ready_jobs: List[Dict[str, Any]] = []
 
         for binding in targets:
             target = str(binding["target"])
@@ -748,10 +889,11 @@ class WeChatRealtimeMonitor:
             care_level = normalize_care_level(binding.get("careLevel"), binding.get("specialCare"))
             is_special_care = care_level in ("special_care", "vip") or bool(binding.get("specialCare"))
             c_state = self._contact_entry(state, target)
+            if is_sandbox_bot and c_state.get("takenOver"):
+                c_state["takenOver"] = False
+                c_state["takeoverReason"] = ""
+                c_state["takeoverAt"] = None
             matched_row = next((r for r in rows if _matches_target(target, r.get("titleSnippet", ""))), None)
-            if matched_row and not c_state.get("lastSeenPreview"):
-                # Keep preview handy after inspection completes
-                pass
 
             inspected = self._inspect_target_bubbles(
                 target,
@@ -761,6 +903,7 @@ class WeChatRealtimeMonitor:
                 contact_state=c_state,
                 force_open=bool(target_filter),
                 popout_windows=popout_windows,
+                prefetched_popout=prefetched_popouts.get(target),
             )
             popout_meta: Dict[str, Any] = (
                 {"popoutWindowID": int(inspected["popoutWindowID"]), "zeroSwitch": True}
@@ -805,13 +948,25 @@ class WeChatRealtimeMonitor:
                 })
                 continue
 
+            recent_out = list(c_state.get("recentOutboundTexts") or [])
+            if c_state.get("lastOutboundText"):
+                recent_out.append(str(c_state["lastOutboundText"]))
+
+            delta = UnreadDeltaTracker.extract_unread_delta(
+                bubbles,
+                last_processed_text=str(c_state.get("lastProcessedPeerText") or ""),
+                last_outbound_text=str(c_state.get("lastOutboundText") or ""),
+                recent_outbound=recent_out,
+            )
             preceding_self = ""
             for b in reversed(bubbles[:-1]):
                 if b.get("direction") == "self":
                     preceding_self = str(b.get("text") or "")
                     break
 
-            incoming_text = str(last_bubble.get("text") or "").strip()
+            raw_last_text = str(last_bubble.get("text") or "").strip()
+            coalesced_text = str(delta.get("coalescedText") or "").strip()
+            incoming_text = coalesced_text if len(delta.get("unreadPeerBubbles") or []) >= 2 and coalesced_text else raw_last_text
             msg_sig = _bubble_signature(target, last_bubble, preceding_self)
 
             if msg_sig == c_state.get("lastProcessedPeerSig"):
@@ -828,14 +983,8 @@ class WeChatRealtimeMonitor:
                 })
                 continue
 
-            recent_out = list(c_state.get("recentOutboundTexts") or [])
-
-            # 转人工意图：客户明确要真人时，自动切换到「人工接管」状态（机器人停答，
-            # 后续消息只出草稿供人工审阅；人工处理完在控制台恢复）。此前转人工会被
-            # persona 引擎当普通消息循环回复——客服正确性缺口。
+            # 转人工意图：客户明确要真人时，自动切换到「人工接管」状态（机器人停答）
             if (not is_sandbox_bot) and _is_human_handoff_request(incoming_text):
-                # 直接在主流程 state 上置接管（勿调 takeover_contact——其独立 load/save
-                # 会被本循环尾部的 _save_state(state) 用旧副本覆盖回去，竞态丢状态）
                 c_state["takenOver"] = True
                 c_state["takeoverReason"] = "customer_requested_human"
                 c_state["takeoverAt"] = _utc_iso_now()
@@ -875,8 +1024,7 @@ class WeChatRealtimeMonitor:
                     **popout_meta,
                 })
                 continue
-            if c_state.get("lastOutboundText"):
-                recent_out.append(str(c_state["lastOutboundText"]))
+
             if any(normalize_chat_name(incoming_text) == normalize_chat_name(o) for o in recent_out if o):
                 if new_row_preview:
                     c_state["lastSeenPreview"] = new_row_preview
@@ -890,7 +1038,7 @@ class WeChatRealtimeMonitor:
                 })
                 continue
 
-            recent_peer_msgs = [str(b.get("text", "")) for b in bubbles[-6:] if b.get("text")]
+            recent_peer_msgs = [str(b.get("text", "")) for b in bubbles[-8:] if b.get("text")]
             sender_name = str(last_bubble.get("sender") or "").strip()
             query_incoming = incoming_text
             if sender_name and incoming_text.startswith(f"{sender_name}: "):
@@ -955,23 +1103,81 @@ class WeChatRealtimeMonitor:
                 })
                 continue
 
+            ready_jobs.append({
+                "binding": binding,
+                "target": target,
+                "is_sandbox_bot": is_sandbox_bot,
+                "care_level": care_level,
+                "is_special_care": is_special_care,
+                "c_state": c_state,
+                "inspected": inspected,
+                "popout_meta": popout_meta,
+                "new_row_preview": new_row_preview,
+                "bubbles": bubbles,
+                "last_bubble": last_bubble,
+                "incoming_text": incoming_text,
+                "query_incoming": query_incoming,
+                "msg_sig": msg_sig,
+                "recent_out": recent_out,
+                "recent_peer_msgs": recent_peer_msgs,
+                "sender_name": sender_name,
+                "active_cards": list(delta.get("activeMediaCards") or []),
+            })
+
+        def _think_job(job: Dict[str, Any]) -> Dict[str, Any]:
+            t_name = job["target"]
             extra_notes, dispatched_receipt = self._agent_dispatch_notes(
-                binding, target, bubbles, query_incoming, inspected,
+                job["binding"],
+                t_name,
+                job["bubbles"],
+                job["query_incoming"],
+                job["inspected"],
+                active_cards=job["active_cards"],
             )
+            recent_msgs = list(job["recent_peer_msgs"])
             if extra_notes:
-                recent_peer_msgs = recent_peer_msgs + extra_notes
-            mem_ctx = self._memory_context_with_history(target)
-            if sender_name:
+                recent_msgs = recent_msgs + extra_notes
+            mem_ctx = self._memory_context_with_history(t_name)
+            if job["sender_name"]:
                 mem_ctx = dict(mem_ctx or {})
-                mem_ctx["groupSpeaker"] = sender_name
+                mem_ctx["groupSpeaker"] = job["sender_name"]
             smart = self.engine.personas.generate_smart_reply(
-                target,
-                query_incoming,
+                t_name,
+                job["query_incoming"],
                 knowledge_store=self.engine.knowledge,
-                binding=binding,
-                recent_messages=recent_peer_msgs,
+                binding=job["binding"],
+                recent_messages=recent_msgs,
                 memory_context=mem_ctx,
             )
+            return {
+                "job": job,
+                "smart": smart,
+                "dispatched_receipt": dispatched_receipt,
+            }
+
+        thought_results: List[Dict[str, Any]] = []
+        if len(ready_jobs) >= 2:
+            with ThreadPoolExecutor(max_workers=min(4, len(ready_jobs))) as think_pool:
+                thought_results = list(think_pool.map(_think_job, ready_jobs))
+        elif ready_jobs:
+            thought_results = [_think_job(ready_jobs[0])]
+
+        for item in thought_results:
+            job = item["job"]
+            smart = item["smart"]
+            dispatched_receipt = item["dispatched_receipt"]
+            target = job["target"]
+            is_sandbox_bot = job["is_sandbox_bot"]
+            care_level = job["care_level"]
+            is_special_care = job["is_special_care"]
+            c_state = job["c_state"]
+            popout_meta = job["popout_meta"]
+            new_row_preview = job["new_row_preview"]
+            last_bubble = job["last_bubble"]
+            incoming_text = job["incoming_text"]
+            query_incoming = job["query_incoming"]
+            msg_sig = job["msg_sig"]
+            recent_out = job["recent_out"]
             reply_text = str(smart.get("replyText") or "").strip()
 
             draft_record = {
@@ -994,7 +1200,6 @@ class WeChatRealtimeMonitor:
                     "takeover_draft_only",
                     {"target": target, "careLevel": care_level, "specialCare": is_special_care, "draft": draft_record, **popout_meta},
                 )
-                # 同步进待办审阅台：人工接管期间客户发的新消息，人工要真的看得到、能一键发送
                 try:
                     self.engine.push_pending_draft_to_workbench(
                         target,
@@ -1003,7 +1208,7 @@ class WeChatRealtimeMonitor:
                         draft=reply_text,
                     )
                 except Exception:
-                    pass  # 待办同步失败不影响接管主流程
+                    pass
                 actions.append({
                     "target": target,
                     "careLevel": care_level,
@@ -1054,14 +1259,20 @@ class WeChatRealtimeMonitor:
                 })
                 continue
 
-            # AntiBan 频控闸门：真发送前四道检查（联系人/小时、回复间隔、全局小时/日）。
-            # contact_gap 属于短暂冷却（默认 90s）：只延后重检、不吞消息签名；
-            # 小时/日硬配额超限时记录签名避免重复扫描——宁可不回，不可轰炸。
-            # 对显式 AI 对话测试目标（如 微信ClawBot / clawBOT）豁免 90s 冷却与配额计数，支持连续对话测试。
+            is_correction_followup = bool(
+                job["active_cards"]
+                and any(k in query_incoming for k in ("看不到", "没读到", "最新的", "微信文章", "视频号"))
+            )
             if is_sandbox_bot:
                 can_send, limit_reason = True, "sandbox_bot_exempt"
+            elif is_correction_followup and not c_state.get("correctionBypassUsed"):
+                can_send, limit_reason = self.engine.antiban.check_can_send(target)
+                if not can_send and str(limit_reason).startswith("contact_gap"):
+                    can_send, limit_reason = True, "media_followup_gap_bypass"
+                    c_state["correctionBypassUsed"] = True
             else:
                 can_send, limit_reason = self.engine.antiban.check_can_send(target)
+
             if not can_send:
                 c_state["lastRateLimitReason"] = limit_reason
                 if str(limit_reason).startswith("contact_gap"):
@@ -1101,12 +1312,13 @@ class WeChatRealtimeMonitor:
                 if not is_sandbox_bot:
                     self.engine.antiban.record_sent(target)
                 c_state["lastProcessedPeerSig"] = msg_sig
-                c_state["lastProcessedPeerText"] = incoming_text
+                c_state["lastProcessedPeerText"] = raw_last_text
                 c_state["lastOutboundText"] = reply_text
                 if new_row_preview:
                     c_state["lastSeenPreview"] = new_row_preview
                 c_state.pop("pendingGapRetry", None)
                 c_state.pop("lastRateLimitReason", None)
+                c_state.pop("correctionBypassUsed", None)
                 updated_recent = [t for t in recent_out if t and t != reply_text]
                 updated_recent.append(reply_text)
                 c_state["recentOutboundTexts"] = updated_recent[-10:]

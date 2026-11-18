@@ -32,11 +32,11 @@ class HostingManager:
         self,
         engine: "WeChatControlEngine",
         state_path: Path,
-        interval_seconds: float = 8.0,
+        interval_seconds: float = 3.5,
     ) -> None:
         self._engine = engine
         self._state_path = Path(state_path)
-        self._interval = max(4.0, float(interval_seconds))
+        self._interval = max(2.0, float(interval_seconds))
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None

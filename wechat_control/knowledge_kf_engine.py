@@ -18,6 +18,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from .io_utils import atomic_write_json
+from .humanizer_affect import (
+    EuphoriaAffectEngine,
+    blend_persona_partitions,
+    humanize_wechat_reply,
+)
 
 DEFAULT_OPENBOT_KNOWLEDGE_DB = Path("/Users/mac/Library/Application Support/openbot/bot-knowledge/knowledge.sqlite")
 
@@ -384,9 +389,9 @@ DEFAULT_PERSONAS: Dict[str, Dict[str, Any]] = {
         "name": "轻松幽默好友",
         "mbti": "ENFP",
         "interactionStyle": "supporter",
-        "tone": "专业可靠又不失亲和力，表达自然流畅、直击重点",
-        "prefixHint": "哈哈收到啦！",
-        "guidelines": "像懂技术的专业好友一样自然回话：有观点、有依据、简练清晰，不背诵生硬客服官腔。",
+        "tone": "像懂行又松弛的熟人聊天：专业有主见，很少用多余语气词，少用生硬标点，绝不分第一第二第三，适合微信日常语境",
+        "prefixHint": "",
+        "guidelines": "像平时微信里跟熟人发消息一样自然接话：直接说看法或核心判断，不堆感叹号和哈/啦/哒等语气词，不用1/2/3或第一第二第三分点，可按情绪带一个微信表情如[旺柴]或[捂脸]。",
         "maxChars": 150,
     },
     "wecom-kf-pro": {
@@ -394,9 +399,9 @@ DEFAULT_PERSONAS: Dict[str, Dict[str, Any]] = {
         "name": "微信企业客服专员",
         "mbti": "ISTJ",
         "interactionStyle": "builder",
-        "tone": "礼貌专业、结构清晰、结论明确，严守事实依据与服务边界",
-        "prefixHint": "您好，",
-        "guidelines": "以「您好」开头，先给明确结论再分点给出准确依据或可行建议；对外部话题或技术咨询就事论事专业解答，不泄露内部实现细节。",
+        "tone": "专业稳重但像真人客服聊天：直接给结论和依据，少书面客套、少生硬序号，严守事实边界",
+        "prefixHint": "您好 ",
+        "guidelines": "自然问候后直接给明确结论与关键依据，用自然连接词衔接而不是生硬的第一/第二/第三；对第三方文章、视频或技术问题直接结合摘要就事论事解答。",
         "maxChars": 160,
     },
     "rpa-tech-expert": {
@@ -404,9 +409,9 @@ DEFAULT_PERSONAS: Dict[str, Dict[str, Any]] = {
         "name": "OpenBot 技术架构师",
         "mbti": "INTJ",
         "interactionStyle": "builder",
-        "tone": "资深技术顾问视角：结论清晰、直击技术原理与架构权衡，语言简洁干练",
+        "tone": "资深工程师同行口吻：专业、清醒、直击机理与取舍，不用多余语气词或官腔序号",
         "prefixHint": "",
-        "guidelines": "直接拆解核心机理、适用场景、潜在风险与安全边界，就事论事回答，避免内部调试术语或固定前缀套话。",
+        "guidelines": "直接讲清关键机制、取舍和风险点，用日常技术口语自然连贯表达，不列第一第二第三条目清单。",
         "maxChars": 160,
     },
     "concise-assistant": {
@@ -414,9 +419,9 @@ DEFAULT_PERSONAS: Dict[str, Dict[str, Any]] = {
         "name": "干练高效助理",
         "mbti": "ESTJ",
         "interactionStyle": "neutral",
-        "tone": "简洁明了、直击结论、不拖泥带水",
-        "prefixHint": "收到：",
-        "guidelines": "一句核心结论 + 1-2 个关键事实，控制在 80 字以内。",
+        "tone": "干练直接、句短少标点、直给重点",
+        "prefixHint": "",
+        "guidelines": "一句结论带一两个关键事实，像微信速回，80字以内，不用序号和多余标点。",
         "maxChars": 95,
     },
     "owner-digital-twin": {
@@ -424,9 +429,9 @@ DEFAULT_PERSONAS: Dict[str, Dict[str, Any]] = {
         "name": "🎭 号主本人数字分身 · 原生性格与记忆",
         "mbti": "ENTJ",
         "interactionStyle": "builder",
-        "tone": "真实还原微信号主本我性格与说话习惯：对熟人轻松幽默短句接梗，对技术与工作群务实直给结论，结合过往共同记忆自然接话。",
+        "tone": "还原号主本人微信聊天语感：专业清醒、少语气词、少标点、不用第一第二第三，熟人场合可用[旺柴][捂脸]等微信表情",
         "prefixHint": "",
-        "guidelines": "先调用号主本我画像与双方历史记忆，绝不说生硬AI或客服套话；像号主真人微信秒回一样简练自然。",
+        "guidelines": "调用号主画像与双方记忆直接接话，零AI味与客服腔，简练像真人手打回复。",
         "maxChars": 140,
     },
 }
@@ -971,6 +976,7 @@ class PersonaSwitchEngine:
     def __init__(self, personas_file: Path, model_hub: Optional[Any] = None) -> None:
         self.personas_file = Path(personas_file)
         self.model_hub = model_hub
+        self.affect_engine = EuphoriaAffectEngine(self.personas_file.parent.parent / "logs" / "affect_state.json")
         self._ensure_seeded()
 
     def _ensure_seeded(self) -> None:
@@ -1139,7 +1145,7 @@ class PersonaSwitchEngine:
     # 人性化结尾轮换池：同一客户重问时回复不同，避免内容级防重发（120s）拦截导致客户收不到答复
     _REPLY_SUFFIX_POOL: Dict[str, List[str]] = {
         "wecom-kf-pro": ["祝您生活愉快！", "期待您的下次咨询～", "祝一切顺利！"],
-        "warm-friend": ["跟你聊超开心！", "随时来找我玩呀～", "比心 ❤️"],
+        "warm-friend": ["[旺柴]", "你觉得呢", "有事随时说"],
         "concise-assistant": ["完毕。", "待命中。"],
     }
 
@@ -1305,11 +1311,28 @@ class PersonaSwitchEngine:
         speaker_name = str(mem_ctx.get("groupSpeaker") or "").strip()
         clean_speed = "deep" if str(speed_mode or "").strip().lower() in ("deep", "think", "reasoning", "深思") else "fast"
         clean_goal = str(task_goal or "").strip() or "接待咨询，回答产品与技术问题，收集客户需求"
+        _MEDIA_NOTE_PREFIXES = (
+            "[元宝深读:",
+            "[小微深读:",
+            "[链接深读:",
+            "[图片识别:",
+            "[视频识别:",
+            "[视频号深读:",
+            "[公众号文章深读:",
+            "[当前画面",
+        )
         media_notes_count = sum(
             1
             for m in (recent_messages or [])
-            if str(m or "").strip().startswith(("[元宝深读:", "[小微深读:", "[链接深读:", "[图片识别:", "[视频识别:"))
+            if str(m or "").strip().startswith(_MEDIA_NOTE_PREFIXES)
         )
+        affect_snapshot = self.affect_engine.appraise_and_update(
+            target,
+            incoming_text,
+            recent_messages=[str(m or "") for m in (recent_messages or [])],
+        )
+        affect_controls = affect_snapshot["controls"]
+        partition_mix = blend_persona_partitions(pid)
 
         norm_in = unicodedata.normalize("NFKC", incoming_text or "").strip()
         in_cf = norm_in.casefold()
@@ -1607,16 +1630,18 @@ class PersonaSwitchEngine:
                 s_m = str(m or "").strip()
                 if not s_m:
                     continue
-                if s_m.startswith(("[元宝深读:", "[小微深读:", "[链接深读:", "[图片识别:", "[视频识别:", "[识别指令:")):
+                if s_m.startswith(_MEDIA_NOTE_PREFIXES + ("[识别指令:",)):
                     media_notes.append(f"- {s_m[:420]}")
                 else:
-                    chat_lines.append(f"- {s_m[:160]}")
-            recent_ctx = "\n".join(chat_lines[-5:]) or "（暂无历史消息）"
-            media_block = ("\n深读解析上下文（已提取的链接/图文/视频事实）：\n" + "\n".join(media_notes[:3]) + "\n") if media_notes else ""
+                    chat_lines.append(f"- {s_m[:180]}")
+            recent_ctx = "\n".join(chat_lines[-6:]) or "（暂无历史消息）"
+            media_block = ("\n深读解析上下文（当前画面已提取的公众号文章/视频号/链接/图文事实，优先级高于旧历史）：\n" + "\n".join(media_notes[:5]) + "\n") if media_notes else ""
             # 聊天历史往来（导入的旧记录 + 托管实时沉淀）注入参考，机器人"记得"之前聊过什么
             history_snippet = str((memory_context or {}).get("historyThreadSnippet") or "").strip()
-            if history_snippet:
+            if history_snippet and not media_notes:
                 recent_ctx = f"{recent_ctx}\n— 更早的往来（来自聊天记录）—\n{history_snippet}"
+            elif history_snippet:
+                recent_ctx = f"{recent_ctx}\n— 更早历史仅供参考（若与当前卡片冲突一律以当前画面和深读为准）—\n{history_snippet}"
             soul_block = ""
             if owner_twin_active or memory_snippet:
                 owner_style = str(owner_prof.get("digitalTwinSystemPrompt") or owner_prof.get("archetypeTag") or "")
@@ -1632,30 +1657,36 @@ class PersonaSwitchEngine:
             speaker_hint = f"群内发言人：{speaker_name}\n" if speaker_name else ""
             goal_hint = f"当前 AI 员工岗位目标：{clean_goal}\n"
             speed_hint = (
-                "当前档位：深思模式（请先在内部拆解客户底层意图、隐含前提与边界条件，再给出结论清晰、步骤可落地的深度解答）。\n"
+                "当前档位：深思模式（先把握对方真正关切的点和边界，再自然直白说出判断）。\n"
                 if clean_speed == "deep"
-                else "当前档位：极速模式（直接切入核心结论与关键动作，简洁明了）。\n"
+                else "当前档位：极速模式（不绕弯子，像熟人微信秒回直切重点）。\n"
             )
-            card_hint = "\n提示：对方仅发来了公众号/视频号来源卡片标题，请礼貌说明目前仅能看到标题，并邀请对方补充原文链接或想讨论的具体问题。\n" if is_card_source_only else ""
+            affect_block = (
+                f"当前情绪与语气参数(Euphoria ExpressionPolicy)：valence={affect_controls.valence:+.2f} arousal={affect_controls.arousal:.2f} "
+                f"warmth={affect_controls.warmth:.2f} directness={affect_controls.directness:.2f} 语调={affect_controls.tone}\n"
+                f"{partition_mix.get('promptDirective', '')}\n"
+            )
+            card_hint = "\n提示：对方仅发来了公众号/视频号来源卡片标题，请直接结合已识别出的标题与摘要说明要点，看不清全文处坦诚说哪部分没展开。\n" if is_card_source_only else ""
             sys_prompt = (
-                f"你正在代表号主通过微信与「{target}」专业沟通。\n"
+                f"你正在通过微信与「{target}」聊天。\n"
                 f"当前性格角色：{persona['name']}（MBTI: {persona['mbti']}，互动风格: {persona.get('interactionStyleLabel', '')}）。\n"
-                f"{goal_hint}{speed_hint}"
+                f"{goal_hint}{speed_hint}{affect_block}"
                 f"角色定位与要求：{persona.get('tone', '')} {persona.get('guidelines', '')}\n"
                 f"表达原则：{persona.get('styleDirective', '')}\n"
-                f"企业知识库与术语参考（仅在对方确实咨询我们的产品、定价、功能、权限或服务政策时引用；若对方询问通用技术原理、行业问题或分享第三方 GitHub/文章/视频，请直接就事论事给出专业解答或点评，切勿生硬推销或强行附加无关产品链接）：\n{kb_snippets}"
+                f"企业知识库与术语参考（仅在对方确实咨询我们的产品、定价、功能、权限或服务政策时引用；若对方询问行业文章、视频号、学术论文或开源项目，请直接围绕那些文章/视频内容本身作答，严禁生硬套用无关产品或旧链接）：\n{kb_snippets}"
                 f"{media_block}{soul_block}{card_hint}\n"
-                "顾问式两段回复与高风险护栏：\n"
-                "1. 先共情/给专业判断或安全排查 ➔ 2. 再结合知识库给出具体使用步骤与产品方案；遇未知参数、退款、投诉绝不编造承诺，先礼貌安抚并说明交人工核实。\n"
-                "高质量专业回复标准：\n"
-                "1) 结论清晰、信息密度高：先给出明确判断或核心结论，再补充 1-2 条关键依据、机制拆解或可执行建议。\n"
-                "2) 若「深读解析上下文」已有识别结论，优先紧扣其中的具体项目/观点作答。\n"
-                "3) 面向真实客户/好友输出自然流畅、不亢不卑的中文单行文本，严禁出现内部模块或调试词汇（如 FTS5、AXUIElement、RealtimeMessageMonitor、127.0.0.1:18788、信源标识、未触发可执行任务、前置条件），不要 Markdown 标题或多余引号。\n"
-                f"4) 必须完整收尾，总字数严格控制在 {target_chars} 字以内（上限 {max_chars} 字），避免半句话被截断。"
+                "顾问式两段回复与高风险护栏：先共情/给专业判断或安全排查 ➔ 再结合知识库给出具体使用步骤与产品方案；遇未知参数、退款、投诉绝不编造承诺，先礼貌安抚并说明交人工核实。\n"
+                "微信真人感表达铁律（务必严格遵守）：\n"
+                "1) 少语气词、去AI客服味：禁止「哈哈收到啦」「哒～」「呢～」「为您说明」「总的来说」之类虚浮语气词和元评论；专业见解直接说人话。\n"
+                "2) 严禁列点编号：绝对不要写「第一、第二、第三」「1. 2. 3.」「首先、其次、最后」「一是、二是」，用自然口语短句连贯接话。\n"
+                "3) 少标点、像真人手打：少用「」、《》、分号和冒号，句末不加句号「。」，必要时在句尾克制加一个微信表情（如 [旺柴] 或 [捂脸] 或 [思考]）。\n"
+                "4) 若「深读解析上下文」或「最近聊天参考」里有当前画面的视频号或公众号文章卡片，回答「这个视频/这几篇文章」时必须逐一准确提到卡片标题里的真实内容，严禁拿更早的旧 GitHub 链接顶替。\n"
+                "5) 严禁出现内部模块或调试词汇（如 FTS5、AXUIElement、RealtimeMessageMonitor、127.0.0.1:18788、信源标识、前置条件），不要 Markdown 格式或引号；遇未知/退款/投诉不编造。\n"
+                f"6) 总字数控制在 {target_chars} 字以内（上限 {max_chars} 字），自然收尾。"
             )
             user_prompt = (
                 f"{speaker_hint}最近聊天参考：\n{recent_ctx}\n\n"
-                f"对方发来新消息：{norm_in}\n请直接给出一条专业、自然、直击要点的微信回复："
+                f"对方发来新消息：{norm_in}\n请像真人用微信聊天那样直接回复一句专业又自然的话："
             )
             llm_res = hub.generate_chat_reply(
                 [{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_prompt}],
@@ -1681,6 +1712,12 @@ class PersonaSwitchEngine:
             "modelUsed": model_used,
             "providerUsed": provider_used,
             "latencyMs": latency_ms,
+            "affectState": affect_controls.to_dict(),
+            "personaMix": {
+                "strength": partition_mix.get("strength"),
+                "partitionCount": partition_mix.get("partitionCount"),
+                "directive": partition_mix.get("promptDirective"),
+            },
             "documentRefs": [
                 {"id": e["id"], "kind": e["kind"], "title": e["title"], "revision": e["revision"]}
                 for e in entries
@@ -1690,9 +1727,17 @@ class PersonaSwitchEngine:
                 term for e in entries for term in (e.get("matchedTerms") or [])
             ][:8],
         }
-        # 对所有客户向人设与 LLM 实发回复统一执行客户出口术语净化与句界规整
+        # 对所有客户向人设与 LLM 实发回复统一执行客户出口术语净化与微信真人感微调
         if generation_mode == "llm_magpie" or str(persona.get("id") or "") != "rpa-tech-expert":
             final_text = self.sanitize_for_customer(final_text, max_len=int(persona.get("maxChars") or 160))
+        final_text = humanize_wechat_reply(
+            final_text,
+            persona_id=pid,
+            affect_controls=affect_controls,
+            allow_emote=(generation_mode == "llm_magpie" or pid in ("warm-friend", "owner-digital-twin")),
+            max_len=int(persona.get("maxChars") or 160),
+            is_template_fallback=(generation_mode != "llm_magpie"),
+        )
         return {
             "ok": True,
             "target": target,

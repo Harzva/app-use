@@ -559,6 +559,132 @@ class TwoTierWindowCoordinator:
         }
 
 
+class UnreadDeltaTracker:
+    """Zero-drop incremental message delta extractor across rapid peer bursts & media cards."""
+
+    MEDIA_KINDS = ("channels_video", "wechat_article", "video", "image", "external_link")
+
+    @classmethod
+    def _ensure_bubble_media(cls, bubble: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+        mtype = str(bubble.get("mediaType") or "").strip()
+        meta = dict(bubble.get("cardMeta") or {})
+        if not mtype:
+            from .live_inspector import WeChatLiveInspector
+            mtype, inferred = WeChatLiveInspector.classify_bubble_media_type(bubble)
+            if inferred and not meta:
+                meta = inferred
+        return mtype or "text", meta
+
+    @classmethod
+    def extract_unread_delta(
+        cls,
+        bubbles: Iterable[Dict[str, Any]],
+        *,
+        last_processed_text: str = "",
+        last_outbound_text: str = "",
+        recent_outbound: Optional[Iterable[str]] = None,
+    ) -> Dict[str, Any]:
+        """Extract all unacknowledged peer bubbles + same-session media cards without dropping multi-bubble bursts."""
+        items = [dict(b) for b in (bubbles or []) if isinstance(b, dict) and str(b.get("text") or "").strip()]
+        if not items:
+            return {
+                "unreadPeerBubbles": [],
+                "coalescedText": "",
+                "latestPeerBubble": None,
+                "activeMediaCards": [],
+                "latestTimeMarker": "",
+                "cutIndex": -1,
+            }
+
+        norm_proc = normalize_chat_name(last_processed_text).casefold() if last_processed_text else ""
+        outbound_norms = {
+            normalize_chat_name(x).casefold()
+            for x in ([last_outbound_text] + list(recent_outbound or []))
+            if str(x or "").strip()
+        }
+
+        last_self_idx = -1
+        last_ack_idx = -1
+        for idx, b in enumerate(items):
+            if b.get("direction") == "self":
+                last_self_idx = idx
+            elif norm_proc and b.get("direction") == "peer":
+                if normalize_chat_name(str(b.get("text") or "")).casefold() == norm_proc:
+                    last_ack_idx = idx
+
+        # Cut after the latest acknowledged peer or self message when scanning tail
+        cut_idx = max(last_self_idx, last_ack_idx)
+        if cut_idx >= len(items) - 1 and items[-1].get("direction") == "peer":
+            # Last bubble is peer (e.g. matches stale last_processed_text); let caller compare sig
+            cut_idx = len(items) - 2
+
+        unread_peer: List[Dict[str, Any]] = []
+        for b in items[cut_idx + 1 :]:
+            if b.get("direction") != "peer":
+                continue
+            txt = str(b.get("text") or "").strip()
+            if not txt:
+                continue
+            if normalize_chat_name(txt).casefold() in outbound_norms:
+                continue
+            mtype, meta = cls._ensure_bubble_media(b)
+            b["mediaType"] = mtype
+            if meta:
+                b["cardMeta"] = meta
+            unread_peer.append(b)
+
+        latest_peer = unread_peer[-1] if unread_peer else None
+        latest_marker = str((latest_peer or {}).get("timeMarker") or "").strip()
+
+        text_parts: List[str] = []
+        for b in unread_peer:
+            mtype = str(b.get("mediaType") or "text")
+            if mtype == "text":
+                text_parts.append(str(b.get("text") or "").strip())
+            elif mtype in ("external_link", "video", "image"):
+                text_parts.append(str(b.get("text") or "").strip()[:120])
+        if not text_parts and latest_peer is not None:
+            text_parts.append(str(latest_peer.get("text") or "").strip())
+        coalesced_text = " ".join(p for p in text_parts if p).strip()
+
+        joined_cf = coalesced_text.casefold()
+        mentions_prior_media = any(
+            kw in joined_cf
+            for kw in ("视频", "视频号", "文章", "链接", "卡片", "图片", "最新", "看不到", "没读到", "上面", "刚才", "这条", "这个")
+        )
+
+        active_cards: List[Dict[str, Any]] = []
+        seen_card_texts: set[str] = set()
+        for idx, b in enumerate(items[-10:]):
+            if b.get("direction") != "peer":
+                continue
+            mtype, meta = cls._ensure_bubble_media(b)
+            if mtype not in cls.MEDIA_KINDS:
+                continue
+            b_copy = dict(b)
+            b_copy["mediaType"] = mtype
+            if meta:
+                b_copy["cardMeta"] = meta
+            b_marker = str(b_copy.get("timeMarker") or "").strip()
+            in_unread = any(u.get("text") == b_copy.get("text") for u in unread_peer)
+            same_marker = bool(latest_marker and b_marker and b_marker == latest_marker)
+            recent_enough = idx >= max(0, len(items[-10:]) - 6) and mentions_prior_media
+            if in_unread or same_marker or recent_enough:
+                sig = str(b_copy.get("text") or "")[:120]
+                if sig not in seen_card_texts:
+                    seen_card_texts.add(sig)
+                    active_cards.append(b_copy)
+
+        return {
+            "unreadPeerBubbles": unread_peer,
+            "coalescedText": coalesced_text,
+            "latestPeerBubble": latest_peer,
+            "activeMediaCards": active_cards,
+            "latestTimeMarker": latest_marker,
+            "cutIndex": cut_idx,
+        }
+
+
 class MultiWindowScheduler:
     """Facade combining dHash filter, sliding-window coalescer, aging heap, and two-tier lanes."""
 
@@ -575,6 +701,7 @@ class MultiWindowScheduler:
             min_send_interval_seconds=min_send_interval_seconds
         )
         self.coordinator = TwoTierWindowCoordinator()
+        self.delta_tracker = UnreadDeltaTracker()
         self.last_lanes: Dict[str, Any] = {
             "fastLanePopouts": [],
             "mainWindowFallbackTargets": [],

@@ -596,6 +596,7 @@ class WeChatMediaLinkAnalyzer:
         result["artifactPath"] = str(art_path)
         return self._record_analysis(result)
 
+
     def analyze_image_or_card(
         self,
         *,
@@ -706,6 +707,7 @@ class WeChatMediaLinkAnalyzer:
         atomic_write_json(art_path, result, newline=False)
         result["artifactPath"] = str(art_path)
         return self._record_analysis(result)
+
 
     def _extract_local_video_frames(self, video_path: Path, out_dir: Path, *, frame_count: int = 3) -> Tuple[List[Dict[str, Any]], str, float]:
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -912,6 +914,7 @@ class WeChatMediaLinkAnalyzer:
         atomic_write_json(art_path, result, newline=False)
         result["artifactPath"] = str(art_path)
         return self._record_analysis(result)
+
 
     def consult_wechat_assistant(
         self,
@@ -1160,6 +1163,241 @@ class WeChatMediaLinkAnalyzer:
             "forwardMenu": forward_menu_res,
             **llm_meta,
         }
+        art_path = self.analysis_dir / f"{analysis_id}.json"
+        atomic_write_json(art_path, result, newline=False)
+        result["artifactPath"] = str(art_path)
+        return self._record_analysis(result)
+
+    def click_and_deep_read_bubble(
+        self,
+        bubble: Dict[str, Any],
+        *,
+        window_bounds: Optional[Dict[str, Any]] = None,
+        window_id: Optional[int] = None,
+        snapshot_path: Optional[Path] = None,
+        contact: str = "",
+        context_text: str = "",
+        click_to_open: bool = True,
+        force_refresh: bool = False,
+        model_id: str = DEFAULT_VISION_MODEL_ID,
+    ) -> Dict[str, Any]:
+        """Classify a chat card/media bubble (image/video/channels_video/wechat_article), optionally click it to open WeChat's viewer/browser window, capture frames/article text, and synthesize a structured deep-read note."""
+        from .live_inspector import WeChatLiveInspector
+
+        media_type = str(bubble.get("mediaType") or "").strip()
+        card_meta = dict(bubble.get("cardMeta") or {})
+        if not media_type or media_type == "text":
+            media_type, inferred_meta = WeChatLiveInspector.classify_bubble_media_type(bubble)
+            if inferred_meta and not card_meta:
+                card_meta = inferred_meta
+
+        bubble_text = str(bubble.get("text") or "").strip()
+        if not media_type or media_type == "text":
+            return {
+                "ok": False,
+                "skipped": True,
+                "error_code": "not_media_or_card",
+                "mediaType": "text",
+            }
+
+        clean_contact = str(contact or "").strip()
+        cache_sig = hashlib.sha1(f"{clean_contact}|{media_type}|{bubble_text}".encode("utf-8")).hexdigest()[:14]
+        cache_path = self.analysis_dir / f"bubble_{cache_sig}.json"
+        if not force_refresh and cache_path.is_file():
+            try:
+                cached = json.loads(cache_path.read_text(encoding="utf-8"))
+                if isinstance(cached, dict) and cached.get("ok") and cached.get("summary"):
+                    cached["cacheHit"] = True
+                    return cached
+            except Exception:
+                pass
+
+        analysis_id = f"card_{cache_sig}_{int(time.time())}"
+        card_title = str(card_meta.get("cardTitle") or bubble_text[:80]).strip()
+        card_source = str(card_meta.get("cardSource") or "").strip()
+        card_digest = str(card_meta.get("cardDigest") or "").strip()
+
+        # 1) Crop bubble/card thumbnail from chat snapshot + run 2x Vision OCR
+        crop_image: Optional[Path] = None
+        crop_ocr_text = ""
+        image_candidates: List[Path] = []
+        base_snap = Path(snapshot_path) if snapshot_path else None
+        crop_region = bubble.get("cropRegion") if isinstance(bubble.get("cropRegion"), dict) else None
+        if base_snap and base_snap.is_file() and crop_region:
+            crop_out = self.analysis_dir / f"{analysis_id}_crop.png"
+            try:
+                crop_res = self.engine._run_native(
+                    [
+                        "ocr",
+                        "--image",
+                        str(base_snap),
+                        "--crop",
+                        f"{int(crop_region.get('x', 0))},{int(crop_region.get('y', 0))},{max(40, int(crop_region.get('width', 320)))},{max(40, int(crop_region.get('height', 200)))}",
+                        "--out",
+                        str(crop_out),
+                    ],
+                    12.0,
+                )
+                if crop_res.get("ok") and crop_out.is_file():
+                    crop_image = crop_out
+                    ocr2x = self._run_2x_ocr(crop_out, min_upscale_width=1000)
+                    crop_ocr_text = str(ocr2x.get("text") or "").strip()
+                    up = Path(str(ocr2x.get("upscaledPath") or ""))
+                    image_candidates.append(up if up.is_file() else crop_out)
+            except Exception:
+                pass
+
+        # 2) Active click-to-open inside WeChat window when allowed & coordinates available
+        clicked = False
+        opened_viewer_wid: Optional[int] = None
+        opened_viewer_title = ""
+        viewer_lines: List[str] = []
+        can_click = bool(
+            click_to_open
+            and isinstance(window_bounds, dict)
+            and bubble.get("clickRelX") is not None
+            and bubble.get("clickRelY") is not None
+            and float(window_bounds.get("width", 0) or 0) > 100
+        )
+        if can_click and clean_contact:
+            allowlist = getattr(self.engine, "allowlist", None)
+            if allowlist and getattr(allowlist, "enabled", False) and not allowlist.is_allowed(clean_contact):
+                can_click = False
+
+        if can_click and media_type in ("wechat_article", "channels_video", "video", "image", "external_link"):
+            try:
+                before_res = self.engine._run_native(["list-app-windows", "--app", "wechat"], 6.0)
+                before_wids = {
+                    int(w["windowID"])
+                    for w in (before_res.get("windows") or [])
+                    if isinstance(w, dict) and w.get("windowID")
+                }
+                abs_x = float(window_bounds["x"]) + float(bubble["clickRelX"])
+                abs_y = float(window_bounds["y"]) + float(bubble["clickRelY"])
+                self.engine._run_native(["click", "--x", f"{abs_x:.1f}", "--y", f"{abs_y:.1f}"], 6.0)
+                clicked = True
+                time.sleep(1.1)
+                after_res = self.engine._run_native(["list-app-windows", "--app", "wechat"], 6.0)
+                new_wins = [
+                    w for w in (after_res.get("windows") or [])
+                    if isinstance(w, dict)
+                    and w.get("windowID")
+                    and int(w["windowID"]) not in before_wids
+                    and (window_id is None or int(w["windowID"]) != int(window_id))
+                ]
+                viewer_win = new_wins[0] if new_wins else None
+                if not viewer_win:
+                    # Also detect already-named "图片和视频" viewer
+                    viewer_win = next(
+                        (
+                            w for w in (after_res.get("windows") or [])
+                            if isinstance(w, dict) and "图片和视频" in str(w.get("title") or "")
+                        ),
+                        None,
+                    )
+                if viewer_win and viewer_win.get("windowID"):
+                    opened_viewer_wid = int(viewer_win["windowID"])
+                    opened_viewer_title = str(viewer_win.get("title") or "").strip()
+                    seen_v_lines: set[str] = set()
+
+                    def _collect_viewer_cap(cap_payload: Dict[str, Any], out_png: Path) -> None:
+                        if cap_payload.get("ok"):
+                            if out_png.is_file() and len(image_candidates) < 3:
+                                image_candidates.append(out_png)
+                            for el in cap_payload.get("elements") or []:
+                                t = str(el.get("text") or "").strip()
+                                if t and len(t) >= 2 and t not in seen_v_lines:
+                                    seen_v_lines.add(t)
+                                    viewer_lines.append(t)
+
+                    v_p1 = self.analysis_dir / f"{analysis_id}_viewer_p1.png"
+                    cap1 = self.engine._run_native(
+                        ["capture-ocr", "--window-id", str(opened_viewer_wid), "--no-activate", "--out", str(v_p1)],
+                        12.0,
+                    )
+                    _collect_viewer_cap(cap1, v_p1)
+
+                    if media_type == "wechat_article" and isinstance(viewer_win.get("bounds"), dict):
+                        vb = viewer_win["bounds"]
+                        vx = float(vb.get("x", 0)) + float(vb.get("width", 500)) * 0.5
+                        vy = float(vb.get("y", 0)) + float(vb.get("height", 600)) * 0.5
+                        self.engine._run_native(["scroll", "--x", f"{vx:.1f}", "--y", f"{vy:.1f}", "--dy", "-12"], 6.0)
+                        time.sleep(0.45)
+                        v_p2 = self.analysis_dir / f"{analysis_id}_viewer_p2.png"
+                        cap2 = self.engine._run_native(
+                            ["capture-ocr", "--window-id", str(opened_viewer_wid), "--no-activate", "--out", str(v_p2)],
+                            12.0,
+                        )
+                        _collect_viewer_cap(cap2, v_p2)
+                    elif media_type in ("channels_video", "video"):
+                        time.sleep(0.6)
+                        v_p2 = self.analysis_dir / f"{analysis_id}_viewer_p2.png"
+                        cap2 = self.engine._run_native(
+                            ["capture-ocr", "--window-id", str(opened_viewer_wid), "--no-activate", "--out", str(v_p2)],
+                            12.0,
+                        )
+                        _collect_viewer_cap(cap2, v_p2)
+            except Exception:
+                pass
+
+        viewer_text = "\n".join(viewer_lines[:40])
+        combined_ocr = "\n".join(
+            part for part in (bubble_text, crop_ocr_text, viewer_text) if part
+        )
+        body_parts = [
+            f"媒体分类: {media_type}",
+            f"标题: {card_title}" if card_title else "",
+            f"来源账号/频道: {card_source}" if card_source else "",
+            f"卡片摘要: {card_digest}" if card_digest else "",
+            f"点开查看窗({opened_viewer_title}):\n{viewer_text}" if viewer_text else "",
+        ]
+        body_text = "\n".join(p for p in body_parts if p)
+
+        llm = self._synthesize_with_deepseek(
+            kind=media_type,
+            title=card_title or bubble_text[:60],
+            ocr_text=combined_ocr,
+            body_text=body_text,
+            image_paths=image_candidates[:3],
+            contact=clean_contact,
+            context_text=context_text or bubble_text,
+            model_id=model_id,
+        )
+
+        tag_map = {
+            "channels_video": "视频号深读",
+            "wechat_article": "公众号文章深读",
+            "video": "视频识别",
+            "image": "图片识别",
+            "external_link": "链接深读",
+        }
+        note_tag = tag_map.get(media_type, "图文识别")
+        summary_line = str(llm.get("summary") or "").strip()
+        if not summary_line:
+            summary_line = f"{card_source + '｜' if card_source else ''}{card_title}" + (f"：{card_digest}" if card_digest else "")
+        formatted_note = f"[{note_tag}:{card_title[:36]}] {summary_line[:300]}"
+
+        result: Dict[str, Any] = {
+            **llm,
+            "llmOk": bool(llm.get("ok")),
+            "ok": bool(card_title or combined_ocr or llm.get("ok")),
+            "analysisId": analysis_id,
+            "kind": media_type,
+            "mediaType": media_type,
+            "contact": clean_contact,
+            "title": card_title,
+            "source": card_source,
+            "digest": card_digest,
+            "clickedToOpen": clicked,
+            "openedViewerWindowID": opened_viewer_wid,
+            "openedViewerTitle": opened_viewer_title,
+            "viewerTextCount": len(viewer_lines),
+            "imagePath": str(crop_image) if crop_image else None,
+            "ocrCount": len(combined_ocr.splitlines()),
+            "ocrText": combined_ocr,
+            "note": formatted_note,
+        }
+        atomic_write_json(cache_path, result, newline=False)
         art_path = self.analysis_dir / f"{analysis_id}.json"
         atomic_write_json(art_path, result, newline=False)
         result["artifactPath"] = str(art_path)

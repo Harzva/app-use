@@ -2190,7 +2190,8 @@ class WeChatControlEngine:
         for e in interesting:
             target = str(e.get("target"))
             slug = _slugify_target(target) or _slug6(target)
-            fname = contacts_dir / f"{target}_{slug}_history.json"
+            existing_files = self._find_contact_history_files(target)
+            fname = existing_files[-1] if existing_files else (contacts_dir / f"{slug}_history.json")
             doc = by_file.get(str(fname))
             if doc is None:
                 if fname.exists():
@@ -2538,36 +2539,37 @@ class WeChatControlEngine:
         return {"ok": True, "imported": imported, "profilesTouched": touched}
 
     def _load_merged_history(self, target: str) -> Tuple[Optional[Dict[str, Any]], List[Dict[str, Any]]]:
-        """合并某联系人的全部历史文件（AX 巡检 / 导入 / chatlog / 实时回写可能各成一个文件），
-        按记录原始顺序拼接（同文件内顺序保留，跨文件按文件 mtime 排列）。"""
+        """合并某联系人的全部历史文件（AX 巡检 / 独立小窗 / 导入 / chatlog / 实时回写可能各成一个文件），
+        按时间顺序合并并去重保留最新条目。"""
         clean = str(target or "").strip()
         contacts_dir = self.inspector.reports_dir / "contacts"
         if not clean or not contacts_dir.exists():
             return None, []
-        seen_paths: List[Path] = []
-        for pat in (f"{normalize_chat_name(clean)}_*_history.json", f"{clean}_*_history.json"):
-            for p in contacts_dir.glob(pat):
-                if p not in seen_paths:
-                    seen_paths.append(p)
-        matches = sorted(seen_paths, key=lambda p: p.stat().st_mtime)
-        # 去重（两个 glob 可能重叠）
-        seen_paths: List[Path] = []
-        merged: List[Dict[str, Any]] = []
+        matches = self._find_contact_history_files(clean)
+        raw_merged: List[Dict[str, Any]] = []
         doc_meta: Optional[Dict[str, Any]] = None
         for p in matches:
-            if p in seen_paths:
-                continue
-            seen_paths.append(p)
             try:
                 doc = json.loads(p.read_text(encoding="utf-8"))
             except Exception:
                 continue
             if not isinstance(doc, dict) or not doc.get("target"):
                 continue
-            if doc_meta is None:
-                doc_meta = doc
-            merged.extend(doc.get("records") or [])
-        return doc_meta, merged
+            doc_meta = doc
+            raw_merged.extend(doc.get("records") or [])
+        # Deduplicate preserving the newest canonical file's exact chronological/visual order
+        deduped_slots: List[Optional[Dict[str, Any]]] = []
+        seen_idx: Dict[str, int] = {}
+        for r in raw_merged:
+            if not isinstance(r, dict):
+                continue
+            sig = f"{r.get('kind', '')}||{r.get('direction', '')}||{str(r.get('text') or '').strip()}"
+            if sig in seen_idx:
+                deduped_slots[seen_idx[sig]] = None
+            seen_idx[sig] = len(deduped_slots)
+            deduped_slots.append(r)
+        deduped = [item for item in deduped_slots if item is not None]
+        return doc_meta, deduped
 
     def _latest_inbound_by_target(self) -> Dict[str, Dict[str, str]]:
         """从合并后的历史记录提取每位联系人的最近一条客户来信。"""
@@ -2600,7 +2602,7 @@ class WeChatControlEngine:
             }
         return out
 
-    def _recent_threads_by_target(self, limit: int = 8) -> Dict[str, Dict[str, Any]]:
+    def _recent_threads_by_target(self, limit: int = 12) -> Dict[str, Dict[str, Any]]:
         """每位联系人最近 limit 条往来消息（合并全部历史文件，peer/self，时间正序）。"""
         out: Dict[str, Dict[str, Any]] = {}
         contacts_dir = self.inspector.reports_dir / "contacts"
@@ -2624,14 +2626,19 @@ class WeChatControlEngine:
                 text = str(r.get("text") or "").strip()
                 if not text:
                     continue
-                messages.append({
+                msg_item: Dict[str, Any] = {
                     "direction": str(r.get("direction") or "peer"),
                     "kind": str(r.get("kind") or "message"),
                     "source": str(r.get("source") or "history"),
-                    "text": text[:200],
+                    "text": text[:240],
                     "at": str(r.get("timeMarker") or r.get("ts") or ""),
                     "confidence": (lambda v: round(float(v), 2) if v is not None else None)(r.get("confidence")),
-                })
+                }
+                if r.get("mediaType"):
+                    msg_item["mediaType"] = str(r["mediaType"])
+                if isinstance(r.get("cardMeta"), dict) and r["cardMeta"]:
+                    msg_item["cardMeta"] = dict(r["cardMeta"])
+                messages.append(msg_item)
             if not messages:
                 continue
             key = normalize_chat_name(target).casefold()
@@ -2732,17 +2739,19 @@ class WeChatControlEngine:
                 if p not in seen:
                     seen.add(p)
                     found.append(p)
-        if not found:
-            for p in contacts_dir.glob("*_history.json"):
-                try:
-                    doc = json.loads(p.read_text(encoding="utf-8"))
-                    if isinstance(doc, dict) and (
-                        _matches_target(clean, str(doc.get("target") or ""))
-                        or _matches_target(clean, str(doc.get("matchedTitle") or ""))
-                    ):
-                        found.append(p)
-                except Exception:
-                    continue
+        for p in contacts_dir.glob("*_history.json"):
+            if p in seen:
+                continue
+            try:
+                doc = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(doc, dict) and (
+                    _matches_target(clean, str(doc.get("target") or ""))
+                    or _matches_target(clean, str(doc.get("matchedTitle") or ""))
+                ):
+                    seen.add(p)
+                    found.append(p)
+            except Exception:
+                continue
         found.sort(key=lambda p: p.stat().st_mtime)
         return found
 

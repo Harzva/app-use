@@ -195,13 +195,27 @@ class WeChatAgentDispatcher:
 
         peer_texts: List[str] = []
         total_msgs = len(messages)
+        last_peer_idx = max(
+            (i for i, m in enumerate(messages) if isinstance(m, dict) and m.get("direction", "peer") == "peer"),
+            default=-1,
+        )
+        latest_marker = str(messages[last_peer_idx].get("timeMarker") or "").strip() if last_peer_idx >= 0 else ""
+        trailing_peer_start = last_peer_idx
+        while trailing_peer_start > 0 and messages[trailing_peer_start - 1].get("direction", "peer") == "peer":
+            trailing_peer_start -= 1
+
         for idx, m in enumerate(messages):
             if m.get("direction", "peer") != "peer":
                 continue
             txt = str(m.get("text") or "").strip()
             if not txt or txt.casefold() == contact.strip().casefold():
                 continue
-            is_latest = idx == total_msgs - 1
+            m_marker = str(m.get("timeMarker") or "").strip()
+            is_latest = bool(
+                idx == total_msgs - 1
+                or (trailing_peer_start >= 0 and idx >= trailing_peer_start)
+                or (latest_marker and m_marker == latest_marker)
+            )
             peer_texts.append(txt)
 
             # 1. URLs / links
@@ -230,27 +244,41 @@ class WeChatAgentDispatcher:
                     )
                     break
 
-            # 3. Article cards / video markers / card footer markers (_CARD_SOURCE_RE)
+            # 3. Article cards / video markers / Channels cards / explicit bubble.mediaType
             lower = txt.lower()
+            m_type = str(m.get("mediaType") or "").strip()
+            card_meta = dict(m.get("cardMeta") or {})
             card_lines = [ln.strip() for ln in txt.splitlines() if ln.strip()]
             has_card_footer = any(
                 bool(_CARD_SOURCE_RE.match(ln)) or "公众号" in ln or "视频号" in ln or "小程序" in ln
                 for ln in card_lines
             ) or bool(re.search(r"(?:^|\s)[CVWXYM]\s+\S+", txt))
-            if any(k in lower for k in ("[视频", "视频号", "video", "呆猫")) or (has_card_footer and re.search(r"(?:^|\s)[WV]\s+\S+", txt)):
+            if (
+                m_type in ("channels_video", "video")
+                or any(k in lower for k in ("[视频", "视频号", "这个视频", "这条视频", "video", "呆猫"))
+                or (has_card_footer and re.search(r"(?:^|\s)[WV]\s+\S+", txt))
+            ):
                 _add_task(
                     "video_analysis",
-                    "wechat_video",
+                    m_type or "wechat_video",
                     txt,
                     isLatest=is_latest,
+                    bubble=m,
+                    cardMeta=card_meta,
                     sessionSource=m.get("sessionSource", contact),
                 )
-            elif any(k in lower for k in ("[链接", "[图片", "图文", "郑兰", "上架 app store", "image2.6")) or has_card_footer:
+            elif (
+                m_type in ("wechat_article", "image")
+                or any(k in lower for k in ("[链接", "[图片", "图文", "微信文章", "公众号", "这篇文章", "文章链接", "isprs", "grsm", "郑兰", "上架 app store", "image2.6"))
+                or has_card_footer
+            ):
                 _add_task(
                     "image_card_analysis",
-                    "wechat_card_or_image",
+                    m_type or "wechat_card_or_image",
                     txt,
                     isLatest=is_latest,
+                    bubble=m,
+                    cardMeta=card_meta,
                     sessionSource=m.get("sessionSource", contact),
                 )
 

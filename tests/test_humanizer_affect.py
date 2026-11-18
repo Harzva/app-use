@@ -1,0 +1,173 @@
+"""Unit tests for v2.4.73 humanizer/affect engine, card classification/click-read, and zero-drop delta tracking."""
+
+from __future__ import annotations
+
+import shutil
+import struct
+import tempfile
+import unittest
+import zlib
+from pathlib import Path
+
+from wechat_control import ALL_CAPABILITIES
+from wechat_control.engine import WeChatControlEngine
+from wechat_control.humanizer_affect import (
+    GOD_CORE_PERSONA_PARTITIONS,
+    EuphoriaAffectEngine,
+    blend_persona_partitions,
+    humanize_wechat_reply,
+    parse_sibyl_feedback_command,
+)
+from wechat_control.live_inspector import WeChatLiveInspector
+from wechat_control.multi_window_scheduler import UnreadDeltaTracker
+
+
+def _write_solid_png(path: Path, width: int = 800, height: int = 1100) -> None:
+    raw = b"".join(b"\x00" + (b"\xf5\xf5\xf5" * width) for _ in range(height))
+
+    def _chunk(tag: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    path.write_bytes(b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", zlib.compress(raw)) + _chunk(b"IEND", b""))
+
+
+class TestHumanizerAffectAndCardRead(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="wx_v2473_"))
+        self.engine = WeChatControlEngine(
+            audit_log_path=self.tmp / "audit.jsonl",
+            auth_file_path=self.tmp / "auth.json",
+            bindings_file_path=self.tmp / "bindings.json",
+            models_config_path=self.tmp / "models.json",
+            model_http_requester=lambda *a, **k: (_ for _ in ()).throw(ConnectionRefusedError),
+            knowledge_db_path=self.tmp / "kb.sqlite",
+            personas_file_path=self.tmp / "personas.json",
+            snapshots_dir=self.tmp / "snapshots",
+            reports_dir=self.tmp / "reports",
+        )
+        self.engine.auth_grant(ALL_CAPABILITIES, authorized_by="test-v2473")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_god_core_16_partitions_and_affect_decay(self) -> None:
+        self.assertEqual(len(GOD_CORE_PERSONA_PARTITIONS), 16)
+        blended = blend_persona_partitions("warm-friend")
+        self.assertEqual(blended["partitionCount"], 16)
+        self.assertGreater(len(blended["activePartitions"]), 8)
+        for part, weights in blended["activePartitions"].items():
+            self.assertAlmostEqual(sum(weights.values()), 1.0, places=2, msg=f"Partition {part} not normalized")
+
+        affect = EuphoriaAffectEngine(self.tmp / "affect.json", half_life_minutes=30.0)
+        res1 = affect.appraise_and_update("微信ClawBot", "卧槽你还真分一二三点，你是AI吧，哈哈笑死", now_ts=1000.0)
+        self.assertEqual(res1["trigger"], "banter_playful")
+        self.assertGreater(res1["controls"].valence, 0.25)
+        self.assertEqual(res1["controls"].recommended_emote, "[旺柴]")
+
+        # Decay after 90 minutes (3 half-lives -> returns closer to baseline)
+        res2 = affect.appraise_and_update("微信ClawBot", "嗯", now_ts=1000.0 + 90 * 60.0)
+        self.assertLess(res2["controls"].valence, res1["controls"].valence)
+
+    def test_humanize_wechat_reply_strips_ai_lists_particles_and_period(self) -> None:
+        ai_slop = "哈哈收到啦！第一、LoopForge是开源工作流；第二、它支持人工审批；第三、适合本地用。总的来说很不错！"
+        clean = humanize_wechat_reply(ai_slop, persona_id="warm-friend", allow_emote=False)
+        self.assertNotIn("哈哈收到啦", clean)
+        self.assertNotIn("第一", clean)
+        self.assertNotIn("第二", clean)
+        self.assertNotIn("第三", clean)
+        self.assertNotIn("；", clean)
+        self.assertFalse(clean.endswith("。"))
+
+        num_slop = "1. 先检查网络\n2. 再看权限\n3. 最后重启一下。"
+        clean_num = humanize_wechat_reply(num_slop, persona_id="owner-digital-twin", allow_emote=False)
+        self.assertNotRegex(clean_num, r"(?:^|\s)[123]\.")
+        self.assertFalse(clean_num.endswith("。"))
+
+        sibyl = parse_sibyl_feedback_command("s3 下次先说核心结论再聊细节")
+        self.assertEqual(sibyl, {"code": "s3", "rating": "suggest", "suggestion": "下次先说核心结论再聊细节"})
+
+    def test_wide_popout_card_classification_unread_delta_and_click_read(self) -> None:
+        snap = self.tmp / "snapshots" / "contact_a_14393.png"
+        snap.parent.mkdir(parents=True, exist_ok=True)
+        _write_solid_png(snap, 1523, 1160)
+
+        ocr_payload = {
+            "ok": True,
+            "isMainWindow": False,
+            "splitX": 0.0,
+            "windowTitle": "联系人A",
+            "windowBounds": {"x": 927, "y": 177, "width": 1523, "height": 1160},
+            "elements": [
+                {"text": "联系人A", "bbox": {"x": 13, "y": 49, "width": 45, "height": 18}, "center": {"x": 35, "y": 58}},
+                {"text": "、6…", "bbox": {"x": 1399, "y": 46, "width": 109, "height": 19}, "center": {"x": 1453, "y": 55}},
+                {"text": "10:52", "bbox": {"x": 744, "y": 230, "width": 35, "height": 11}, "center": {"x": 761, "y": 236}},
+                {"text": "宁德时代董事长曾毓群反思：", "bbox": {"x": 93, "y": 283, "width": 139, "height": 14}, "center": {"x": 163, "y": 290}},
+                {"text": "我们为什么这么拼？", "bbox": {"x": 115, "y": 299, "width": 95, "height": 13}, "center": {"x": 163, "y": 305}},
+                {"text": "W 券商中国福大众", "bbox": {"x": 77, "y": 485, "width": 117, "height": 22}, "center": {"x": 136, "y": 496}},
+                {"text": "ISPRS | CASGM：武大提出显著几何", "bbox": {"x": 80, "y": 540, "width": 224, "height": 16}, "center": {"x": 191, "y": 548}},
+                {"text": "差异下依然稳健的光学-SAR影像..", "bbox": {"x": 80, "y": 560, "width": 219, "height": 16}, "center": {"x": 189, "y": 568}},
+                {"text": "M 遥感与深度学习", "bbox": {"x": 82, "y": 644, "width": 102, "height": 13}, "center": {"x": 133, "y": 651}},
+                {"text": "这个视频是什么意思呢？", "bbox": {"x": 80, "y": 848, "width": 151, "height": 18}, "center": {"x": 155, "y": 857}},
+                {"text": "你发的其实是 GitHub 仓库链接", "bbox": {"x": 900, "y": 905, "width": 300, "height": 18}, "center": {"x": 1050, "y": 913}},
+                {"text": "最新的我发送的这个微信文章链接，还有视频号你看不到吗", "bbox": {"x": 80, "y": 981, "width": 365, "height": 22}, "center": {"x": 262, "y": 992}},
+            ],
+        }
+        structured = self.engine.inspector.extract_structured_bubbles(ocr_payload, snapshot_path=snap)
+        self.assertEqual(structured["headerTitle"], "联系人A")
+        bubbles = structured["bubbles"]
+        # Window title at y=58 must NOT leak into bubbles[0]
+        self.assertNotEqual(bubbles[0]["text"], "联系人A")
+        types = [b["mediaType"] for b in bubbles]
+        self.assertIn("channels_video", types)
+        self.assertIn("wechat_article", types)
+
+        delta = UnreadDeltaTracker.extract_unread_delta(bubbles)
+        card_types = [c["mediaType"] for c in delta["activeMediaCards"]]
+        self.assertEqual(card_types, ["channels_video", "wechat_article"])
+
+        # Simulate active click-to-open reader window for the wechat_article bubble
+        calls = []
+        win_state = {"opened": False}
+
+        def fake_native(args, timeout=15.0):
+            calls.append(list(args))
+            cmd = args[0]
+            if cmd == "list-app-windows":
+                wins = [{"windowID": 14393, "title": "联系人A", "isMainWindow": False, "bounds": {"x": 927, "y": 177, "width": 1523, "height": 1160}}]
+                if win_state["opened"]:
+                    wins.append({"windowID": 15001, "title": "ISPRS | CASGM", "isMainWindow": False, "bounds": {"x": 300, "y": 100, "width": 820, "height": 900}})
+                return {"ok": True, "windows": wins}
+            if cmd == "click":
+                win_state["opened"] = True
+                return {"ok": True}
+            if cmd == "capture-ocr":
+                out_flag = args[args.index("--out") + 1] if "--out" in args else ""
+                if out_flag:
+                    _write_solid_png(Path(out_flag), 820, 900)
+                return {"ok": True, "elements": [{"text": "武汉大学团队提出CASGM共视区域引导光学SAR图像匹配方法"}]}
+            if cmd == "ocr":
+                if "--out" in args:
+                    _write_solid_png(Path(args[args.index("--out") + 1]), 320, 200)
+                return {"ok": True, "imageWidth": 320, "imageHeight": 200, "elements": [{"text": "ISPRS CASGM 遥感与深度学习"}]}
+            return {"ok": True}
+
+        self.engine._run_native = fake_native  # type: ignore[method-assign]
+        article_bubble = next(b for b in bubbles if b["mediaType"] == "wechat_article")
+        deep = self.engine.media_analyzer.click_and_deep_read_bubble(
+            article_bubble,
+            window_bounds={"x": 927, "y": 177, "width": 1523, "height": 1160},
+            window_id=14393,
+            snapshot_path=snap,
+            contact="联系人A",
+            click_to_open=True,
+        )
+        self.assertTrue(deep["ok"])
+        self.assertTrue(deep["clickedToOpen"])
+        self.assertEqual(deep["openedViewerWindowID"], 15001)
+        self.assertTrue(deep["note"].startswith("[公众号文章深读:"))
+        self.assertIn("CASGM", deep["ocrText"])
+
+
+if __name__ == "__main__":
+    unittest.main()

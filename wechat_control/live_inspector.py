@@ -25,17 +25,19 @@ from .io_utils import atomic_write_json
 
 _TIMESTAMP_DIVIDER_RE = re.compile(
     r"^(?:"
-    r"(?:昨天|今天|前天|星期[一二三四五六日天]|周[一二三四五六日天])(?:\s*\d{1,2}:\d{2})?"
-    r"|\d{4}[年/-]\d{1,2}[月/-]\d{1,2}日?(?:\s*\d{1,2}:\d{2})?"
-    r"|\d{1,2}月\d{1,2}日(?:\s*\d{1,2}:\d{2})?"
-    r"|\d{1,2}/\d{1,2}(?:\s*\d{1,2}:\d{2})?"
-    r"|\d{1,2}:\d{2}"
+    r"(?:昨天|今天|前天|星期[一二三四五六日天]|周[一二三四五六日天])(?:\s*\d{1,2}[:：-]\d{2})?"
+    r"|\d{4}[年/-]\d{1,2}[月/-]\d{1,2}日?(?:\s*\d{1,2}[:：-]\d{2})?"
+    r"|\d{1,2}月\d{1,2}日(?:\s*\d{1,2}[:：-]\d{2})?"
+    r"|\d{1,2}/\d{1,2}(?:\s*\d{1,2}[:：-]\d{2})?"
+    r"|(?:[01]?\d|2[0-3])[:：-][0-5]\d"
     r")$"
 )
 
 
 _BADGE_RE = re.compile(r"^\d{1,3}\+?$")
 _CARD_SOURCE_RE = re.compile(r"^(?:[CVWXYMcvwxym]\s+\S+|[◎•·∞♡〇]\s*\S+)")
+_CHANNELS_SOURCE_RE = re.compile(r"^(?:[WVwv∞🦋]\s+\S+|视频号\s*[:：·]?\s*\S*)")
+_ARTICLE_SOURCE_RE = re.compile(r"^(?:[MCXYmcxy]\s+\S+|[◎•·♡〇]\s*\S+|(?:公众号|服务号)\s*[:：·]?\s*\S*)")
 
 
 def _slugify_target(target: str) -> str:
@@ -381,8 +383,8 @@ class WeChatLiveInspector:
         if split_x <= 0.0:
             raw_headers = [
                 el for el in elements
-                if el["center"]["x"] >= 8.0
-                and 6.0 <= el["center"]["y"] <= 56.0
+                if 8.0 <= el["center"]["x"] <= 460.0
+                and 6.0 <= el["center"]["y"] <= 64.0
                 and str(el.get("text") or "").strip()
             ]
             non_chrome = [
@@ -410,18 +412,25 @@ class WeChatLiveInspector:
                         prev_right = max(prev_right, cand_left + float(cand_bbox.get("width", 0.0)))
             header_els = sorted(chosen_headers, key=lambda e: (e["center"]["y"], e["center"]["x"]))
             header_ids = {id(el) for el in header_els}
-            min_msg_y = 56.0 if any(float(el["center"]["y"]) > 46.0 for el in header_els) else 48.0
+            max_header_cy = max((float(el["center"]["y"]) for el in header_els), default=48.0)
+            min_msg_y = max(56.0, min(72.0, max_header_cy + 10.0))
             msg_els = sorted(
                 [
                     el for el in elements
                     if id(el) not in header_ids
                     and el["center"]["x"] >= 8.0
                     and min_msg_y < el["center"]["y"] <= (win_h - 140.0)
+                    and not (
+                        float(el["center"]["y"]) <= 68.0
+                        and float(el["center"]["x"]) >= 460.0
+                    )
                 ],
                 key=lambda e: (e["center"]["y"], e["center"]["x"]),
             )
             header_text = " ".join(str(el["text"]).strip() for el in header_els).strip()
-            if not header_text and window_title:
+            if window_title and (not header_text or len(re.sub(r"[、，。….\s]+", "", header_text)) <= 1):
+                header_text = str(window_title).strip()
+            elif not header_text and window_title:
                 header_text = str(window_title).strip()
         else:
             header_els = sorted(
@@ -519,6 +528,110 @@ class WeChatLiveInspector:
         return out
 
     @staticmethod
+    def _is_card_footer_line(line: str) -> bool:
+        clean = str(line or "").strip()
+        if not clean or len(clean) > 28:
+            return False
+        return bool(
+            _CARD_SOURCE_RE.match(clean)
+            or _CHANNELS_SOURCE_RE.match(clean)
+            or _ARTICLE_SOURCE_RE.match(clean)
+            or "公众号" in clean
+            or "视频号" in clean
+            or "服务号" in clean
+        )
+
+    @staticmethod
+    def classify_bubble_media_type(bubble: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+        """Classify a chat bubble into text/image/video/channels_video/wechat_article/external_link and extract card metadata."""
+        raw_lines = [str(x).strip() for x in (bubble.get("lines") or []) if str(x).strip()]
+        text = str(bubble.get("text") or "").strip()
+        lower = text.lower()
+        height = max(0.0, float(bubble.get("yBottom", 0.0) or 0.0) - float(bubble.get("yTop", 0.0) or 0.0))
+
+        # Strip optional group `sender: ` prefix on the first line for metadata inspection
+        lines = list(raw_lines)
+        sender = str(bubble.get("sender") or "").strip()
+        if sender and lines and lines[0] == sender:
+            lines = lines[1:]
+
+        source_name = ""
+        card_kind = ""
+        source_idx = -1
+        for i, ln in enumerate(lines):
+            if _CHANNELS_SOURCE_RE.match(ln):
+                card_kind = "channels_video"
+                source_name = re.sub(r"^(?:[WVwv∞🦋]|视频号)\s*[:：·]?\s*", "", ln).strip()
+                source_idx = i
+            elif _ARTICLE_SOURCE_RE.match(ln):
+                card_kind = "wechat_article"
+                source_name = re.sub(r"^(?:[MCXYmcxy◎•·♡〇]|公众号|服务号)\s*[:：·]?\s*", "", ln).strip()
+                source_idx = i
+            elif _CARD_SOURCE_RE.match(ln):
+                card_kind = "wechat_article"
+                source_name = re.sub(r"^[CVWXYMcvwxym◎•·∞♡〇]\s*", "", ln).strip()
+                source_idx = i
+
+        content_lines = [ln for idx, ln in enumerate(lines) if idx != source_idx] if source_idx >= 0 else list(lines)
+
+        if card_kind:
+            # Tall card with W/V/视频号 is channels_video; multi-line card with digest + M/公众号 is wechat_article
+            if card_kind == "channels_video" or "视频号" in text or height >= 165.0:
+                media_type = "channels_video"
+            else:
+                media_type = "wechat_article"
+            title_lines = content_lines[:2] if len(content_lines) >= 2 else content_lines
+            digest_lines = content_lines[2:] if len(content_lines) > 2 else []
+            return media_type, {
+                "cardKind": media_type,
+                "cardSource": source_name,
+                "cardTitle": WeChatLiveInspector._join_bubble_lines(title_lines)[:120],
+                "cardDigest": WeChatLiveInspector._join_bubble_lines(digest_lines)[:180],
+            }
+
+        if re.search(r"mp\.weixin\.qq\.com", lower):
+            return "wechat_article", {
+                "cardKind": "wechat_article",
+                "cardSource": "微信公众号",
+                "cardTitle": text[:120],
+                "cardDigest": "",
+            }
+
+        if re.search(r"(?:https?://|github\.com/|yobot\.yokoagi\.com)", lower):
+            return "external_link", {
+                "cardKind": "external_link",
+                "cardSource": "",
+                "cardTitle": text[:120],
+                "cardDigest": "",
+            }
+
+        if any(tok in lower for tok in ("[视频]", "[video]", "视频消息")):
+            return "video", {
+                "cardKind": "video",
+                "cardSource": "微信视频",
+                "cardTitle": text[:120],
+                "cardDigest": "",
+            }
+
+        if any(tok in lower for tok in ("[图片]", "[image]", "[photo]", "[动画表情]")):
+            return "image", {
+                "cardKind": "image",
+                "cardSource": "微信图片",
+                "cardTitle": text[:120],
+                "cardDigest": "",
+            }
+
+        if len(content_lines) >= 3 and height >= 85.0 and any(tok in text for tok in ("..", "…", "|", "｜")):
+            return "wechat_article", {
+                "cardKind": "wechat_article",
+                "cardSource": "",
+                "cardTitle": WeChatLiveInspector._join_bubble_lines(content_lines[:2])[:120],
+                "cardDigest": WeChatLiveInspector._join_bubble_lines(content_lines[2:])[:180],
+            }
+
+        return "text", {}
+
+    @staticmethod
     def cluster_message_bubbles(
         messages: List[Dict[str, Any]],
         split_x: float,
@@ -545,14 +658,25 @@ class WeChatLiveInspector:
 
             bbox = m.get("bbox") or {}
             y_center = float(m.get("y", 0.0))
+            x_center = float(m.get("x", 0.0))
+            bw = float(bbox.get("width", 0.0) or 0.0)
             bh = float(bbox.get("height", 16.0) or 16.0)
+            bx = float(bbox.get("x", max(0.0, x_center - (bw * 0.5 if bw > 0 else 20.0))))
             by = float(bbox.get("y", y_center - bh * 0.5))
+            x_left = bx
+            x_right = bx + (bw if bw > 0 else 40.0)
             y_top = by
             y_bottom = by + bh
 
             dy = y_center - float(current["_lastCenterY"]) if current is not None else 0.0
+            prev_ended_with_footer = bool(
+                current is not None
+                and current.get("lines")
+                and WeChatLiveInspector._is_card_footer_line(current["lines"][-1])
+            )
             same_group_head = (
                 current is not None
+                and not prev_ended_with_footer
                 and current["direction"] == "peer"
                 and direction == "peer"
                 and current["timeMarker"] == active_time_marker
@@ -562,15 +686,17 @@ class WeChatLiveInspector:
             )
             card_footer_follow = (
                 current is not None
+                and not prev_ended_with_footer
                 and current["direction"] == "peer"
                 and direction == "peer"
                 and current["timeMarker"] == active_time_marker
-                and len(txt) <= 24
-                and (bool(_CARD_SOURCE_RE.match(txt)) or "公众号" in txt or "视频号" in txt)
-                and -4.0 <= dy <= 165.0
+                and len(txt) <= 28
+                and WeChatLiveInspector._is_card_footer_line(txt)
+                and -4.0 <= dy <= 210.0
             )
             if (
                 current is not None
+                and not prev_ended_with_footer
                 and current["direction"] == direction
                 and current["timeMarker"] == active_time_marker
                 and (-4.0 <= dy <= 34.0 or same_group_head or card_footer_follow)
@@ -583,7 +709,10 @@ class WeChatLiveInspector:
                     current["text"] = f"{current['sender']}: {body_text}"
                 else:
                     current["text"] = WeChatLiveInspector._join_bubble_lines(current["lines"])
+                current["yTop"] = round(min(float(current["yTop"]), y_top), 1)
                 current["yBottom"] = round(max(float(current["yBottom"]), y_bottom), 1)
+                current["_xLeft"] = round(min(float(current["_xLeft"]), x_left), 1)
+                current["_xRight"] = round(max(float(current["_xRight"]), x_right), 1)
                 current["_lastCenterY"] = max(float(current["_lastCenterY"]), y_center)
             else:
                 current = {
@@ -593,12 +722,30 @@ class WeChatLiveInspector:
                     "timeMarker": active_time_marker,
                     "yTop": round(y_top, 1),
                     "yBottom": round(y_bottom, 1),
+                    "_xLeft": round(x_left, 1),
+                    "_xRight": round(x_right, 1),
                     "_lastCenterY": y_center,
                 }
                 bubbles.append(current)
 
         for b in bubbles:
             b.pop("_lastCenterY", None)
+            xl = float(b.pop("_xLeft", 0.0))
+            xr = float(b.pop("_xRight", xl + 40.0))
+            yt = float(b.get("yTop", 0.0))
+            yb = float(b.get("yBottom", yt + 20.0))
+            if xr > xl:
+                b["clickRelX"] = round((xl + xr) * 0.5, 1)
+                b["clickRelY"] = round((yt + yb) * 0.5, 1)
+                crop_x = max(0, int(round(xl - 16)))
+                crop_y = max(0, int(round(yt - 12)))
+                crop_w = max(80, int(round((xr - xl) + 32)))
+                crop_h = max(48, int(round((yb - yt) + 24)))
+                b["cropRegion"] = {"x": crop_x, "y": crop_y, "width": crop_w, "height": crop_h}
+            media_type, card_meta = WeChatLiveInspector.classify_bubble_media_type(b)
+            b["mediaType"] = media_type
+            if card_meta:
+                b["cardMeta"] = card_meta
         return bubbles
 
     def extract_structured_bubbles(
@@ -718,11 +865,16 @@ class WeChatLiveInspector:
             except Exception:
                 prior_records = []
         observed_items: List[Dict[str, Any]] = []
+        norm_title_cf = re.sub(r"\s+", "", _clean_title_for_match(str(matched_title or clean_target))).casefold()
+        norm_target_cf = re.sub(r"\s+", "", _clean_title_for_match(clean_target)).casefold()
         for idx, b in enumerate(bubbles):
             txt = str(b.get("text") or "").strip()
             if not txt:
                 continue
-            observed_items.append({
+            txt_cf = re.sub(r"\s+", "", _clean_title_for_match(txt)).casefold()
+            if txt_cf and txt_cf in {norm_title_cf, norm_target_cf} and idx == 0 and float(b.get("yTop", 999.0)) <= 76.0:
+                continue
+            item: Dict[str, Any] = {
                 "page": 0,
                 "index": idx,
                 "kind": "message",
@@ -731,7 +883,12 @@ class WeChatLiveInspector:
                 "sender": str(b.get("sender") or ""),
                 "timeMarker": str(b.get("timeMarker") or ""),
                 "ts": datetime.now(timezone.utc).isoformat(),
-            })
+            }
+            if b.get("mediaType") and b.get("mediaType") != "text":
+                item["mediaType"] = str(b["mediaType"])
+            if isinstance(b.get("cardMeta"), dict) and b["cardMeta"]:
+                item["cardMeta"] = dict(b["cardMeta"])
+            observed_items.append(item)
         merged: List[Dict[str, Any]] = []
         seen_keys: set[str] = set()
         for rec in prior_records + observed_items:

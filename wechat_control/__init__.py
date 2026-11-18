@@ -19,10 +19,17 @@ from .bridge_importer import (
 )
 from .engine import WeChatControlEngine
 from .human_activity_guard import HumanActivityGuard
+from .humanizer_affect import (
+    EuphoriaAffectEngine,
+    blend_persona_partitions,
+    humanize_wechat_reply,
+    parse_sibyl_feedback_command,
+)
 from .knowledge_kf_engine import PersonaSwitchEngine, WeChatKnowledgeStore
 from .live_inspector import WeChatLiveInspector
 from .magpie_provider_hub import MagpieProviderHub, map_magpie_model
 from .mcp_server import WeChatMCPServer, create_http_server, serve_http
+from .multi_window_scheduler import UnreadDeltaTracker
 from .realtime_monitor import WeChatRealtimeMonitor
 from .ui_schema import WECHAT_UI_SCHEMA_VERSION, WeChatUIProtocolNavigator
 from .web_console import render_web_console_html
@@ -43,6 +50,7 @@ __all__ = [
     "ArchiveAttachment",
     "AuditLogger",
     "DirtyInputCircuitBreakerError",
+    "EuphoriaAffectEngine",
     "GroupAllowlistGuard",
     "HumanActivityGuard",
     "HumanJitter",
@@ -55,6 +63,7 @@ __all__ = [
     "StudioPluginUnauthorizedError",
     "TranscriptBundle",
     "TranscriptRecord",
+    "UnreadDeltaTracker",
     "UnsafeArchiveError",
     "WeChatArticleExporter",
     "WeChatArticleHTMLParser",
@@ -66,8 +75,11 @@ __all__ = [
     "WeChatRealtimeMonitor",
     "WeChatUIProtocolNavigator",
     "WECHAT_UI_SCHEMA_VERSION",
+    "blend_persona_partitions",
     "create_http_server",
+    "humanize_wechat_reply",
     "map_magpie_model",
+    "parse_sibyl_feedback_command",
     "render_web_console_html",
     "serve_http",
 ]

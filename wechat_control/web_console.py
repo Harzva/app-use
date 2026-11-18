@@ -5787,7 +5787,14 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         }
         const bubble = document.createElement("div");
         bubble.className = "bubble " + (m.direction === "self" ? "self" : "peer") + (i === lastPeerIdx ? " latest" : "") + (m.direction === "self" && m.source === "hosting" ? " hosted" : "");
-        bubble.textContent = m.text;
+        const mediaPrefix = m.mediaType === "channels_video"
+          ? "🎬 [视频号] "
+          : (m.mediaType === "wechat_article"
+            ? "📄 [公众号文章] "
+            : (m.mediaType === "image"
+              ? "🖼️ [图片] "
+              : (m.mediaType === "video" ? "🎥 [视频] " : "")));
+        bubble.textContent = (mediaPrefix && !String(m.text || "").startsWith("[") ? mediaPrefix : "") + (m.text || "");
         const lowConf = (m.confidence !== null && m.confidence !== undefined && m.confidence < 0.6);
         const meta = document.createElement("div");
         meta.className = "bubble-time" + (lowConf ? " warn" : "");
@@ -9352,6 +9359,14 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
     loadPermissions();
     loadBackgroundObservation();
     setInterval(loadBackgroundObservation, 5000);
+    setInterval(() => {
+      if (document.hidden) return;
+      const ae = document.activeElement;
+      if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.tagName === "SELECT")) return;
+      if (document.getElementById("hostingPicker")?.open) return;
+      if (document.getElementById("settingsOverlay")?.classList.contains("visible")) return;
+      loadOverview(false);
+    }, 6000);
     document.addEventListener("visibilitychange", loadBackgroundObservation);
     updateSaveDraftButton();
     window.addEventListener("hashchange", resumeSavedDraft);
