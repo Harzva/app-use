@@ -151,6 +151,27 @@ private func isConsoleHealthy(_ baseUrl: String) -> Bool {
     return ok
 }
 
+private func isBackendPermissionsAllGranted(_ baseUrl: String) -> Bool {
+    guard let url = URL(string: "\(baseUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/api/permissions") else {
+        return false
+    }
+    let sem = DispatchSemaphore(value: 0)
+    var granted = false
+    var req = URLRequest(url: url)
+    req.timeoutInterval = 1.5
+    URLSession.shared.dataTask(with: req) { data, resp, _ in
+        if let http = resp as? HTTPURLResponse, http.statusCode == 200,
+           let d = data,
+           let obj = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any],
+           let allGranted = obj["allGranted"] as? Bool {
+            granted = allGranted
+        }
+        sem.signal()
+    }.resume()
+    _ = sem.wait(timeout: .now() + 2.0)
+    return granted
+}
+
 private func backendFailureLog(_ message: String) {
     // 静默失败可见化：排障时有迹可循（~/Library/Logs/wechat-bot-backend.log）
     let logPath = NSHomeDirectory() + "/Library/Logs/wechat-bot-backend.log"
@@ -166,6 +187,12 @@ private func backendFailureLog(_ message: String) {
 
 private func ensureBackendRunning(repoRoot: URL, consoleUrl: String) {
     if isConsoleHealthy(consoleUrl) {
+        // 如果当前运行的 backend 已经拿到完整 macOS TCC 权限而本 GUI 进程尚未拿到（常见于独立启动升级后），
+        // 绝不杀掉已有授权的 backend，以免新拉起的进程失去 TCC 继承链路。
+        if (!AXIsProcessTrusted() || !CGPreflightScreenCaptureAccess()) && isBackendPermissionsAllGranted(consoleUrl) {
+            backendFailureLog("ensureBackendRunning: reusing existing TCC-authorized backend at \(consoleUrl)")
+            return
+        }
         // 版本感知：旧 console 还在跑旧代码（App 更新后常见占坑），停旧起新
         let running = consoleVersion(consoleUrl)
         let expected = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
@@ -798,11 +825,12 @@ final class StudioAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
     // MARK: - 启动权限预检（影刀式：App 一启动就检查，缺权限直接弹原生引导窗）
 
     /// 原生权限预检：辅助功能（AX）+ 屏幕录制。子进程（wechat-vision-ax）由本 App 启动，
-    /// TCC 归属本 App bundle，因此检查本进程即可代表整条链路。
+    /// 如果本地 backend 已具备完整 TCC 权限（例如继承了宿主终端/Agent 的授权链路），也直接放行不误弹提示。
     private func preflightPermissionsIfNeeded() {
         let axGranted = AXIsProcessTrusted()
         let screenGranted = CGPreflightScreenCaptureAccess()
         guard !axGranted || !screenGranted else { return }  // 全绿：不打扰
+        if isBackendPermissionsAllGranted(consoleUrl) { return }
 
         // 窗口先出，再弹引导（延迟到主队列下一拍，避免与首帧竞态）
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
