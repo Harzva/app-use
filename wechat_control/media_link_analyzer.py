@@ -1564,3 +1564,70 @@ class WeChatMediaLinkAnalyzer:
             "matchedBoxes": res.get("matchedBoxes") or [],
             "note": res.get("note") or note,
         }
+
+
+def extract_tencent_meeting_invite(text: str) -> Optional[Dict[str, Any]]:
+    """Extract Tencent Meeting invite details (9-11 digit meeting code + optional inline password)."""
+    raw = str(text or "").strip()
+    if not raw:
+        return None
+    if not any(k in raw for k in ("腾讯会议", "会议号", "个人会议室", "加入会议")):
+        return None
+    code_match = re.search(r"(?<!\d)(\d[\d\s\-]{7,13}\d)(?!\d)", raw)
+    if not code_match:
+        return None
+    code = re.sub(r"[\s\-]+", "", code_match.group(1))
+    if not (9 <= len(code) <= 11):
+        return None
+    pwd_match = re.search(r"(?:入会密码|会议密码|密码)\s*[:：是为]?\s*([A-Za-z0-9]{4,8})", raw)
+    pwd = pwd_match.group(1) if pwd_match else ""
+    return {
+        "isMeetingInvite": True,
+        "platform": "tencent_meeting",
+        "meetingCode": code,
+        "password": pwd,
+        "rawText": raw[:280],
+    }
+
+
+def extract_meeting_password_reply(text: str) -> str:
+    """Extract a 4-8 character meeting password from a follow-up peer reply."""
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+    explicit = re.search(r"(?:入会密码|会议密码|密码)\s*(?:是|为|:|：)?\s*([A-Za-z0-9]{4,8})", raw)
+    if explicit:
+        return explicit.group(1)
+    # Remove possible leading HH:MM time marker before checking bare numeric password
+    stripped = re.sub(r"^(?:\d{1,2}:\d{2}\s*[.:：]?\s*)", "", raw).strip()
+    if re.fullmatch(r"\d{4,6}", stripped):
+        return stripped
+    return ""
+
+
+def extract_voice_call_request(text: str) -> Optional[Dict[str, Any]]:
+    """Detect an explicit peer request asking the bot to initiate a WeChat/WeCom voice or video call."""
+    raw = str(text or "").strip()
+    if not raw:
+        return None
+    if any(neg in raw for neg in ("不用打", "别打", "不要打", "不用视频", "别视频", "取消", "刚才打", "刚才视频", "已挂断", "对方已")):
+        return None
+    is_video = bool(
+        re.search(
+            r"(?:打|发起|来个|弹个|开个)\s*(?:视频电话|视频通话|视频聊天)|(?:视频电话|视频通话|视频聊天)\s*(?:聊一下|聊聊|一下|吗|吧)",
+            raw,
+        )
+    )
+    is_audio = bool(
+        re.search(
+            r"(?:给我|帮我|快|直接|可以|来)?\s*(?:打个?电话|打个?语音(?:电话|通话|聊天)?|弹个?语音|拨个?语音|语音通话一下|通话一下)",
+            raw,
+        )
+    )
+    if not (is_video or is_audio):
+        return None
+    return {
+        "isVoiceCallRequest": True,
+        "callType": "video" if is_video else "audio",
+        "rawText": raw[:280],
+    }

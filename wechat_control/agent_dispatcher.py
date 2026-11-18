@@ -21,6 +21,7 @@ _URL_RE = re.compile(r"(https?://[^\s<>\"'\]）)]+|(?:github\.com|mp\.weixin\.qq
 
 _INSTRUCTION_PATTERNS = [
     ("ai_art_generation", re.compile(r"(作画|画一[幅副张]?|画[副幅]|母版|丰富画面|线稿|水粉|油画笔|antigravity)", re.I)),
+    ("voice_call_request", re.compile(r"(打个?电话|打个?语音|弹个?语音|视频通话|语音通话)", re.I)),
     ("meeting_bot_ops", re.compile(r"(开会|拉进会里|grok\s*bot|slack|teams|助手)", re.I)),
     ("github_open_source", re.compile(r"(github\.com|staffdeck|openbmb|开源项目|仓库|sop)", re.I)),
     ("technical_qa", re.compile(r"(rpa\s*到底|爬虫|按键精灵|区别|配置样例|架构|风水)", re.I)),
@@ -70,6 +71,7 @@ class WeChatAgentDispatcher:
                     "url_link_deep_reader",
                     "wechat_article_image_card_ocr_vlm",
                     "video_keyframe_avfoundation_ffmpeg_ocr_vlm",
+                    "wechat_wecom_voip_voice_call",
                     "friend_instruction_parsing_and_agent_dispatch",
                 ],
             },
@@ -135,7 +137,7 @@ class WeChatAgentDispatcher:
                     if not inc:
                         continue
                     if _matches_target(contact, ev_target) or norm_target in inc.casefold() or (
-                        norm_target == "心安"
+                        norm_target == "联系人A"
                         and any(kw in inc.lower() for kw in ("母版", "线稿", "antigravity", "staffdeck", "yobot", "rpa", "作画", "风水"))
                     ):
                         collected.append({

@@ -419,6 +419,141 @@ class TestHumanizerAffectAndCardRead(unittest.TestCase):
         finally:
             _ur.urlopen = orig_urlopen  # type: ignore[assignment]
 
+    def test_v2477_tencent_meeting_invite_and_botstudio_join(self) -> None:
+        from wechat_control.media_link_analyzer import (
+            extract_meeting_password_reply,
+            extract_tencent_meeting_invite,
+        )
+
+        # 1) Parse both WeChat mini-program invite card text and full shared invite block with password
+        card_inv = extract_tencent_meeting_invite("主持人的个人会议室\n会议已经开始，请尽快加入会议\n会议号：779 432 9581\n腾讯会议")
+        self.assertIsNotNone(card_inv)
+        self.assertEqual(card_inv["meetingCode"], "7794329581")
+        self.assertEqual(card_inv["password"], "")
+
+        full_inv = extract_tencent_meeting_invite(
+            "主持人 邀请您加入主持人的个人会议室\n"
+            "https://meeting.tencent.com/p/7794329581?tk=1yuRm\n"
+            "#腾讯会议：779-432-9581\n会议密码：498541"
+        )
+        self.assertIsNotNone(full_inv)
+        self.assertEqual(full_inv["meetingCode"], "7794329581")
+        self.assertEqual(full_inv["password"], "498541")
+
+        # 2) Parse follow-up password messages cleanly
+        self.assertEqual(extract_meeting_password_reply("498541"), "498541")
+        self.assertEqual(extract_meeting_password_reply("19:31 会议密码：498541"), "498541")
+        self.assertEqual(extract_meeting_password_reply("好的等会儿聊"), "")
+
+        # 3) Join flow dry-run and simulated native needs_password -> joined transition
+        calls = []
+
+        def fake_join_native(args, timeout=25.0):
+            calls.append(list(args))
+            if "--dry-run" in args:
+                return {"ok": True, "dryRun": True, "meetingCode": "7794329581", "needsPassword": True, "inMeeting": False}
+            if "--password" in args:
+                return {"ok": True, "joined": True, "needsPassword": False, "inMeeting": True, "meetingCode": "7794329581"}
+            return {"ok": True, "joined": False, "needsPassword": True, "meetingCode": "7794329581"}
+
+        self.engine._run_native = fake_join_native  # type: ignore[method-assign]
+        self.engine._start_botstudio_meeting_daemon = lambda **kw: {"ok": True, "status": "started", "meetingCode": kw.get("meeting_code")}  # type: ignore[method-assign]
+
+        dry_res = self.engine.join_tencent_meeting_and_start_botstudio(
+            "联系人A",
+            meeting_code="779 432 9581",
+            dry_run=True,
+            confirm_send=False,
+        )
+        self.assertTrue(dry_res["ok"])
+        self.assertEqual(dry_res["meetingCode"], "7794329581")
+
+        need_pwd = self.engine.join_tencent_meeting_and_start_botstudio(
+            "联系人A",
+            meeting_code="7794329581",
+            dry_run=False,
+            confirm_send=True,
+        )
+        self.assertTrue(need_pwd["needsPassword"])
+        self.assertFalse(need_pwd["joined"])
+
+        joined_res = self.engine.join_tencent_meeting_and_start_botstudio(
+            "联系人A",
+            meeting_code="7794329581",
+            password="498541",
+            dry_run=False,
+            confirm_send=True,
+        )
+        self.assertTrue(joined_res["joined"])
+        self.assertEqual(joined_res["status"], "in_meeting")
+        self.assertEqual(joined_res["botStudio"]["status"], "started")
+
+    def test_v2477_voice_call_request_and_engine_dry_run(self) -> None:
+        from wechat_control.media_link_analyzer import extract_voice_call_request
+
+        # 1) Explicit call intent extraction (positive & negative cases)
+        req_audio = extract_voice_call_request("方便现在给我打个语音电话吗")
+        self.assertIsNotNone(req_audio)
+        self.assertEqual(req_audio["callType"], "audio")
+
+        req_video = extract_voice_call_request("咱们视频通话聊一下")
+        self.assertIsNotNone(req_video)
+        self.assertEqual(req_video["callType"], "video")
+
+        self.assertIsNone(extract_voice_call_request("对方已取消"))
+        self.assertIsNone(extract_voice_call_request("不用打电话了，发文字就行"))
+
+        # 2) Engine voice_call dry-run & live state transitions (mocked native + daemon)
+        native_calls = []
+
+        def fake_voip_native(args, timeout=15.0):
+            native_calls.append(list(args))
+            cmd = args[0] if args else ""
+            if cmd == "audio-devices":
+                return {
+                    "ok": True,
+                    "defaultInput": {"deviceID": 129, "name": "FF-Camera", "uid": "hw-ff-cam", "isVirtual": False},
+                    "inputDevices": [
+                        {"deviceID": 129, "name": "FF-Camera", "uid": "hw-ff-cam", "isVirtual": False},
+                        {"deviceID": 73, "name": "OrayVirtualAudioDevice", "uid": "OrayVirtualAudioDevice_UID", "isVirtual": True},
+                    ],
+                }
+            if cmd == "voice-call":
+                act = args[args.index("--action") + 1] if "--action" in args else "status"
+                if act == "dial":
+                    return {"ok": True, "dryRun": "--dry-run" in args, "initiated": "--dry-run" not in args, "windowID": 21275}
+                if act == "answer":
+                    return {"ok": True, "dryRun": "--dry-run" in args, "answered": "--dry-run" not in args, "afterState": {"calls": [{"appId": "wecom"}]}}
+                if act == "hangup":
+                    return {"ok": True, "dryRun": "--dry-run" in args, "hungUp": "--dry-run" not in args}
+                return {"ok": True, "callStatus": "idle", "calls": []}
+            return {"ok": True}
+
+        self.engine._run_native = fake_voip_native  # type: ignore[method-assign]
+        self.engine._start_voip_voice_daemon = lambda **kw: {"ok": True, "status": "started", "app": kw.get("app"), "target": kw.get("target")}  # type: ignore[method-assign]
+
+        dry_dial = self.engine.voice_call("联系人A", action="dial", app="wechat", dry_run=True, confirm_send=False, target_window_id=21275)
+        self.assertTrue(dry_dial["ok"])
+        self.assertEqual(dry_dial["status"], "dry_run_ok")
+        self.assertEqual(dry_dial["windowID"], 21275)
+
+        live_dial = self.engine.voice_call("联系人A", action="dial", app="wechat", dry_run=False, confirm_send=True, target_window_id=21275)
+        self.assertTrue(live_dial["ok"])
+        self.assertEqual(live_dial["status"], "dialing")
+        self.assertEqual(live_dial["voiceDaemon"]["status"], "started")
+
+        ans = self.engine.voice_call("联系人A", action="answer", app="wecom", dry_run=False, confirm_send=True)
+        self.assertTrue(ans["ok"])
+        self.assertEqual(ans["status"], "answered")
+
+        st = self.engine.voice_call(action="status", app="all")
+        self.assertTrue(st["ok"])
+        self.assertEqual(st["defaultInput"]["name"], "FF-Camera")
+
+        hu = self.engine.voice_call(action="hangup", app="all", dry_run=False, confirm_send=True)
+        self.assertTrue(hu["ok"])
+        self.assertEqual(hu["status"], "hung_up")
+
 
 if __name__ == "__main__":
     unittest.main()

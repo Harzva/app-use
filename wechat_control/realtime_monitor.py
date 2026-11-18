@@ -25,6 +25,9 @@ from .contact_profiler import CARE_LEVEL_ORDER, normalize_care_level
 from .live_inspector import _matches_target, _slugify_target
 from .media_link_analyzer import (
     extract_assistant_insights_from_bubbles,
+    extract_meeting_password_reply,
+    extract_tencent_meeting_invite,
+    extract_voice_call_request,
     is_explicit_wechat_ai_mention,
     is_wechat_ai_assistant_name,
 )
@@ -1348,6 +1351,56 @@ class WeChatRealtimeMonitor:
                 })
                 continue
 
+            # 自动识别腾讯会议邀请卡片或后续会议密码，并拉起 Bot Studio 语音参会
+            meeting_action_res = None
+            joined_meetings = c_state.get("joinedMeetings") if isinstance(c_state.get("joinedMeetings"), dict) else {}
+            pending_mpwd = c_state.get("pendingMeetingPassword") if isinstance(c_state.get("pendingMeetingPassword"), dict) else None
+            pwd_reply = extract_meeting_password_reply(query_incoming) if pending_mpwd else ""
+            meeting_invite = extract_tencent_meeting_invite(incoming_text) or extract_tencent_meeting_invite(query_incoming)
+            if pending_mpwd and pwd_reply:
+                code = str(pending_mpwd.get("meetingCode") or "").strip()
+                meeting_action_res = self.engine.join_tencent_meeting_and_start_botstudio(
+                    target,
+                    meeting_code=code,
+                    password=pwd_reply,
+                    click_card=False,
+                    dry_run=False,
+                    confirm_send=True,
+                    target_window_id=popout_meta.get("popoutWindowID"),
+                )
+                if meeting_action_res.get("joined"):
+                    c_state.pop("pendingMeetingPassword", None)
+                    if code:
+                        joined_meetings[code] = _utc_iso_now()
+                        c_state["joinedMeetings"] = joined_meetings
+                    reply_text = f"密码收到啦，我已经进会并连上 Bot Studio 语音参会，这就和大家在会里开聊 [机智]"
+            elif meeting_invite and meeting_invite["meetingCode"] not in joined_meetings:
+                code = meeting_invite["meetingCode"]
+                meeting_action_res = self.engine.join_tencent_meeting_and_start_botstudio(
+                    target,
+                    meeting_code=code,
+                    password=str(meeting_invite.get("password") or ""),
+                    click_card=True,
+                    dry_run=False,
+                    confirm_send=True,
+                    target_window_id=popout_meta.get("popoutWindowID"),
+                )
+                if meeting_action_res.get("needsPassword"):
+                    c_state["pendingMeetingPassword"] = {"meetingCode": code, "updatedAt": _utc_iso_now()}
+                    reply_text = f"看到腾讯会议邀请了（{code}），我已点开卡片唤起腾讯会议，界面提示需要输入会议密码，把密码发我一下我填进去就用 Bot Studio 语音参与讨论 [机智]"
+                elif meeting_action_res.get("joined"):
+                    c_state.pop("pendingMeetingPassword", None)
+                    joined_meetings[code] = _utc_iso_now()
+                    c_state["joinedMeetings"] = joined_meetings
+                    reply_text = f"我已经点卡片进会啦（{code}），Bot Studio 语音助手也连进会议了，马上开始聊 [旺柴]"
+
+            # 若好友明确要求「打个电话 / 弹个语音」，先文字回一句并真实拨出微信语音电话
+            voice_call_req = extract_voice_call_request(query_incoming) if not meeting_action_res else None
+            if voice_call_req and c_state.get("lastVoiceCallSig") != msg_sig:
+                c_state["lastVoiceCallSig"] = msg_sig
+                call_type = voice_call_req.get("callType") or "audio"
+                reply_text = "好嘞，我现在就给你拨视频通话过去，注意接听 [机智]" if call_type == "video" else "好嘞，我现在就给你拨微信语音电话过去，接通咱直接说 [机智]"
+
             if hasattr(self.engine, "human_guard"):
                 self.engine.human_guard.record_rpa_action(action="paste-and-verify")
             send_res = self.engine.send_text(
@@ -1381,6 +1434,20 @@ class WeChatRealtimeMonitor:
                 c_state["lastRepliedAt"] = _utc_iso_now()
                 c_state["lastPostSendSnapshot"] = send_res.get("postSendSnapshot")
                 replies_this_cycle += 1
+                if voice_call_req:
+                    try:
+                        self.engine.voice_call(
+                            target,
+                            action="dial",
+                            app="wechat",
+                            call_type=str(voice_call_req.get("callType") or "audio"),
+                            confirm_send=True,
+                            dry_run=False,
+                            skip_navigation=True,
+                            target_window_id=popout_meta.get("popoutWindowID"),
+                        )
+                    except Exception:
+                        pass
                 if hasattr(self.engine, "soul_profiler") and hasattr(self.engine.soul_profiler, "ingest_live_turn"):
                     try:
                         self.engine.soul_profiler.ingest_live_turn(

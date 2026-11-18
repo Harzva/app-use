@@ -75,7 +75,7 @@ def _matches_target(target: str, candidate: str) -> bool:
     c_clean = normalize_chat_name(_clean_title_for_match(candidate)).casefold()
     if not c_clean:
         return False
-    # Reject message preview lines like "心安: [链接]..."
+    # Reject message preview lines like "联系人A: [链接]..."
     if ":" in c_clean or "：" in c_clean:
         return False
     # Prevent 1-on-1 friend name from matching multi-person group chat title containing "、"

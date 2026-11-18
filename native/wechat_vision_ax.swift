@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import AVFoundation
+import CoreAudio
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -999,8 +1000,20 @@ func moveAndClick(x: Double, y: Double, doubleClick: Bool = false) {
     }
 }
 
+var lastSyntheticKeyTimestamp: CFAbsoluteTime = 0
+
+func humanTypedSinceSyntheticKey(idleLimit: Double) -> (Bool, Double) {
+    let hwIdle = hardwareKeyboardIdleSeconds()
+    if lastSyntheticKeyTimestamp <= 0 {
+        return (hwIdle < idleLimit, hwIdle)
+    }
+    let elapsed = max(0.0, CFAbsoluteTimeGetCurrent() - lastSyntheticKeyTimestamp)
+    let isHuman = (hwIdle + 0.06 < elapsed) && (hwIdle < idleLimit)
+    return (isHuman, hwIdle)
+}
+
 func postKey(keyCode: CGKeyCode, flags: CGEventFlags = []) {
-    let src = CGEventSource(stateID: .hidSystemState)
+    let src = CGEventSource(stateID: .privateState)
     if let down = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: true),
        let up = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: false) {
         down.flags = flags
@@ -1008,6 +1021,7 @@ func postKey(keyCode: CGKeyCode, flags: CGEventFlags = []) {
         down.post(tap: .cghidEventTap)
         usleep(20_000)
         up.post(tap: .cghidEventTap)
+        lastSyntheticKeyTimestamp = CFAbsoluteTimeGetCurrent()
     }
 }
 
@@ -2169,12 +2183,13 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
     }
 
     func performPasteAndReadback() -> (readback: String, source: String) {
-        if hardwareKeyboardIdleSeconds() < 1.0 {
+        let (kbActive, kbIdle) = humanTypedSinceSyntheticKey(idleLimit: 1.0)
+        if kbActive {
             restoreClipboard()
             failJSON(
                 "Human keyboard activity detected right before paste; paused cleanly.",
                 code: "human_keyboard_active",
-                extra: ["retryable": true, "hardwareKeyboardIdleSeconds": hardwareKeyboardIdleSeconds()]
+                extra: ["retryable": true, "hardwareKeyboardIdleSeconds": kbIdle]
             )
         }
         if let el = axInputEl {
@@ -2308,8 +2323,8 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
                 extra: ["retryable": true, "frontmost": preReturnDesc]
             )
         }
-        let preReturnHwKey = hardwareKeyboardIdleSeconds()
-        if preReturnHwKey < 0.8 {
+        let (preReturnTyping, preReturnHwKey) = humanTypedSinceSyntheticKey(idleLimit: 0.8)
+        if preReturnTyping {
             postKey(keyCode: kKeyA, flags: .maskCommand)
             usleep(60_000)
             postKey(keyCode: kKeyDelete)
@@ -2578,9 +2593,10 @@ func cmdPasteImage(flags: Set<String>, options: [String: String]) {
 
     var sent = false
     if !silentMode {
-        guard isAppFrontmost(targetKind).0, hardwareKeyboardIdleSeconds() >= 0.8 else {
+        let (kbTyping, kbIdle) = humanTypedSinceSyntheticKey(idleLimit: 0.8)
+        guard isAppFrontmost(targetKind).0, !kbTyping else {
             restoreClipboard()
-            failJSON("Interrupted before sending image; aborted cleanly.", code: "interrupted_before_return", extra: ["retryable": true])
+            failJSON("Interrupted before sending image; aborted cleanly.", code: "interrupted_before_return", extra: ["retryable": true, "hardwareKeyboardIdleSeconds": kbIdle])
         }
         postKey(keyCode: kKeyReturn)
         usleep(320_000)
@@ -2897,6 +2913,434 @@ func cmdExtractPDFText(options: [String: String]) {
     ])
 }
 
+let kKeyEscape: CGKeyCode = 53
+
+func findTencentMeetingWindows(includeFloating: Bool = false) -> [(wid: UInt32, pid: pid_t, x: Double, y: Double, w: Double, h: Double, title: String)] {
+    var out: [(UInt32, pid_t, Double, Double, Double, Double, String)] = []
+    for entry in copyOnScreenWindowInfo() {
+        let owner = (entry[kCGWindowOwnerName as String] as? String) ?? ""
+        let layer = (entry[kCGWindowLayer as String] as? Int) ?? 0
+        guard (layer == 0 || includeFloating), owner.contains("腾讯会议") || owner.lowercased().contains("tencentmeeting") else { continue }
+        guard let bounds = entry[kCGWindowBounds as String] as? [String: Any],
+              let w = (bounds["Width"] as? NSNumber)?.doubleValue,
+              let h = (bounds["Height"] as? NSNumber)?.doubleValue,
+              w > 80, h > 80,
+              let wid = (entry[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
+              let pid = (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value else { continue }
+        let x = (bounds["X"] as? NSNumber)?.doubleValue ?? 0
+        let y = (bounds["Y"] as? NSNumber)?.doubleValue ?? 0
+        let title = (entry[kCGWindowName as String] as? String) ?? ""
+        out.append((wid, pid, x, y, w, h, title))
+    }
+    return out
+}
+
+func ocrTMWindowByID(_ wid: UInt32, winX: Double, winY: Double, winW: Double, winH: Double) -> ([[String: Any]], Double, Double)? {
+    guard let img = CGWindowListCreateImage(.null, .optionIncludingWindow, wid, [.boundsIgnoreFraming, .bestResolution]),
+          let elems = try? runVisionOCR(cgImage: img) else {
+        return nil
+    }
+    let sx = Double(img.width) / max(1.0, winW)
+    let sy = Double(img.height) / max(1.0, winH)
+    return (elems, sx, sy)
+}
+
+func findTMOCRPoint(_ elems: [[String: Any]], sx: Double, sy: Double, winX: Double, winY: Double, matching keywords: [String], minRelY: Double = 0.0) -> (x: Double, y: Double, relY: Double, text: String)? {
+    for kw in keywords {
+        for item in elems {
+            let t = (item["text"] as? String) ?? ""
+            if t.contains(kw), let pt = item["center"] as? [String: Int], let cx = pt["x"], let cy = pt["y"] {
+                let relY = Double(cy) / sy
+                if relY >= minRelY {
+                    return (winX + Double(cx) / sx, winY + relY, relY, t)
+                }
+            }
+        }
+    }
+    return nil
+}
+
+func ensureTencentMeetingSubtitlesAndYuanbao(wantSubtitles: Bool = true, wantYuanbao: Bool = true) -> [String: Any] {
+    let tmRunning = NSWorkspace.shared.runningApplications.first(where: { ($0.bundleIdentifier ?? "") == "com.tencent.meeting" })
+    let floatingWins = findTencentMeetingWindows(includeFloating: true)
+    let tmPid: pid_t? = floatingWins.first?.pid ?? tmRunning?.processIdentifier
+
+    if let pid = tmPid {
+        if let tmApp = NSRunningApplication(processIdentifier: pid) {
+            _ = tmApp.unhide()
+            _ = tmApp.activate(options: [.activateIgnoringOtherApps])
+        }
+        let preAxApp = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(preAxApp, 0.35)
+        var winListRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(preAxApp, kAXWindowsAttribute as CFString, &winListRef) == .success,
+           let axWins = winListRef as? [AXUIElement] {
+            for axw in axWins {
+                AXUIElementSetMessagingTimeout(axw, 0.35)
+                var minRef: CFTypeRef?
+                if AXUIElementCopyAttributeValue(axw, kAXMinimizedAttribute as CFString, &minRef) == .success,
+                   (minRef as? Bool) == true {
+                    _ = AXUIElementSetAttributeValue(axw, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+                    usleep(200_000)
+                }
+            }
+        }
+    }
+
+    var wins = findTencentMeetingWindows(includeFloating: false)
+    if wins.first(where: { $0.w > 800 && $0.h > 480 }) == nil {
+        // Restore from floating PiP window (w ~ 140..450, h ~ 90..320, excluding 720x480 home window)
+        if let pip = findTencentMeetingWindows(includeFloating: true).first(where: {
+            $0.w >= 140 && $0.w <= 450 && $0.h >= 90 && $0.h <= 320 && !($0.w == 720 && $0.h == 480)
+        }) {
+            let cx = pip.x + pip.w * 0.5
+            let cy = pip.y + pip.h * 0.45
+            let pt = CGPoint(x: cx, y: cy)
+            CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: pt, mouseButton: .left)?.post(tap: .cghidEventTap)
+            usleep(120_000)
+            for clickIdx in 1...2 {
+                if let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: pt, mouseButton: .left),
+                   let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: pt, mouseButton: .left) {
+                    down.setIntegerValueField(.mouseEventClickState, value: Int64(clickIdx))
+                    up.setIntegerValueField(.mouseEventClickState, value: Int64(clickIdx))
+                    down.post(tap: .cghidEventTap)
+                    usleep(45_000)
+                    up.post(tap: .cghidEventTap)
+                    usleep(65_000)
+                }
+            }
+            usleep(850_000)
+            wins = findTencentMeetingWindows(includeFloating: false)
+        }
+    }
+
+    guard let mainMeeting = wins.first(where: { $0.w > 800 && $0.h > 480 }) else {
+        return ["ok": false, "error": "no_active_meeting_window", "yuanbaoEnabled": false, "subtitlesEnabled": false]
+    }
+    if let tmApp = NSRunningApplication(processIdentifier: mainMeeting.pid) {
+        _ = tmApp.unhide()
+        _ = tmApp.activate(options: [.activateIgnoringOtherApps])
+    }
+    let axApp = AXUIElementCreateApplication(mainMeeting.pid)
+    AXUIElementSetMessagingTimeout(axApp, 0.35)
+    var mainAxListRef: CFTypeRef?
+    if AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &mainAxListRef) == .success,
+       let axWins = mainAxListRef as? [AXUIElement] {
+        for axw in axWins {
+            AXUIElementSetMessagingTimeout(axw, 0.35)
+            if let sz = axSize(axw, kAXSizeAttribute), abs(Double(sz.width) - mainMeeting.w) <= 8.0 && abs(Double(sz.height) - mainMeeting.h) <= 8.0 {
+                _ = AXUIElementSetAttributeValue(axw, kAXMainAttribute as CFString, kCFBooleanTrue)
+                _ = AXUIElementPerformAction(axw, kAXRaiseAction as CFString)
+                break
+            }
+        }
+    }
+    usleep(260_000)
+
+    // Unmute microphone if currently muted
+    var micState = "unknown"
+    var q: [AXUIElement] = [axApp]
+    var qi = 0
+    while qi < q.count && qi < 80 {
+        let el = q[qi]; qi += 1
+        AXUIElementSetMessagingTimeout(el, 0.25)
+        if axString(el, kAXTitleAttribute) == "mic_button" {
+            let d = axString(el, kAXDescriptionAttribute) ?? ""
+            micState = d
+            if d.contains("解除静音") {
+                _ = AXUIElementPerformAction(el, kAXPressAction as CFString)
+                micState = "unmuted_now"
+                usleep(180_000)
+            }
+            break
+        }
+        q.append(contentsOf: axChildren(el))
+    }
+
+    // Wake bottom toolbar in case auto-hidden
+    if let moveEv = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: CGPoint(x: mainMeeting.x + mainMeeting.w * 0.45, y: mainMeeting.y + mainMeeting.h - 28.0), mouseButton: .left) {
+        moveEv.post(tap: .cghidEventTap)
+    }
+    usleep(450_000)
+
+    var yuanbaoEnabled = false
+    var subtitlesEnabled = false
+
+    if wantYuanbao, let (elems, sx, sy) = ocrTMWindowByID(mainMeeting.wid, winX: mainMeeting.x, winY: mainMeeting.y, winW: mainMeeting.w, winH: mainMeeting.h) {
+        let fullTxt = elems.compactMap { $0["text"] as? String }.joined(separator: " ")
+        if fullTxt.contains("元宝会议助手") || fullTxt.contains("会议概览") || fullTxt.contains("持续总结") || fullTxt.contains("洞察讨论观点") {
+            yuanbaoEnabled = true
+        } else if let yb = findTMOCRPoint(elems, sx: sx, sy: sy, winX: mainMeeting.x, winY: mainMeeting.y, matching: ["元宝笔记"], minRelY: mainMeeting.h * 0.82) {
+            moveAndClick(x: yb.x, y: yb.y - 12.0)
+            usleep(750_000)
+            yuanbaoEnabled = true
+        }
+    }
+
+    if wantSubtitles, let (elems2, sx2, sy2) = ocrTMWindowByID(mainMeeting.wid, winX: mainMeeting.x, winY: mainMeeting.y, winW: mainMeeting.w, winH: mainMeeting.h) {
+        let fullTxt2 = elems2.compactMap { $0["text"] as? String }.joined(separator: " ")
+        if fullTxt2.contains("关闭字幕") || fullTxt2.contains("关闭宇幕") {
+            subtitlesEnabled = true
+        } else {
+            var appClickPt: (Double, Double)? = nil
+            if let appBtn = findTMOCRPoint(elems2, sx: sx2, sy: sy2, winX: mainMeeting.x, winY: mainMeeting.y, matching: ["应用"], minRelY: mainMeeting.h * 0.82) {
+                appClickPt = (appBtn.x, appBtn.y - 12.0)
+            } else if let yb = findTMOCRPoint(elems2, sx: sx2, sy: sy2, winX: mainMeeting.x, winY: mainMeeting.y, matching: ["元宝笔记"], minRelY: mainMeeting.h * 0.82) {
+                // "应用" toolbar button sits reliably 64pt to the right of "元宝笔记" even when a red badge hides OCR text
+                appClickPt = (yb.x + 64.0, yb.y - 12.0)
+            }
+            if let pt = appClickPt {
+                moveAndClick(x: pt.0, y: pt.1)
+                usleep(650_000)
+                let popWins = findTencentMeetingWindows(includeFloating: true).filter { $0.wid != mainMeeting.wid && $0.w < 900 && $0.h < 800 }
+                var handled = false
+                for pw in popWins {
+                    guard let (pe, psx, psy) = ocrTMWindowByID(pw.wid, winX: pw.x, winY: pw.y, winW: pw.w, winH: pw.h) else { continue }
+                    if findTMOCRPoint(pe, sx: psx, sy: psy, winX: pw.x, winY: pw.y, matching: ["关闭字幕", "关闭宇幕"]) != nil {
+                        subtitlesEnabled = true
+                        handled = true
+                        postKey(keyCode: kKeyEscape)
+                        usleep(220_000)
+                        break
+                    }
+                    if let openSub = findTMOCRPoint(pe, sx: psx, sy: psy, winX: pw.x, winY: pw.y, matching: ["开启字幕", "开启宇幕"]) {
+                        moveAndClick(x: openSub.x, y: openSub.y - 12.0)
+                        usleep(500_000)
+                        subtitlesEnabled = true
+                        handled = true
+                        break
+                    }
+                }
+                if !handled {
+                    postKey(keyCode: kKeyEscape)
+                    usleep(180_000)
+                }
+            }
+        }
+    }
+
+    return [
+        "ok": true,
+        "windowID": mainMeeting.wid,
+        "yuanbaoEnabled": yuanbaoEnabled,
+        "subtitlesEnabled": subtitlesEnabled,
+        "micState": micState,
+    ]
+}
+
+func cmdSetupTencentMeeting(flags: Set<String>, options: [String: String]) {
+    let res = ensureTencentMeetingSubtitlesAndYuanbao(
+        wantSubtitles: options["subtitles"] != "0",
+        wantYuanbao: options["yuanbao"] != "0"
+    )
+    writeJSON(res)
+}
+
+func cmdJoinTencentMeeting(flags: Set<String>, options: [String: String]) {
+    let dryRun = flags.contains("dry-run") || options["dry-run"] == "1"
+    let wantClickCard = flags.contains("click-card") || options["click-card"] == "1"
+    var meetingCode = (options["meeting-code"] ?? "").filter { $0.isNumber }
+    let password = (options["password"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+
+    func extractDigitsCode(_ raw: String) -> String {
+        if let regex = try? NSRegularExpression(pattern: "(?<!\\d)(\\d[\\s\\-]?){9,11}(?!\\d)") {
+            let ns = raw as NSString
+            if let m = regex.firstMatch(in: raw, range: NSRange(location: 0, length: ns.length)) {
+                let digits = ns.substring(with: m.range).filter { $0.isNumber }
+                if (9...11).contains(digits.count) {
+                    return digits
+                }
+            }
+        }
+        return ""
+    }
+
+    func findLocalTMWindows() -> [(wid: UInt32, pid: pid_t, x: Double, y: Double, w: Double, h: Double, title: String)] {
+        return findTencentMeetingWindows(includeFloating: false)
+    }
+
+    func ocrWindowByID(_ wid: UInt32, winX: Double, winY: Double, winW: Double, winH: Double) -> ([[String: Any]], Double, Double)? {
+        return ocrTMWindowByID(wid, winX: winX, winY: winY, winW: winW, winH: winH)
+    }
+
+    func findOCRPoint(_ elems: [[String: Any]], sx: Double, sy: Double, winX: Double, winY: Double, matching keywords: [String]) -> (x: Double, y: Double, text: String)? {
+        return findTMOCRPoint(elems, sx: sx, sy: sy, winX: winX, winY: winY, matching: keywords).map { ($0.x, $0.y, $0.text) }
+    }
+
+    // Check if password prompt or active meeting window is already present
+    func scanTMState() -> (needsPwd: Bool, pwdWin: (wid: UInt32, pid: pid_t, x: Double, y: Double, w: Double, h: Double, title: String)?, pwdFieldPt: (Double, Double)?, joinBtnPt: (Double, Double)?, inMeeting: Bool) {
+        let wins = findTencentMeetingWindows()
+        for w in wins {
+            guard let (elems, sx, sy) = ocrWindowByID(w.wid, winX: w.x, winY: w.y, winW: w.w, winH: w.h) else { continue }
+            let joinedText = elems.compactMap { $0["text"] as? String }.joined(separator: " ")
+            if joinedText.contains("入会密码") || joinedText.contains("请输入会议密码") {
+                let fieldPt = findOCRPoint(elems, sx: sx, sy: sy, winX: w.x, winY: w.y, matching: ["请输入会议密码"])
+                    .map { ($0.x, $0.y) } ?? (w.x + w.w * 0.5, w.y + w.h * 0.376)
+                let btnPt = findOCRPoint(elems, sx: sx, sy: sy, winX: w.x, winY: w.y, matching: ["进入会议", "加入会议"])
+                    .map { ($0.x, $0.y) } ?? (w.x + w.w * 0.80, w.y + w.h * 0.89)
+                return (true, w, fieldPt, btnPt, false)
+            }
+            if joinedText.contains("结束会议") || joinedText.contains("离开会议") || joinedText.contains("会议详情") || joinedText.contains("解除静音") || joinedText.contains("静音") || (joinedText.contains("邀请") && joinedText.contains("成员")) {
+                return (false, nil, nil, nil, true)
+            }
+        }
+        return (false, nil, nil, nil, false)
+    }
+
+    if dryRun {
+        let tmState = scanTMState()
+        writeJSON([
+            "ok": true,
+            "dryRun": true,
+            "meetingCode": meetingCode,
+            "needsPassword": tmState.needsPwd,
+            "inMeeting": tmState.inMeeting,
+        ])
+        return
+    }
+
+    var clickedCardPt: [String: Double]? = nil
+    var clickedMiniProgramJoin = false
+    var state = scanTMState()
+
+    if !state.needsPwd && !state.inMeeting && (wantClickCard || options["window-id"] != nil || !(options["window-title"] ?? "").isEmpty) {
+        let (_, targetKind) = resolveTargetApp(options: options, allowWindowLookupWhenOmitted: true)
+        let windows = listWindows(for: targetKind)
+        if let targetWin = selectTargetWindow(in: windows, options: options),
+           let (elems, sx, sy) = ocrWindowByID(targetWin.windowID, winX: targetWin.x, winY: targetWin.y, winW: targetWin.width, winH: targetWin.height) {
+            if meetingCode.isEmpty {
+                meetingCode = extractDigitsCode(elems.compactMap { $0["text"] as? String }.joined(separator: " "))
+            }
+            if let hit = findOCRPoint(elems, sx: sx, sy: sy, winX: targetWin.x, winY: targetWin.y, matching: ["会议已经开始", "个人会议室", "会议号", "腾讯会议"]) {
+                if let wxApp = NSRunningApplication(processIdentifier: targetWin.pid) {
+                    _ = wxApp.unhide()
+                    _ = wxApp.activate(options: [.activateIgnoringOtherApps])
+                }
+                if let axWin = findAXWindow(pid: targetWin.pid, kind: targetKind, targetWin: targetWin, reqTitle: options["window-title"]) {
+                    _ = AXUIElementSetAttributeValue(axWin, kAXMainAttribute as CFString, kCFBooleanTrue)
+                    _ = AXUIElementPerformAction(axWin, kAXRaiseAction as CFString)
+                }
+                usleep(220_000)
+                moveAndClick(x: hit.x, y: hit.y)
+                clickedCardPt = ["x": hit.x, "y": hit.y]
+                usleep(1_400_000)
+
+                // Check if WeChat Mini Program ("微信 (窗口)") popped up with a blue "加入会议" button
+                let updatedWins = listWindows(for: targetKind)
+                if let miniWin = updatedWins.first(where: { $0.title.contains("微信") && $0.windowID != targetWin.windowID }),
+                   let (mElems, msx, msy) = ocrWindowByID(miniWin.windowID, winX: miniWin.x, winY: miniWin.y, winW: miniWin.width, winH: miniWin.height),
+                   let joinHit = findOCRPoint(mElems, sx: msx, sy: msy, winX: miniWin.x, winY: miniWin.y, matching: ["加入会议"]) {
+                    if meetingCode.isEmpty {
+                        meetingCode = extractDigitsCode(mElems.compactMap { $0["text"] as? String }.joined(separator: " "))
+                    }
+                    moveAndClick(x: joinHit.x, y: joinHit.y)
+                    clickedMiniProgramJoin = true
+                    usleep(2_200_000)
+                }
+            }
+        }
+        state = scanTMState()
+    }
+
+    if !state.needsPwd && !state.inMeeting && !meetingCode.isEmpty {
+        if let url = URL(string: "wemeet://page/inmeeting?meeting_code=\(meetingCode)") {
+            _ = NSWorkspace.shared.open(url)
+            usleep(2_200_000)
+        }
+        state = scanTMState()
+    }
+
+    if !state.needsPwd && !state.inMeeting {
+        for w in findTencentMeetingWindows() where !w.title.isEmpty || w.w != 720 {
+            if let (elems, sx, sy) = ocrWindowByID(w.wid, winX: w.x, winY: w.y, winW: w.w, winH: w.h) {
+                let txt = elems.compactMap { $0["text"] as? String }.joined(separator: " ")
+                if !txt.contains("快速会议"),
+                   let hit = findOCRPoint(elems, sx: sx, sy: sy, winX: w.x, winY: w.y, matching: ["使用电脑音频", "进入会议", "加入会议"]) {
+                    if let tmApp = NSRunningApplication(processIdentifier: w.pid) {
+                        _ = tmApp.unhide()
+                        _ = tmApp.activate(options: [.activateIgnoringOtherApps])
+                    }
+                    usleep(180_000)
+                    moveAndClick(x: hit.x, y: hit.y)
+                    usleep(2_000_000)
+                    state = scanTMState()
+                    break
+                }
+            }
+        }
+    }
+
+    if state.needsPwd, let pw = state.pwdWin {
+        if password.isEmpty {
+            writeJSON([
+                "ok": true,
+                "joined": false,
+                "needsPassword": true,
+                "meetingCode": meetingCode,
+                "passwordWindowID": pw.wid,
+                "clickedCardPoint": clickedCardPt as Any,
+                "clickedMiniProgramJoin": clickedMiniProgramJoin,
+            ])
+            return
+        }
+        if let tmApp = NSRunningApplication(processIdentifier: pw.pid) {
+            _ = tmApp.unhide()
+            _ = tmApp.activate(options: [.activateIgnoringOtherApps])
+        }
+        usleep(250_000)
+        if let fpt = state.pwdFieldPt {
+            moveAndClick(x: fpt.0, y: fpt.1)
+            usleep(150_000)
+            let pb = NSPasteboard.general
+            let origClip = pb.string(forType: .string)
+            pb.clearContents()
+            pb.setString(password, forType: .string)
+            postKey(keyCode: kKeyA, flags: .maskCommand)
+            usleep(50_000)
+            postKey(keyCode: kKeyV, flags: .maskCommand)
+            usleep(250_000)
+            pb.clearContents()
+            if let orig = origClip { pb.setString(orig, forType: .string) }
+        }
+        if let bpt = state.joinBtnPt {
+            moveAndClick(x: bpt.0, y: bpt.1)
+            usleep(2_600_000)
+        }
+        state = scanTMState()
+        var setupRes: [String: Any] = [:]
+        if state.inMeeting || !state.needsPwd {
+            setupRes = ensureTencentMeetingSubtitlesAndYuanbao()
+        }
+        writeJSON([
+            "ok": true,
+            "joined": state.inMeeting || !state.needsPwd,
+            "needsPassword": state.needsPwd,
+            "wrongPassword": state.needsPwd,
+            "inMeeting": state.inMeeting,
+            "meetingCode": meetingCode,
+            "clickedCardPoint": clickedCardPt as Any,
+            "clickedMiniProgramJoin": clickedMiniProgramJoin,
+            "meetingSetup": setupRes,
+        ])
+        return
+    }
+
+    var setupRes2: [String: Any] = [:]
+    if state.inMeeting {
+        setupRes2 = ensureTencentMeetingSubtitlesAndYuanbao()
+    }
+    writeJSON([
+        "ok": true,
+        "joined": state.inMeeting,
+        "needsPassword": state.needsPwd,
+        "inMeeting": state.inMeeting,
+        "meetingCode": meetingCode,
+        "clickedCardPoint": clickedCardPt as Any,
+        "clickedMiniProgramJoin": clickedMiniProgramJoin,
+        "meetingSetup": setupRes2,
+    ])
+}
+
 func cmdExtractVideoFrames(options: [String: String]) {
     guard let videoPath = options["video"], !videoPath.isEmpty else {
         failJSON("Missing --video <path>", code: "missing_argument")
@@ -2942,6 +3386,1065 @@ func cmdExtractVideoFrames(options: [String: String]) {
         "frameCount": frames.count,
         "frames": frames,
     ])
+}
+
+// MARK: - CoreAudio Input Switching & WeChat / WeCom VoIP Calling
+
+struct AudioInputDeviceInfo {
+    let deviceID: AudioDeviceID
+    let uid: String
+    let name: String
+}
+
+func audioDeviceHasInputStreams(_ devID: AudioDeviceID) -> Bool {
+    var addr = AudioObjectPropertyAddress(
+        mSelector: kAudioDevicePropertyStreams,
+        mScope: kAudioDevicePropertyScopeInput,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    var size: UInt32 = 0
+    guard AudioObjectGetPropertyDataSize(devID, &addr, 0, nil, &size) == noErr else {
+        return false
+    }
+    return size > 0
+}
+
+func audioDeviceCFStringProperty(_ devID: AudioDeviceID, selector: AudioObjectPropertySelector) -> String {
+    var addr = AudioObjectPropertyAddress(
+        mSelector: selector,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    var cfRef: Unmanaged<CFString>? = nil
+    var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+    let status = withUnsafeMutablePointer(to: &cfRef) { ptr in
+        AudioObjectGetPropertyData(devID, &addr, 0, nil, &size, ptr)
+    }
+    guard status == noErr, let unwrapped = cfRef else { return "" }
+    return unwrapped.takeRetainedValue() as String
+}
+
+func listAudioInputDevices() -> [AudioInputDeviceInfo] {
+    var addr = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDevices,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    var size: UInt32 = 0
+    guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size) == noErr, size > 0 else {
+        return []
+    }
+    let count = Int(size) / MemoryLayout<AudioDeviceID>.size
+    var ids = [AudioDeviceID](repeating: 0, count: count)
+    guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &ids) == noErr else {
+        return []
+    }
+    var out: [AudioInputDeviceInfo] = []
+    for devID in ids where audioDeviceHasInputStreams(devID) {
+        let uid = audioDeviceCFStringProperty(devID, selector: kAudioDevicePropertyDeviceUID)
+        let name = audioDeviceCFStringProperty(devID, selector: kAudioObjectPropertyName)
+        if !uid.isEmpty || !name.isEmpty {
+            out.append(AudioInputDeviceInfo(deviceID: devID, uid: uid, name: name))
+        }
+    }
+    return out
+}
+
+func getDefaultInputAudioDevice(from devices: [AudioInputDeviceInfo]) -> AudioInputDeviceInfo? {
+    var addr = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDefaultInputDevice,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    var devID: AudioDeviceID = 0
+    var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+    guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &devID) == noErr else {
+        return nil
+    }
+    if let match = devices.first(where: { $0.deviceID == devID }) {
+        return match
+    }
+    let uid = audioDeviceCFStringProperty(devID, selector: kAudioDevicePropertyDeviceUID)
+    let name = audioDeviceCFStringProperty(devID, selector: kAudioObjectPropertyName)
+    return AudioInputDeviceInfo(deviceID: devID, uid: uid, name: name)
+}
+
+func setDefaultInputAudioDevice(_ devID: AudioDeviceID) -> OSStatus {
+    var addr = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDefaultInputDevice,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    var target = devID
+    let size = UInt32(MemoryLayout<AudioDeviceID>.size)
+    return AudioObjectSetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, size, &target)
+}
+
+func audioDeviceToDict(_ dev: AudioInputDeviceInfo) -> [String: Any] {
+    return [
+        "deviceID": Int(dev.deviceID),
+        "uid": dev.uid,
+        "name": dev.name,
+        "isVirtual": dev.uid.contains("Oray") || dev.uid.contains("WMAudio") || dev.name.contains("Virtual") || dev.name.contains("WeMeet"),
+    ]
+}
+
+func cmdAudioDevices() {
+    let devs = listAudioInputDevices()
+    let cur = getDefaultInputAudioDevice(from: devs)
+    writeJSON([
+        "ok": true,
+        "defaultInput": cur.map { audioDeviceToDict($0) } as Any,
+        "inputDevices": devs.map { audioDeviceToDict($0) },
+    ])
+}
+
+func restoreInputDeviceIfSaved(saveFile: String) -> [String: Any]? {
+    let url = URL(fileURLWithPath: saveFile)
+    guard let data = try? Data(contentsOf: url),
+          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        return nil
+    }
+    let savedUid = (obj["uid"] as? String) ?? ""
+    let savedName = (obj["name"] as? String) ?? ""
+    let devs = listAudioInputDevices()
+    guard let match = devs.first(where: { !$0.uid.isEmpty && $0.uid == savedUid })
+        ?? devs.first(where: { !$0.name.isEmpty && $0.name == savedName }) else {
+        return ["ok": false, "restored": false, "error": "Saved input device not found: \(savedUid)", "uid": savedUid]
+    }
+    let st = setDefaultInputAudioDevice(match.deviceID)
+    if st == noErr {
+        try? FileManager.default.removeItem(at: url)
+        return ["ok": true, "restored": true, "defaultInput": audioDeviceToDict(match)]
+    }
+    return ["ok": false, "restored": false, "osStatus": Int(st), "uid": savedUid]
+}
+
+func cmdSetInputDevice(flags: Set<String>, options: [String: String]) {
+    let restore = flags.contains("restore") || options["restore"] == "1"
+    let saveFile = (options["save-file"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+
+    if restore {
+        if saveFile.isEmpty {
+            failJSON("Missing --save-file for --restore", code: "missing_argument")
+        }
+        if let res = restoreInputDeviceIfSaved(saveFile: saveFile) {
+            writeJSON(res, exitCode: (res["ok"] as? Bool) == true ? 0 : 1)
+        } else {
+            writeJSON(["ok": true, "restored": false, "reason": "no_saved_file"])
+        }
+    }
+
+    let query = (options["uid"] ?? options["name"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    if query.isEmpty {
+        failJSON("Missing --uid <deviceUID> (or --restore --save-file <path>)", code: "missing_argument")
+    }
+    let devs = listAudioInputDevices()
+    let prev = getDefaultInputAudioDevice(from: devs)
+    if !saveFile.isEmpty, let cur = prev {
+        let saveURL = URL(fileURLWithPath: saveFile)
+        let isVirtual = cur.uid.contains("Oray") || cur.uid.contains("WMAudio") || cur.name.contains("Virtual") || cur.name.contains("WeMeet")
+        if !FileManager.default.fileExists(atPath: saveURL.path), !isVirtual {
+            try? FileManager.default.createDirectory(at: saveURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if let data = try? JSONSerialization.data(withJSONObject: audioDeviceToDict(cur), options: [.prettyPrinted]) {
+                try? data.write(to: saveURL)
+            }
+        }
+    }
+    let low = query.lowercased()
+    guard let match = devs.first(where: { $0.uid == query })
+        ?? devs.first(where: { $0.name == query })
+        ?? devs.first(where: { $0.uid.lowercased().contains(low) || $0.name.lowercased().contains(low) }) else {
+        failJSON("Audio input device not found: \(query)", code: "device_not_found", extra: [
+            "availableInputs": devs.map { audioDeviceToDict($0) },
+        ])
+    }
+    let st = setDefaultInputAudioDevice(match.deviceID)
+    guard st == noErr else {
+        failJSON("Failed to set default input device (OSStatus \(st))", code: "coreaudio_set_failed")
+    }
+    let nowCur = getDefaultInputAudioDevice(from: listAudioInputDevices()) ?? match
+    writeJSON([
+        "ok": true,
+        "previousInput": prev.map { audioDeviceToDict($0) } as Any,
+        "defaultInput": audioDeviceToDict(nowCur),
+        "savedFile": saveFile.isEmpty ? NSNull() : saveFile,
+    ])
+}
+
+func captureOnScreenRect(_ rect: CGRect) -> CGImage? {
+    guard rect.width >= 4, rect.height >= 4 else { return nil }
+    return CGWindowListCreateImage(rect, .optionOnScreenOnly, kCGNullWindowID, [.bestResolution])
+}
+
+func captureWindowByID(_ wid: UInt32) -> CGImage? {
+    return CGWindowListCreateImage(.null, .optionIncludingWindow, wid, [.boundsIgnoreFraming, .bestResolution])
+}
+
+func ocrOnScreenRect(_ rect: CGRect, languages: [String] = ["zh-Hans", "en-US"]) -> ([[String: Any]], Double, Double, CGImage)? {
+    guard let img = captureOnScreenRect(rect),
+          let elems = try? runVisionOCR(cgImage: img, languages: languages) else {
+        return nil
+    }
+    let sx = Double(img.width) / max(1.0, Double(rect.width))
+    let sy = Double(img.height) / max(1.0, Double(rect.height))
+    return (elems, sx, sy, img)
+}
+
+func ocrWindowByID(_ wid: UInt32, winRect: CGRect, preferOnScreenComposite: Bool = false, languages: [String] = ["zh-Hans", "en-US"]) -> ([[String: Any]], Double, Double, CGImage)? {
+    let captured: CGImage?
+    if preferOnScreenComposite {
+        captured = captureOnScreenRect(winRect)
+    } else {
+        captured = captureWindowByID(wid) ?? captureOnScreenRect(winRect)
+    }
+    guard let img = captured,
+          let elems = try? runVisionOCR(cgImage: img, languages: languages) else {
+        return nil
+    }
+    let sx = Double(img.width) / max(1.0, Double(winRect.width))
+    let sy = Double(img.height) / max(1.0, Double(winRect.height))
+    return (elems, sx, sy, img)
+}
+
+func ocrWindowSubRect(_ wid: UInt32, winRect: CGRect, subRect: CGRect, languages: [String] = ["zh-Hans", "en-US"]) -> ([[String: Any]], Double, Double, CGImage, CGRect)? {
+    let clipped = subRect.intersection(winRect)
+    guard !clipped.isNull, clipped.width >= 8, clipped.height >= 8 else { return nil }
+    if let fullImg = captureWindowByID(wid) {
+        let scaleX = Double(fullImg.width) / max(1.0, Double(winRect.width))
+        let scaleY = Double(fullImg.height) / max(1.0, Double(winRect.height))
+        let pxRect = CGRect(
+            x: max(0.0, (Double(clipped.minX) - Double(winRect.minX)) * scaleX),
+            y: max(0.0, (Double(clipped.minY) - Double(winRect.minY)) * scaleY),
+            width: max(4.0, Double(clipped.width) * scaleX),
+            height: max(4.0, Double(clipped.height) * scaleY)
+        ).intersection(CGRect(x: 0, y: 0, width: fullImg.width, height: fullImg.height))
+        if !pxRect.isNull, pxRect.width >= 4, pxRect.height >= 4,
+           let cropped = fullImg.cropping(to: pxRect),
+           let elems = try? runVisionOCR(cgImage: cropped, languages: languages) {
+            let sx = Double(cropped.width) / max(1.0, Double(clipped.width))
+            let sy = Double(cropped.height) / max(1.0, Double(clipped.height))
+            return (elems, sx, sy, cropped, clipped)
+        }
+    }
+    if let (elems, sx, sy, img) = ocrOnScreenRect(clipped, languages: languages) {
+        return (elems, sx, sy, img, clipped)
+    }
+    return nil
+}
+
+func wakeAndActivateApp(pid: pid_t, kind: AppKind) {
+    let proc = Process()
+    proc.executableURL = URL(fileURLWithPath: "/usr/bin/caffeinate")
+    proc.arguments = ["-u", "-t", "5"]
+    proc.standardOutput = FileHandle.nullDevice
+    proc.standardError = FileHandle.nullDevice
+    try? proc.run()
+
+    let axApp = AXUIElementCreateApplication(pid)
+    AXUIElementSetMessagingTimeout(axApp, 0.3)
+    _ = AXUIElementSetAttributeValue(axApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+
+    let wasFront = isAppFrontmost(kind).0
+    if let app = NSRunningApplication(processIdentifier: pid) {
+        _ = app.unhide()
+        _ = app.activate(options: [.activateIgnoringOtherApps])
+    }
+    for _ in 0..<4 {
+        if isAppFrontmost(kind).0 { break }
+        usleep(80_000)
+    }
+    if !isAppFrontmost(kind).0 {
+        let osa = Process()
+        osa.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        osa.arguments = ["-e", "tell application id \"\(kind.bundleID)\" to activate"]
+        osa.standardOutput = FileHandle.nullDevice
+        osa.standardError = FileHandle.nullDevice
+        try? osa.run()
+        osa.waitUntilExit()
+        for _ in 0..<6 {
+            if isAppFrontmost(kind).0 { break }
+            usleep(80_000)
+        }
+        usleep(350_000)
+    } else {
+        usleep(wasFront ? 180_000 : 480_000)
+    }
+}
+
+func preciseClick(x: Double, y: Double) {
+    let pt = CGPoint(x: x, y: y)
+    let src = CGEventSource(stateID: .hidSystemState)
+    CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: pt, mouseButton: .left)?.post(tap: .cghidEventTap)
+    usleep(60_000)
+    CGEvent(mouseEventSource: src, mouseType: .leftMouseDown, mouseCursorPosition: pt, mouseButton: .left)?.post(tap: .cghidEventTap)
+    usleep(50_000)
+    CGEvent(mouseEventSource: src, mouseType: .leftMouseUp, mouseCursorPosition: pt, mouseButton: .left)?.post(tap: .cghidEventTap)
+    usleep(40_000)
+}
+
+func nudgeSmallForeignOverlaysAway(from targetRect: CGRect, excludingPID pid: pid_t) {
+    let findOverlaps: () -> [(pid: pid_t, wid: UInt32, rect: CGRect)] = {
+        var found: [(pid: pid_t, wid: UInt32, rect: CGRect)] = []
+        for entry in copyOnScreenWindowInfo() {
+            guard let p = (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value, p != pid,
+                  let wid = (entry[kCGWindowNumber as String] as? NSNumber)?.uint32Value,
+                  let bounds = entry[kCGWindowBounds as String] as? [String: Any],
+                  let w = (bounds["Width"] as? NSNumber)?.doubleValue,
+                  let h = (bounds["Height"] as? NSNumber)?.doubleValue else {
+                continue
+            }
+            let alpha = (entry[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1.0
+            guard alpha > 0.05 else { continue }
+            let layer = (entry[kCGWindowLayer as String] as? Int) ?? 0
+            guard layer > 0 && layer <= 2500 else { continue }
+            guard w >= 80 && w <= 600 && h >= 60 && h <= 600 else { continue }
+            let x = (bounds["X"] as? NSNumber)?.doubleValue ?? 0
+            let y = (bounds["Y"] as? NSNumber)?.doubleValue ?? 0
+            let r = CGRect(x: x, y: y, width: w, height: h)
+            if r.intersects(targetRect) {
+                found.append((p, wid, r))
+            }
+        }
+        return found
+    }
+
+    let initialOverlaps = findOverlaps()
+    if initialOverlaps.isEmpty { return }
+
+    if AXIsProcessTrusted() {
+        for item in initialOverlaps {
+            let fAx = AXUIElementCreateApplication(item.pid)
+            AXUIElementSetMessagingTimeout(fAx, 0.25)
+            if let wins = axAttr(fAx, kAXWindowsAttribute) as? [AXUIElement] {
+                for wEl in wins {
+                    if let pt = axPoint(wEl, kAXPositionAttribute),
+                       let sz = axSize(wEl, kAXSizeAttribute) {
+                        let d = abs(Double(pt.x) - Double(item.rect.minX))
+                            + abs(Double(pt.y) - Double(item.rect.minY))
+                            + abs(Double(sz.width) - Double(item.rect.width))
+                            + abs(Double(sz.height) - Double(item.rect.height))
+                        if d <= 36.0 {
+                            var newPt = CGPoint(x: 24.0, y: 560.0)
+                            if let axPos = AXValueCreate(.cgPoint, &newPt) {
+                                _ = AXUIElementSetAttributeValue(wEl, kAXPositionAttribute as CFString, axPos)
+                            }
+                            break
+                        }
+                    }
+                }
+            }
+        }
+        usleep(160_000)
+    }
+
+    let remaining = findOverlaps()
+    guard !remaining.isEmpty else { return }
+    let src = CGEventSource(stateID: .hidSystemState)
+    for item in remaining {
+        let start = CGPoint(x: Double(item.rect.midX), y: Double(item.rect.minY) + 18.0)
+        let end = CGPoint(x: 160.0, y: 680.0)
+        CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: start, mouseButton: .left)?.post(tap: .cghidEventTap)
+        usleep(40_000)
+        CGEvent(mouseEventSource: src, mouseType: .leftMouseDown, mouseCursorPosition: start, mouseButton: .left)?.post(tap: .cghidEventTap)
+        usleep(40_000)
+        for step in 1...6 {
+            let t = Double(step) / 6.0
+            let cur = CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t)
+            CGEvent(mouseEventSource: src, mouseType: .leftMouseDragged, mouseCursorPosition: cur, mouseButton: .left)?.post(tap: .cghidEventTap)
+            usleep(28_000)
+        }
+        CGEvent(mouseEventSource: src, mouseType: .leftMouseUp, mouseCursorPosition: end, mouseButton: .left)?.post(tap: .cghidEventTap)
+        usleep(180_000)
+    }
+}
+
+func collectForeignOverlayRects(excludingPID pid: pid_t) -> [CGRect] {
+    var rects: [CGRect] = []
+    for entry in copyOnScreenWindowInfo() {
+        guard let p = (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value, p != pid,
+              let bounds = entry[kCGWindowBounds as String] as? [String: Any],
+              let w = (bounds["Width"] as? NSNumber)?.doubleValue,
+              let h = (bounds["Height"] as? NSNumber)?.doubleValue else {
+            continue
+        }
+        let alpha = (entry[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1.0
+        guard alpha > 0.05 else { continue }
+        let layer = (entry[kCGWindowLayer as String] as? Int) ?? 0
+        guard layer > 0 && layer <= 2500 else { continue }
+        if w >= 2400 && h >= 1300 { continue }
+        let x = (bounds["X"] as? NSNumber)?.doubleValue ?? 0
+        let y = (bounds["Y"] as? NSNumber)?.doubleValue ?? 0
+        rects.append(CGRect(x: x, y: y, width: w, height: h))
+    }
+    return rects
+}
+
+func pidWindowIDs(pid: pid_t) -> Set<UInt32> {
+    var out = Set<UInt32>()
+    for e in copyOnScreenWindowInfo() {
+        if let p = (e[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value, p == pid,
+           let wid = (e[kCGWindowNumber as String] as? NSNumber)?.uint32Value {
+            out.insert(wid)
+        }
+    }
+    return out
+}
+
+func findNewPopupWindow(pid: pid_t, existing: Set<UInt32>) -> (wid: UInt32, rect: CGRect, layer: Int)? {
+    var candidates: [(wid: UInt32, rect: CGRect, layer: Int)] = []
+    for e in copyOnScreenWindowInfo() {
+        guard let p = (e[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value, p == pid,
+              let wid = (e[kCGWindowNumber as String] as? NSNumber)?.uint32Value, !existing.contains(wid),
+              let bounds = e[kCGWindowBounds as String] as? [String: Any],
+              let w = (bounds["Width"] as? NSNumber)?.doubleValue,
+              let h = (bounds["Height"] as? NSNumber)?.doubleValue else {
+            continue
+        }
+        let alpha = (e[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1.0
+        guard alpha > 0.05 else { continue }
+        let layer = (e[kCGWindowLayer as String] as? Int) ?? 0
+        guard layer >= 0 && layer <= 120 else { continue }
+        guard w >= 60 && w <= 380 && h >= 36 && h <= 320 else { continue }
+        let x = (bounds["X"] as? NSNumber)?.doubleValue ?? 0
+        let y = (bounds["Y"] as? NSNumber)?.doubleValue ?? 0
+        candidates.append((wid, CGRect(x: x, y: y, width: w, height: h), layer))
+    }
+    candidates.sort { a, b in
+        if (a.layer > 0) != (b.layer > 0) { return a.layer > 0 }
+        return (a.rect.width * a.rect.height) < (b.rect.width * b.rect.height)
+    }
+    if let best = candidates.first {
+        return (best.wid, best.rect, best.layer)
+    }
+    return nil
+}
+
+func findColorCirclePoint(in cgImg: CGImage, winRect: CGRect, kind: String) -> (x: Double, y: Double, count: Int)? {
+    let w = cgImg.width
+    let h = cgImg.height
+    guard w > 40, h > 30 else { return nil }
+    var raw = [UInt8](repeating: 0, count: w * h * 4)
+    guard let ctx = CGContext(
+        data: &raw,
+        width: w,
+        height: h,
+        bitsPerComponent: 8,
+        bytesPerRow: w * 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else { return nil }
+    ctx.draw(cgImg, in: CGRect(x: 0, y: 0, width: w, height: h))
+
+    let cell = 24
+    var buckets: [String: (sumX: Double, sumY: Double, count: Int)] = [:]
+    let startY = Int(Double(h) * 0.25)
+    for py in stride(from: startY, to: h, by: 2) {
+        let rowOff = py * w * 4
+        for px in stride(from: 0, to: w, by: 2) {
+            let i = rowOff + px * 4
+            let r = Int(raw[i])
+            let g = Int(raw[i + 1])
+            let b = Int(raw[i + 2])
+            let a = Int(raw[i + 3])
+            guard a > 180 else { continue }
+            let matched: Bool
+            if kind == "green" {
+                matched = g >= 135 && (g - r) >= 35 && (g - b) >= 20
+            } else {
+                matched = r >= 170 && (r - g) >= 55 && (r - b) >= 50
+            }
+            if matched {
+                let key = "\(px / cell)_\(py / cell)"
+                let prev = buckets[key] ?? (0.0, 0.0, 0)
+                buckets[key] = (prev.sumX + Double(px), prev.sumY + Double(py), prev.count + 1)
+            }
+        }
+    }
+    guard let best = buckets.values.max(by: { $0.count < $1.count }), best.count >= 8 else {
+        return nil
+    }
+    let estX = best.sumX / Double(best.count)
+    let estY = best.sumY / Double(best.count)
+    // Refine centroid across surrounding 3x3 cells (~72px)
+    var fineX = 0.0
+    var fineY = 0.0
+    var fineCnt = 0
+    for (_, bkt) in buckets where bkt.count >= 4 {
+        let bx = bkt.sumX / Double(bkt.count)
+        let by = bkt.sumY / Double(bkt.count)
+        if abs(bx - estX) <= 44.0 && abs(by - estY) <= 44.0 {
+            fineX += bkt.sumX
+            fineY += bkt.sumY
+            fineCnt += bkt.count
+        }
+    }
+    let cx = (fineCnt > 0 ? fineX / Double(fineCnt) : estX)
+    let cy = (fineCnt > 0 ? fineY / Double(fineCnt) : estY)
+    let screenX = Double(winRect.minX) + (cx / Double(w)) * Double(winRect.width)
+    let screenY = Double(winRect.minY) + (cy / Double(h)) * Double(winRect.height)
+    return (screenX, screenY, fineCnt > 0 ? fineCnt : best.count)
+}
+
+func scanVoipWindows(appFilter: String, activateOwner: Bool = false) -> [String: Any] {
+    let wantWeChat = appFilter == "all" || appFilter == "wechat"
+    let wantWeCom = appFilter == "all" || appFilter == "wecom"
+
+    if activateOwner {
+        if wantWeChat && !wantWeCom, let app = findBestRunningApp(for: .wechat) {
+            wakeAndActivateApp(pid: app.processIdentifier, kind: .wechat)
+        } else if wantWeCom && !wantWeChat, let app = findBestRunningApp(for: .wecom) {
+            wakeAndActivateApp(pid: app.processIdentifier, kind: .wecom)
+        }
+    }
+
+    let wechatPIDs = wantWeChat ? Set(findRunningApps(for: .wechat).map { $0.processIdentifier }) : Set<pid_t>()
+    let wecomPIDs = wantWeCom ? Set(findRunningApps(for: .wecom).map { $0.processIdentifier }) : Set<pid_t>()
+
+    var candidates: [(appId: String, pid: pid_t, wid: UInt32, layer: Int, title: String, rect: CGRect, isOnScreen: Bool)] = []
+    for entry in copyOnScreenWindowInfo() {
+        guard let pid = (entry[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
+              let bounds = entry[kCGWindowBounds as String] as? [String: Any],
+              let w = (bounds["Width"] as? NSNumber)?.doubleValue,
+              let h = (bounds["Height"] as? NSNumber)?.doubleValue,
+              let wid = (entry[kCGWindowNumber as String] as? NSNumber)?.uint32Value else {
+            continue
+        }
+        let owner = (entry[kCGWindowOwnerName as String] as? String) ?? ""
+        let appId: String
+        if wantWeCom && (wecomPIDs.contains(pid) || owner == "企业微信" || owner == "WeCom" || owner == "WeWork") {
+            appId = "wecom"
+        } else if wantWeChat && (wechatPIDs.contains(pid) || owner == "微信" || owner == "WeChat" || owner == "WeChatVoIP") {
+            appId = "wechat"
+        } else {
+            continue
+        }
+
+        let alpha = (entry[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1.0
+        guard alpha > 0.05 else { continue }
+        let layer = (entry[kCGWindowLayer as String] as? Int) ?? 0
+        guard layer >= 0 && layer <= 2500 else { continue }
+        let x = (bounds["X"] as? NSNumber)?.doubleValue ?? 0
+        let y = (bounds["Y"] as? NSNumber)?.doubleValue ?? 0
+        let title = (entry[kCGWindowName as String] as? String) ?? ""
+        let isOnScreen = (entry[kCGWindowIsOnscreen as String] as? Bool) ?? true
+
+        // Exclude known large main / popout chat windows unless titled for call
+        if title == "openbot" || title == "消息阅读" { continue }
+        let looksCallTitle = title.contains("通话") || title.contains("语音") || title.contains("视频")
+        guard looksCallTitle || (w >= 160 && w <= 900 && h >= 60 && h <= 860) else { continue }
+        // Skip WeCom auxiliary large panel > 900 wide unless explicitly titled as a call
+        if !looksCallTitle && w > 900 { continue }
+
+        candidates.append((appId, pid, wid, layer, title, CGRect(x: x, y: y, width: w, height: h), isOnScreen))
+    }
+
+    // Prefer on-screen floating/small call toasts and titled windows first
+    candidates.sort { a, b in
+        if a.isOnScreen != b.isOnScreen { return a.isOnScreen }
+        if (a.layer > 0) != (b.layer > 0) { return a.layer > 0 }
+        return (a.rect.width * a.rect.height) < (b.rect.width * b.rect.height)
+    }
+
+    var matches: [[String: Any]] = []
+    var primaryState = "idle"
+
+    for c in candidates.prefix(12) {
+        if c.layer > 0 && c.rect.width <= 500 && c.rect.height <= 320 {
+            nudgeSmallForeignOverlaysAway(from: c.rect, excludingPID: c.pid)
+        }
+        let useComposite = (c.appId == "wecom" || (c.layer > 0 && c.layer != 21))
+        guard let (elems, sx, sy, img) = ocrWindowByID(c.wid, winRect: c.rect, preferOnScreenComposite: useComposite) else { continue }
+        let texts = elems.compactMap { $0["text"] as? String }
+        let joined = texts.joined(separator: " ")
+
+        let greenPt = findColorCirclePoint(in: img, winRect: c.rect, kind: "green")
+        let redPt = findColorCirclePoint(in: img, winRect: c.rect, kind: "red")
+
+        let acceptOCRInitial = findTMOCRPoint(elems, sx: sx, sy: sy, winX: Double(c.rect.minX), winY: Double(c.rect.minY), matching: ["接受", "接听", "同意"])
+
+        if c.appId == "wecom" && c.layer > 0 && c.rect.width >= 240 && c.rect.width <= 420 && c.rect.height >= 110 && c.rect.height <= 240 {
+            let toastPath = "/Volumes/SanDisk/Builds/WeChatBot/wecom_voip_toast.png"
+            if !FileManager.default.fileExists(atPath: toastPath),
+               let pngData = NSBitmapImageRep(cgImage: img).representation(using: .png, properties: [:]) {
+                try? pngData.write(to: URL(fileURLWithPath: toastPath))
+            }
+        }
+
+        let isOutgoingWaiting = joined.contains("等待对方") || joined.contains("等待") || joined.contains("接受邀请") || joined.contains("正在呼叫") || joined.contains("呼叫中") || joined.contains("连接中")
+        let hasTimer = joined.range(of: "\\b\\d{2}:\\d{2}\\b", options: .regularExpression) != nil
+        let hasHangupWord = joined.contains("挂断") || joined.contains("取消") || joined.contains("拒绝")
+        let hasCancelWithoutHangup = joined.contains("取消") && !joined.contains("挂断") && !hasTimer
+        let hasIncomingWords = !isOutgoingWaiting && !hasCancelWithoutHangup && (joined.contains("邀请你") || joined.contains("接听") || joined.contains("接受") || joined.contains("同意") || joined.contains("来电"))
+        let hasCallWords = joined.contains("语音通话") || joined.contains("语音聊天") || joined.contains("视频通话") || joined.contains("视频聊天") || joined.contains("通话中") || joined.contains("语音") || joined.contains("视频") || isOutgoingWaiting || joined.contains("邀请你")
+        let hasInCallControls = (joined.contains("麦克风") || joined.contains("静音") || joined.contains("扬声器") || joined.contains("收起"))
+
+        let isConnectedScreen = hasTimer || joined.contains("通话中") || joined.contains("挂断") || joined.contains("演示屏幕") || joined.contains("添加成员")
+
+        var callStatus = "none"
+        if isConnectedScreen {
+            callStatus = "connected"
+        } else if isOutgoingWaiting || (hasCallWords && hasCancelWithoutHangup && greenPt == nil) {
+            callStatus = "dialing"
+        } else if (greenPt != nil && redPt != nil) || (hasIncomingWords && (hasCallWords || greenPt != nil)) || (c.layer > 0 && greenPt != nil) {
+            callStatus = "ringing_incoming"
+        } else if (hasCallWords && redPt != nil && !hasIncomingWords && !hasCancelWithoutHangup) || (hasInCallControls && (redPt != nil || hasHangupWord)) {
+            callStatus = "connected"
+        } else if c.layer > 0 && hasCallWords && redPt != nil {
+            callStatus = "dialing"
+        }
+
+        if callStatus == "none" && c.appId == "wecom" && c.layer > 0 && c.rect.width >= 240 && c.rect.width <= 420 && c.rect.height >= 110 && c.rect.height <= 240 {
+            if greenPt != nil || acceptOCRInitial != nil || joined.contains("语音") || joined.contains("通话") || joined.contains("视频") || joined.contains("@微信") {
+                callStatus = "ringing_incoming"
+            }
+        }
+
+        if callStatus == "none" { continue }
+
+        let acceptOCR = (callStatus == "ringing_incoming") ? acceptOCRInitial : nil
+        let hangupOCR = findTMOCRPoint(elems, sx: sx, sy: sy, winX: Double(c.rect.minX), winY: Double(c.rect.minY), matching: ["挂断", "拒绝", "取消"])
+
+        var info: [String: Any] = [
+            "appId": c.appId,
+            "pid": c.pid,
+            "windowID": c.wid,
+            "layer": c.layer,
+            "isOnScreen": c.isOnScreen,
+            "title": c.title,
+            "bounds": ["x": Double(c.rect.minX), "y": Double(c.rect.minY), "width": Double(c.rect.width), "height": Double(c.rect.height)],
+            "callStatus": callStatus,
+            "ocrSnippet": String(joined.prefix(160)),
+        ]
+        if callStatus == "ringing_incoming", let gpt = greenPt {
+            info["greenButton"] = ["x": gpt.x, "y": gpt.y, "pixels": gpt.count] as [String: Any]
+        } else if callStatus == "ringing_incoming", let aocr = acceptOCR {
+            info["greenButton"] = ["x": aocr.x, "y": aocr.y, "source": "ocr"] as [String: Any]
+        }
+        if let rpt = redPt {
+            info["redButton"] = ["x": rpt.x, "y": rpt.y, "pixels": rpt.count] as [String: Any]
+        } else if let hocr = hangupOCR {
+            info["redButton"] = ["x": hocr.x, "y": hocr.y, "source": "ocr"] as [String: Any]
+        }
+
+        matches.append(info)
+        if primaryState == "idle" || callStatus == "connected" || (callStatus == "ringing_incoming" && primaryState != "connected") {
+            primaryState = callStatus
+        }
+    }
+
+    return [
+        "ok": true,
+        "callStatus": primaryState,
+        "matchCount": matches.count,
+        "calls": matches,
+    ]
+}
+
+func dismissWeComModalSheetIfPresent(pid: pid_t) {
+    guard AXIsProcessTrusted() else { return }
+    let axApp = AXUIElementCreateApplication(pid)
+    AXUIElementSetMessagingTimeout(axApp, 0.35)
+    var q: [AXUIElement] = [axApp]
+    var qi = 0
+    var hasSheet = false
+    var cancelButtons: [AXUIElement] = []
+    while qi < q.count && qi < 140 {
+        let el = q[qi]; qi += 1
+        AXUIElementSetMessagingTimeout(el, 0.25)
+        let role = axString(el, kAXRoleAttribute) ?? ""
+        if role == kAXSheetRole as String {
+            hasSheet = true
+        } else if role == kAXButtonRole as String,
+                  let title = axString(el, kAXTitleAttribute),
+                  title == "取消" || title == "关闭" {
+            // Walk up up to 4 ancestors to see if nested inside an AXSheet
+            var cur = el
+            var inSheet = false
+            for _ in 0..<4 {
+                var parentRef: CFTypeRef?
+                if AXUIElementCopyAttributeValue(cur, kAXParentAttribute as CFString, &parentRef) == .success,
+                   let p = parentRef {
+                    let pEl = p as! AXUIElement
+                    if axString(pEl, kAXRoleAttribute) == kAXSheetRole as String {
+                        inSheet = true
+                        break
+                    }
+                    cur = pEl
+                } else {
+                    break
+                }
+            }
+            if inSheet {
+                _ = AXUIElementPerformAction(el, kAXPressAction as CFString)
+                usleep(280_000)
+                return
+            }
+            cancelButtons.append(el)
+        }
+        q.append(contentsOf: axChildren(el))
+    }
+    if hasSheet, let btn = cancelButtons.first {
+        _ = AXUIElementPerformAction(btn, kAXPressAction as CFString)
+        usleep(280_000)
+    }
+}
+
+func cmdVoiceCall(flags: Set<String>, options: [String: String]) {
+    let action = (options["action"] ?? "status").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let dryRun = flags.contains("dry-run") || options["dry-run"] == "1"
+    let callType = (options["call-type"] ?? "audio").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let requestedApp = (options["app-id"] ?? "all").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let saveFile = (options["save-file"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+
+    if action == "status" {
+        let st = scanVoipWindows(appFilter: requestedApp, activateOwner: flags.contains("activate-scan"))
+        writeJSON(st)
+    }
+
+    if action == "answer" {
+        var scan = scanVoipWindows(appFilter: requestedApp, activateOwner: false)
+        var calls = (scan["calls"] as? [[String: Any]]) ?? []
+        if calls.isEmpty && requestedApp == "all" {
+            for candidateApp in ["wecom", "wechat"] {
+                let s = scanVoipWindows(appFilter: candidateApp, activateOwner: true)
+                if !((s["calls"] as? [[String: Any]]) ?? []).isEmpty {
+                    scan = s
+                    calls = (s["calls"] as? [[String: Any]]) ?? []
+                    break
+                }
+            }
+        }
+        guard let incoming = calls.first(where: { ($0["callStatus"] as? String) == "ringing_incoming" }) ?? calls.first,
+              let g = incoming["greenButton"] as? [String: Any],
+              let gx = g["x"] as? Double, let gy = g["y"] as? Double else {
+            failJSON("No incoming VoIP call with answer button found.", code: "no_incoming_call", extra: ["scan": scan])
+        }
+        if dryRun {
+            writeJSON(["ok": true, "dryRun": true, "action": "answer", "targetCall": incoming])
+        }
+        let targetAppId = (incoming["appId"] as? String) ?? requestedApp
+        let targetKind: AppKind = targetAppId == "wecom" ? .wecom : .wechat
+        if let pidNum = incoming["pid"] as? pid_t {
+            if let bDict = incoming["bounds"] as? [String: Any],
+               let bx = bDict["x"] as? Double, let by = bDict["y"] as? Double,
+               let bw = bDict["width"] as? Double, let bh = bDict["height"] as? Double {
+                nudgeSmallForeignOverlaysAway(from: CGRect(x: bx, y: by, width: bw, height: bh), excludingPID: pidNum)
+            }
+            wakeAndActivateApp(pid: pidNum, kind: targetKind)
+        }
+        // Re-scan after wake/activation in case bounds shifted slightly during Space switch
+        let freshScan = scanVoipWindows(appFilter: targetAppId, activateOwner: false)
+        let freshCall = ((freshScan["calls"] as? [[String: Any]]) ?? []).first { ($0["windowID"] as? UInt32) == (incoming["windowID"] as? UInt32) } ?? ((freshScan["calls"] as? [[String: Any]]) ?? []).first
+        let clickX = ((freshCall?["greenButton"] as? [String: Any])?["x"] as? Double) ?? gx
+        let clickY = ((freshCall?["greenButton"] as? [String: Any])?["y"] as? Double) ?? gy
+        preciseClick(x: clickX, y: clickY)
+        usleep(1_050_000)
+        let after = scanVoipWindows(appFilter: targetAppId, activateOwner: false)
+        writeJSON([
+            "ok": true,
+            "answered": true,
+            "clickPoint": ["x": clickX, "y": clickY],
+            "afterState": after,
+        ])
+    }
+
+    if action == "hangup" {
+        var scan = scanVoipWindows(appFilter: requestedApp, activateOwner: false)
+        var calls = (scan["calls"] as? [[String: Any]]) ?? []
+        if calls.isEmpty && requestedApp == "all" {
+            for candidateApp in ["wechat", "wecom"] {
+                let s = scanVoipWindows(appFilter: candidateApp, activateOwner: true)
+                if !((s["calls"] as? [[String: Any]]) ?? []).isEmpty {
+                    scan = s
+                    calls = (s["calls"] as? [[String: Any]]) ?? []
+                    break
+                }
+            }
+        }
+        var hungUpCount = 0
+        var restoredAudio: [String: Any]? = nil
+        if !dryRun {
+            for c in calls {
+                if let r = c["redButton"] as? [String: Any], let rx = r["x"] as? Double, let ry = r["y"] as? Double {
+                    let cAppId = (c["appId"] as? String) ?? "wechat"
+                    let cKind: AppKind = cAppId == "wecom" ? .wecom : .wechat
+                    if let pidNum = c["pid"] as? pid_t {
+                        if let bDict = c["bounds"] as? [String: Any],
+                           let bx = bDict["x"] as? Double, let by = bDict["y"] as? Double,
+                           let bw = bDict["width"] as? Double, let bh = bDict["height"] as? Double {
+                            nudgeSmallForeignOverlaysAway(from: CGRect(x: bx, y: by, width: bw, height: bh), excludingPID: pidNum)
+                        }
+                        wakeAndActivateApp(pid: pidNum, kind: cKind)
+                    }
+                    let freshScan = scanVoipWindows(appFilter: cAppId, activateOwner: false)
+                    let freshCall = ((freshScan["calls"] as? [[String: Any]]) ?? []).first { ($0["windowID"] as? UInt32) == (c["windowID"] as? UInt32) } ?? ((freshScan["calls"] as? [[String: Any]]) ?? []).first
+                    let clickX = ((freshCall?["redButton"] as? [String: Any])?["x"] as? Double) ?? rx
+                    let clickY = ((freshCall?["redButton"] as? [String: Any])?["y"] as? Double) ?? ry
+                    preciseClick(x: clickX, y: clickY)
+                    hungUpCount += 1
+                    usleep(480_000)
+                }
+            }
+            if !saveFile.isEmpty {
+                restoredAudio = restoreInputDeviceIfSaved(saveFile: saveFile)
+            }
+        }
+        let after = scanVoipWindows(appFilter: requestedApp, activateOwner: false)
+        writeJSON([
+            "ok": true,
+            "dryRun": dryRun,
+            "hungUp": hungUpCount > 0,
+            "hungUpCount": hungUpCount,
+            "restoredAudio": restoredAudio as Any,
+            "afterState": after,
+        ])
+    }
+
+    if action == "dial" {
+        guard AXIsProcessTrusted() else {
+            failJSON("Accessibility permission (AXIsProcessTrusted) is not granted.", code: "ax_permission_denied")
+        }
+        let (_, targetKind) = resolveTargetApp(options: options, allowWindowLookupWhenOmitted: true)
+        let windows = listWindows(for: targetKind)
+        guard let targetWin = selectTargetWindow(in: windows, options: options) else {
+            failJSON("No matching visible \(targetKind.appLabel) window found.", code: "window_not_found", extra: ["appId": targetKind.appId])
+        }
+
+        if targetKind == .wechat {
+            var winX = targetWin.x
+            var winY = targetWin.y
+            var winW = targetWin.width
+            var winH = targetWin.height
+            let displayBounds = CGDisplayBounds(CGMainDisplayID())
+            let maxScreenX = Double(displayBounds.maxX)
+
+            var callBtnX = winX + winW - 66.0
+            var callBtnY = winY + 54.0
+            if dryRun {
+                writeJSON([
+                    "ok": true,
+                    "dryRun": true,
+                    "action": "dial",
+                    "appId": "wechat",
+                    "callType": callType,
+                    "windowID": targetWin.windowID,
+                    "windowTitle": targetWin.title,
+                    "callButtonPoint": ["x": callBtnX, "y": callBtnY],
+                    "needsRepositionOnScreen": callBtnX >= maxScreenX - 8.0,
+                ] as [String: Any])
+            }
+            wakeAndActivateApp(pid: targetWin.pid, kind: .wechat)
+            if let axWin = findAXWindow(pid: targetWin.pid, kind: .wechat, targetWin: targetWin, reqTitle: options["window-title"]) {
+                let overlays = collectForeignOverlayRects(excludingPID: targetWin.pid)
+                let callZone = CGRect(x: winX + winW - 260.0, y: winY, width: 260.0, height: 240.0)
+                let offScreen = (winX + winW > maxScreenX - 6.0 || winX < 0.0)
+                let blockedByOverlay = overlays.contains(where: { $0.intersects(callZone) })
+                if offScreen || blockedByOverlay {
+                    let candidates: [(Double, Double)] = [
+                        (40.0, 80.0),
+                        (40.0, 320.0),
+                        (120.0, 80.0),
+                        (max(8.0, min(maxScreenX - winW - 12.0, winX)), max(40.0, winY)),
+                    ]
+                    let chosen = candidates.first { cand in
+                        let candZone = CGRect(x: cand.0 + winW - 260.0, y: cand.1, width: 260.0, height: 240.0)
+                        return cand.0 + winW <= maxScreenX - 6.0 && !overlays.contains(where: { $0.intersects(candZone) })
+                    } ?? (40.0, 80.0)
+                    var newPt = CGPoint(x: chosen.0, y: chosen.1)
+                    if let axPos = AXValueCreate(.cgPoint, &newPt) {
+                        _ = AXUIElementSetAttributeValue(axWin, kAXPositionAttribute as CFString, axPos)
+                        usleep(220_000)
+                    }
+                }
+                _ = AXUIElementSetAttributeValue(axWin, kAXMainAttribute as CFString, kCFBooleanTrue)
+                _ = AXUIElementSetAttributeValue(axWin, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+                _ = AXUIElementPerformAction(axWin, kAXRaiseAction as CFString)
+                usleep(180_000)
+                if let actualPt = axPoint(axWin, kAXPositionAttribute) {
+                    winX = Double(actualPt.x)
+                    winY = Double(actualPt.y)
+                }
+                if let actualSz = axSize(axWin, kAXSizeAttribute) {
+                    winW = Double(actualSz.width)
+                    winH = Double(actualSz.height)
+                }
+                callBtnX = winX + winW - 66.0
+                callBtnY = winY + 54.0
+            }
+
+            let topOwnWid = copyOnScreenWindowInfo().first(where: {
+                (($0[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value ?? 0) == targetWin.pid &&
+                (($0[kCGWindowLayer as String] as? Int) ?? 0) == 0 &&
+                ((($0[kCGWindowBounds as String] as? [String: Any])?["Height"] as? NSNumber)?.doubleValue ?? 0) > 100
+            }).flatMap { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value }
+            if topOwnWid != targetWin.windowID {
+                preciseClick(x: winX + 180.0, y: winY + 16.0)
+                usleep(180_000)
+            }
+
+            let existingWids = pidWindowIDs(pid: targetWin.pid)
+            var immediateStatus = "idle"
+            var foundPopup: (wid: UInt32, rect: CGRect, layer: Int)? = nil
+            for _ in 0..<2 {
+                preciseClick(x: callBtnX, y: callBtnY)
+                usleep(620_000)
+                let curScan = scanVoipWindows(appFilter: "wechat", activateOwner: false)
+                immediateStatus = (curScan["callStatus"] as? String) ?? "idle"
+                if immediateStatus != "idle" {
+                    break
+                }
+                if let pop = findNewPopupWindow(pid: targetWin.pid, existing: existingWids) {
+                    foundPopup = pop
+                    break
+                }
+            }
+
+            var menuPt: (Double, Double) = (winX + winW - 110.0, winY + (callType == "video" ? 130.0 : 95.0))
+            var ocrClicked = false
+            var popupDetected: [String: Any] = ["found": false]
+
+            if immediateStatus == "idle" {
+                let kws = callType == "video" ? ["视频聊天", "视频通话"] : ["语音聊天", "语音通话"]
+                if let popup = foundPopup {
+                    popupDetected = [
+                        "found": true,
+                        "windowID": popup.wid,
+                        "layer": popup.layer,
+                        "bounds": ["x": Double(popup.rect.minX), "y": Double(popup.rect.minY), "width": Double(popup.rect.width), "height": Double(popup.rect.height)],
+                    ]
+                    if let (pElems, psx, psy, _) = ocrWindowByID(popup.wid, winRect: popup.rect),
+                       let hit = findTMOCRPoint(pElems, sx: psx, sy: psy, winX: Double(popup.rect.minX), winY: Double(popup.rect.minY), matching: kws) {
+                        menuPt = (hit.x, hit.y)
+                        ocrClicked = true
+                    } else if popup.rect.height < 95 {
+                        menuPt = (Double(popup.rect.midX), Double(popup.rect.midY))
+                    } else {
+                        let relY = Double(popup.rect.height) * (callType == "video" ? 0.68 : 0.37)
+                        menuPt = (Double(popup.rect.midX), Double(popup.rect.minY) + relY)
+                    }
+                } else {
+                    let dropRect = CGRect(
+                        x: max(0.0, winX + winW - 230.0),
+                        y: max(0.0, winY + 32.0),
+                        width: 225.0,
+                        height: 205.0
+                    )
+                    if let (mElems, msx, msy, _, actRect) = ocrWindowSubRect(targetWin.windowID, winRect: CGRect(x: winX, y: winY, width: winW, height: winH), subRect: dropRect),
+                       let hit = findTMOCRPoint(mElems, sx: msx, sy: msy, winX: Double(actRect.minX), winY: Double(actRect.minY), matching: kws) {
+                        menuPt = (hit.x, hit.y)
+                        ocrClicked = true
+                    }
+                }
+                preciseClick(x: menuPt.0, y: menuPt.1)
+                usleep(1_300_000)
+            }
+
+            let callState = scanVoipWindows(appFilter: "wechat", activateOwner: false)
+            writeJSON([
+                "ok": true,
+                "initiated": true,
+                "directCallOpened": immediateStatus != "idle",
+                "appId": "wechat",
+                "callType": callType,
+                "windowID": targetWin.windowID,
+                "windowTitle": targetWin.title,
+                "callButtonPoint": ["x": callBtnX, "y": callBtnY],
+                "popupDetected": popupDetected,
+                "menuPoint": ["x": menuPt.0, "y": menuPt.1, "ocrMatched": ocrClicked] as [String: Any],
+                "callState": callState,
+            ])
+        } else {
+            // WeCom dial flow
+            let contactHint = (options["target"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if dryRun {
+                writeJSON([
+                    "ok": true,
+                    "dryRun": true,
+                    "action": "dial",
+                    "appId": "wecom",
+                    "callType": callType,
+                    "target": contactHint,
+                    "windowID": targetWin.windowID,
+                    "windowTitle": targetWin.title,
+                ])
+            }
+            wakeAndActivateApp(pid: targetWin.pid, kind: .wecom)
+            dismissWeComModalSheetIfPresent(pid: targetWin.pid)
+
+            let targetWinRect = CGRect(x: targetWin.x, y: targetWin.y, width: targetWin.width, height: targetWin.height)
+            if !contactHint.isEmpty {
+                let sideRect = CGRect(
+                    x: targetWin.x + 60.0,
+                    y: targetWin.y + 45.0,
+                    width: 260.0,
+                    height: min(680.0, max(120.0, targetWin.height - 65.0))
+                )
+                if let (sElems, ssx, ssy, _, actRect) = ocrWindowSubRect(targetWin.windowID, winRect: targetWinRect, subRect: sideRect),
+                   let hit = findTMOCRPoint(sElems, sx: ssx, sy: ssy, winX: Double(actRect.minX), winY: Double(actRect.minY), matching: [contactHint]) {
+                    preciseClick(x: hit.x, y: hit.y)
+                    usleep(420_000)
+                } else if let (sElems, ssx, ssy, _) = ocrOnScreenRect(sideRect),
+                          let hit = findTMOCRPoint(sElems, sx: ssx, sy: ssy, winX: Double(sideRect.minX), winY: Double(sideRect.minY), matching: [contactHint]) {
+                    preciseClick(x: hit.x, y: hit.y)
+                    usleep(420_000)
+                }
+            }
+
+            // Look for WeCom voice/video call AXButton
+            let axApp = AXUIElementCreateApplication(targetWin.pid)
+            AXUIElementSetMessagingTimeout(axApp, 0.35)
+            var callBtnCenter: (Double, Double)? = nil
+            var q: [AXUIElement] = [axApp]
+            var qi = 0
+            let axKeywords = callType == "video" ? ["视频通话", "视频"] : ["语音通话", "语音", "打电话"]
+            while qi < q.count && qi < 180 && callBtnCenter == nil {
+                let el = q[qi]; qi += 1
+                AXUIElementSetMessagingTimeout(el, 0.25)
+                if axString(el, kAXRoleAttribute) == kAXButtonRole as String {
+                    let meta = [axString(el, kAXTitleAttribute) ?? "", axString(el, kAXDescriptionAttribute) ?? "", axString(el, kAXHelpAttribute) ?? ""].joined(separator: " ")
+                    if axKeywords.contains(where: { meta.contains($0) }),
+                       let pt = axPoint(el, kAXPositionAttribute),
+                       let sz = axSize(el, kAXSizeAttribute),
+                       Double(pt.x) > targetWin.x + 300.0 {
+                        callBtnCenter = (Double(pt.x) + Double(sz.width) * 0.5, Double(pt.y) + Double(sz.height) * 0.5)
+                        break
+                    }
+                }
+                q.append(contentsOf: axChildren(el))
+            }
+            if callBtnCenter == nil {
+                // Fallback: top-right phone/call icon position on WeCom chat pane
+                callBtnCenter = (targetWin.x + targetWin.width - 78.0, targetWin.y + 46.0)
+            }
+            let existingWeComWids = pidWindowIDs(pid: targetWin.pid)
+            if let cpt = callBtnCenter {
+                preciseClick(x: cpt.0, y: cpt.1)
+                usleep(550_000)
+                if let popup = findNewPopupWindow(pid: targetWin.pid, existing: existingWeComWids),
+                   popup.rect.width <= 320 && popup.rect.height <= 220,
+                   let (pElems, psx, psy, _) = ocrWindowByID(popup.wid, winRect: popup.rect),
+                   let hit = findTMOCRPoint(pElems, sx: psx, sy: psy, winX: Double(popup.rect.minX), winY: Double(popup.rect.minY), matching: axKeywords) {
+                    preciseClick(x: hit.x, y: hit.y)
+                    usleep(950_000)
+                } else {
+                    usleep(650_000)
+                }
+            }
+            let callState = scanVoipWindows(appFilter: "wecom", activateOwner: false)
+            writeJSON([
+                "ok": true,
+                "initiated": true,
+                "appId": "wecom",
+                "callType": callType,
+                "windowID": targetWin.windowID,
+                "callButtonPoint": callBtnCenter.map { ["x": $0.0, "y": $0.1] } as Any,
+                "callState": callState,
+            ])
+        }
+    }
+
+    failJSON("Unsupported --action '\(action)'. Expected status|dial|answer|hangup.", code: "unsupported_action")
 }
 
 // MARK: - Main Dispatch
@@ -2993,9 +4496,19 @@ case "paste-image":
     cmdPasteImage(flags: parsed.flags, options: parsed.options)
 case "annotate-image":
     cmdAnnotateImage(options: parsed.options)
+case "join-tencent-meeting":
+    cmdJoinTencentMeeting(flags: parsed.flags, options: parsed.options)
+case "setup-tencent-meeting":
+    cmdSetupTencentMeeting(flags: parsed.flags, options: parsed.options)
+case "audio-devices":
+    cmdAudioDevices()
+case "set-input-device":
+    cmdSetInputDevice(flags: parsed.flags, options: parsed.options)
+case "voice-call":
+    cmdVoiceCall(flags: parsed.flags, options: parsed.options)
 default:
     writeJSON([
         "ok": true,
-        "usage": "wechat-vision-ax <status|list-app-windows|dhash-windows|hid-idle|ax-tree|ocr|capture-ocr|set-window-frame|extract-pdf-text|extract-video-frames|render-test-image|click|right-click|scroll|activate|request-permissions|focus-input|paste-and-verify|send-sticker|paste-image|annotate-image> [options]",
+        "usage": "wechat-vision-ax <status|list-app-windows|dhash-windows|hid-idle|ax-tree|ocr|capture-ocr|set-window-frame|extract-pdf-text|extract-video-frames|render-test-image|click|right-click|scroll|activate|request-permissions|focus-input|paste-and-verify|send-sticker|paste-image|annotate-image|join-tencent-meeting|setup-tencent-meeting|audio-devices|set-input-device|voice-call> [options]",
     ])
 }

@@ -628,6 +628,26 @@ MCP_TOOLS: List[Dict[str, Any]] = [
         },
     },
     {
+        "name": "wechat_voice_call",
+        "description": "Place, join an active call, answer, inspect, or hang up a native WeChat or WeCom VoIP voice/video call with live AI voice dialogue and safe mic restore.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "target": {"type": "string", "default": ""},
+                "action": {"type": "string", "enum": ["dial", "join", "answer", "hangup", "status"], "default": "dial"},
+                "app": {"type": "string", "enum": ["wechat", "wecom", "all"], "default": "wechat"},
+                "call_type": {"type": "string", "enum": ["audio", "video"], "default": "audio"},
+                "greeting": {"type": "string", "default": ""},
+                "instructions": {"type": "string", "default": ""},
+                "auto_voice_agent": {"type": "boolean", "default": True},
+                "dry_run": {"type": "boolean", "default": False},
+                "confirm_send": {"type": "boolean", "default": False},
+                "target_window_id": {"type": "integer"},
+            },
+            "required": [],
+        },
+    },
+    {
         "name": "wechat_salescrm_pipeline",
         "description": "Manage the Aurora-73/SalesCRM marketing funnel: sync WeChat contacts/chats, enroll/update customers, list/complete/reschedule Beijing-time reminders, merge accounts, or adopt Top 1-3 follow-up drafts.",
         "inputSchema": {
@@ -668,7 +688,7 @@ MCP_TOOLS: List[Dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "target": {"type": "string", "default": "心安"},
+                "target": {"type": "string", "default": "联系人A"},
                 "incoming_text": {"type": "string", "default": ""},
             },
             "required": ["target"],
@@ -680,7 +700,7 @@ MCP_TOOLS: List[Dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "target": {"type": "string", "default": "心安"},
+                "target": {"type": "string", "default": "联系人A"},
                 "overrides": {"type": "object", "default": {}},
             },
             "required": ["target"],
@@ -1007,6 +1027,19 @@ class WeChatMCPServer:
             if action == "export_bundle":
                 return self.engine.export_botstudio_integration_bundle(out_path=args.get("out_path") or None)
             return self.engine.get_botstudio_bridge_status()
+        if name == "wechat_voice_call":
+            return self.engine.voice_call(
+                target=str(args.get("target") or ""),
+                action=str(args.get("action") or "dial"),
+                app=str(args.get("app") or "wechat"),
+                call_type=str(args.get("call_type") or "audio"),
+                greeting=str(args.get("greeting") or ""),
+                instructions=str(args.get("instructions") or ""),
+                auto_voice_agent=bool(args.get("auto_voice_agent", True)),
+                dry_run=bool(args.get("dry_run", False)),
+                confirm_send=bool(args.get("confirm_send", False)),
+                target_window_id=int(args["target_window_id"]) if args.get("target_window_id") else None,
+            )
         if name == "wechat_salescrm_pipeline":
             action = str(args.get("action") or "overview").strip().lower()
             target = str(args.get("target") or "").strip()
@@ -1051,12 +1084,12 @@ class WeChatMCPServer:
             return self.engine.crm_overview(auto_sync=bool(args.get("auto_sync", True)))
         if name == "wechat_salescrm_analyze":
             return self.engine.crm_analyze_contact(
-                str(args.get("target") or "心安"),
+                str(args.get("target") or "联系人A"),
                 incoming_text=str(args.get("incoming_text") or ""),
             )
         if name == "wechat_salescrm_formulas":
             return self.engine.crm_evaluate_formulas(
-                str(args.get("target") or "心安"),
+                str(args.get("target") or "联系人A"),
                 overrides=args.get("overrides") if isinstance(args.get("overrides"), dict) else None,
             )
         raise KeyError(f"Unknown tool: {name}")
@@ -1466,6 +1499,14 @@ def create_http_server(
                     self._send_json(200, engine.get_agent_tasks(limit=25))
                 elif path == "/api/media-analyses":
                     self._send_json(200, engine.get_media_analyses(limit=25))
+                elif path == "/api/meeting-copilot-state":
+                    state_p = engine.plugin_root / "logs" / "meeting_copilot_state.json"
+                    if state_p.is_file():
+                        self._send_json(200, json.loads(state_p.read_text(encoding="utf-8")))
+                    else:
+                        self._send_json(200, {"ok": True, "status": "idle", "inMeeting": False})
+                elif path == "/api/voice-call":
+                    self._send_json(200, engine.get_voice_call_status())
                 elif path == "/api/botstudio-bridge":
                     self._send_json(200, engine.get_botstudio_bridge_status())
                 elif path == "/api/crm/overview":
@@ -2124,6 +2165,34 @@ def create_http_server(
                         target_window_id=int(body["target_window_id"]) if body.get("target_window_id") else None,
                     )
                     self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/join-meeting-botstudio":
+                    res = engine.join_tencent_meeting_and_start_botstudio(
+                        target=str(body.get("target") or ""),
+                        meeting_code=str(body.get("meeting_code") or body.get("meetingCode") or ""),
+                        password=str(body.get("password") or ""),
+                        agenda=str(body.get("agenda") or ""),
+                        click_card=bool(body.get("click_card", body.get("clickCard", True))),
+                        dry_run=bool(body.get("dry_run", body.get("dryRun", False))),
+                        confirm_send=bool(body.get("confirm_send", body.get("confirmSend", True))),
+                        target_window_id=int(body["target_window_id"]) if body.get("target_window_id") else None,
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/voice-call":
+                    res = engine.voice_call(
+                        target=str(body.get("target") or ""),
+                        action=str(body.get("action") or "dial"),
+                        app=str(body.get("app") or "wechat"),
+                        call_type=str(body.get("call_type") or body.get("callType") or "audio"),
+                        greeting=str(body.get("greeting") or ""),
+                        instructions=str(body.get("instructions") or ""),
+                        auto_voice_agent=bool(body.get("auto_voice_agent", body.get("autoVoiceAgent", True))),
+                        idle_input_uid=str(body.get("idle_input_uid") or body.get("idleInputUid") or ""),
+                        dry_run=bool(body.get("dry_run", body.get("dryRun", False))),
+                        confirm_send=bool(body.get("confirm_send", body.get("confirmSend", True))),
+                        skip_navigation=bool(body.get("skip_navigation", body.get("skipNavigation", False))),
+                        target_window_id=int(body["target_window_id"]) if body.get("target_window_id") else None,
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
                 elif path == "/import-chatlog":
                     src = Path(str(body["source_path"]))
                     out = Path(str(body["output_dir"])) if body.get("output_dir") else None
@@ -2179,7 +2248,7 @@ def create_http_server(
                             self._send_json(
                                 200,
                                 engine.crm_analyze_contact(
-                                    str(body.get("target") or "心安"),
+                                    str(body.get("target") or "联系人A"),
                                     incoming_text=str(body.get("incoming_text") or body.get("incomingText") or ""),
                                     formula_overrides=ov if isinstance(ov, dict) else None,
                                 ),
@@ -2189,7 +2258,7 @@ def create_http_server(
                             self._send_json(
                                 200,
                                 engine.crm_evaluate_formulas(
-                                    str(body.get("target") or "心安"),
+                                    str(body.get("target") or "联系人A"),
                                     overrides=ov if isinstance(ov, dict) else None,
                                 ),
                             )
@@ -2197,7 +2266,7 @@ def create_http_server(
                             self._send_json(
                                 200,
                                 engine.crm_adopt_draft(
-                                    str(body.get("target") or "心安"),
+                                    str(body.get("target") or "联系人A"),
                                     rank_index=int(body.get("rank_index") or body.get("rank") or 1),
                                     send_mode=str(body.get("send_mode") or body.get("sendMode") or "adopt_only"),
                                 ),

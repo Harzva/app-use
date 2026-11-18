@@ -13,7 +13,7 @@ VISION_BIN="$ROOT_DIR/bin/wechat-vision-ax"
 BIN_OUT="$ROOT_DIR/bin/wechat-studio-app"
 mkdir -p "$ROOT_DIR/bin" "$ROOT_DIR/dist" "/Volumes/SanDisk/Builds"
 
-APP_VERSION="2.4.76"
+APP_VERSION="2.4.77"
 
 # 版本一致性自检：四处版本声明必须一致，漏改即中止构建（防 App/插件版本错位）
 for _vf in pyproject.toml plugin.manifest.json dsh.plugin.json; do
@@ -26,7 +26,7 @@ for _vf in pyproject.toml plugin.manifest.json dsh.plugin.json; do
     exit 1
   fi
 done
-APP_BUILD="2456"
+APP_BUILD="2457"
 
 swiftc -O "$ROOT_DIR/native/wechat_vision_ax.swift" \
   -framework AppKit \
@@ -84,7 +84,9 @@ build_bundle() {
   # App 自足启动：打包 bin/（wechat-bot launcher 从自身路径推导 PLUGIN_ROOT，装到任何机器都能拉起 console）
   mkdir -p "$res_dir/bin"
   cp "$ROOT_DIR"/bin/wechat-bot "$res_dir/bin/wechat-bot"
-  chmod +x "$res_dir/bin/wechat-bot"
+  cp "$ROOT_DIR"/bin/botstudio-live-meeting.cjs "$res_dir/bin/botstudio-live-meeting.cjs"
+  cp "$ROOT_DIR"/bin/wechat-voip-call.cjs "$res_dir/bin/wechat-voip-call.cjs"
+  chmod +x "$res_dir/bin/wechat-bot" "$res_dir/bin/botstudio-live-meeting.cjs" "$res_dir/bin/wechat-voip-call.cjs"
   rsync -a --exclude '__pycache__' --exclude '*.pyc' "$ROOT_DIR/vendor/salescrm/" "$res_dir/vendor/salescrm/"
   cp "$ROOT_DIR/dsh.plugin.json" "$ROOT_DIR/plugin.manifest.json" "$ROOT_DIR/pyproject.toml" "$res_dir/"
   cp "$ROOT_DIR"/market/*.json "$res_dir/market/"

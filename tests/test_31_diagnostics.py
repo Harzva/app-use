@@ -203,7 +203,7 @@ class DiagnosticsTests(unittest.TestCase):
         elements = [
             {"text": "openbot", "bbox": {"x": 118, "y": 70, "width": 58, "height": 12}, "center": {"x": 147, "y": 76}},
             {"text": "测试预览", "bbox": {"x": 118, "y": 91, "width": 80, "height": 12}, "center": {"x": 158, "y": 97}},
-            {"text": "安晓心", "bbox": {"x": 116, "y": 200, "width": 44, "height": 12}, "center": {"x": 138, "y": 206}},
+            {"text": "语音助手", "bbox": {"x": 116, "y": 200, "width": 44, "height": 12}, "center": {"x": 138, "y": 206}},
             {"text": "请回复一句话", "bbox": {"x": 116, "y": 220, "width": 90, "height": 12}, "center": {"x": 161, "y": 226}},
         ]
         rows = WeChatLiveInspector._cluster_session_rows(elements, 310.0, 1320.0)
@@ -239,13 +239,13 @@ class DiagnosticsTests(unittest.TestCase):
             }
 
         self.engine._run_native = fake_native  # type: ignore[method-assign]
-        cap = self.engine.avatar_capture("安晓心")
+        cap = self.engine.avatar_capture("语音助手")
         self.assertTrue(cap["ok"])
-        self.assertEqual(cap["url"], "/avatars/安晓心.png")
+        self.assertEqual(cap["url"], "/avatars/语音助手.png")
         self.assertEqual(recorded_crops[-1], "68,196,40,40")
 
         ov = self.engine.get_web_overview()
-        self.assertEqual((ov.get("avatars") or {}).get("安晓心"), "/avatars/安晓心.png")
+        self.assertEqual((ov.get("avatars") or {}).get("语音助手"), "/avatars/语音助手.png")
 
         srv = create_http_server(self.engine, "127.0.0.1", 0)
         port = srv.server_address[1]
@@ -299,7 +299,7 @@ class DiagnosticsTests(unittest.TestCase):
             {"text": "10/24", "bbox": {"x": 449, "y": 720, "width": 32, "height": 10}, "center": {"x": 465, "y": 725}},
             # 右栏真实群聊卡片消息
             {"text": "05:02", "bbox": {"x": 651, "y": 536, "width": 36, "height": 10}, "center": {"x": 669, "y": 541}},
-            {"text": "心安", "bbox": {"x": 557, "y": 572, "width": 26, "height": 16}, "center": {"x": 570, "y": 580}},
+            {"text": "联系人A", "bbox": {"x": 557, "y": 572, "width": 26, "height": 16}, "center": {"x": 570, "y": 580}},
             {"text": "又一个神级开源神器！爆火7.1K star", "bbox": {"x": 567, "y": 604, "width": 228, "height": 18}, "center": {"x": 681, "y": 613}},
             {"text": "，让 AI 轻松搞定 36 种画风，口播⋯", "bbox": {"x": 565, "y": 626, "width": 222, "height": 18}, "center": {"x": 676, "y": 635}},
             {"text": "C 菜鸟学Python", "bbox": {"x": 571, "y": 704, "width": 96, "height": 14}, "center": {"x": 619, "y": 711}},
@@ -332,7 +332,7 @@ class DiagnosticsTests(unittest.TestCase):
             min_reply_gap_seconds=90,
             now_fn=lambda: clock["t"],
         )
-        self.engine.bind_contact("心安", role="friend", auto_reply_enabled=True)
+        self.engine.bind_contact("联系人A", role="friend", auto_reply_enabled=True)
         stage = {"msg": 1, "active": "其他会话"}
         sent_texts = []
 
@@ -351,20 +351,20 @@ class DiagnosticsTests(unittest.TestCase):
                 return {"ok": True, "anyInputIdleSeconds": 90.0, "mouseIdleSeconds": 90.0, "keyboardIdleSeconds": 90.0}
             if cmd == "click":
                 if "--x" in args and float(args[args.index("--x") + 1]) > 60:
-                    stage["active"] = "心安"
+                    stage["active"] = "联系人A"
                 return {"ok": True}
             if cmd == "capture-ocr":
                 if "--out" in args:
                     p = Path(args[args.index("--out") + 1])
                     p.parent.mkdir(parents=True, exist_ok=True)
                     p.write_bytes(b"")
-                if stage["active"] != "心安":
+                if stage["active"] != "联系人A":
                     preview = "第一条测试问题" if stage["msg"] == 1 else "第二条追问消息"
                     return {
                         "ok": True,
                         "elements": [
                             {"text": "其他会话", "center": {"x": 300, "y": 28}, "bbox": {"x": 265, "y": 20, "width": 70, "height": 16}},
-                            {"text": "心安", "center": {"x": 115, "y": 66}, "bbox": {"x": 96, "y": 58, "width": 36, "height": 16}},
+                            {"text": "联系人A", "center": {"x": 115, "y": 66}, "bbox": {"x": 96, "y": 58, "width": 36, "height": 16}},
                             {"text": "12:04" if stage["msg"] == 1 else "12:05", "center": {"x": 202, "y": 66}, "bbox": {"x": 182, "y": 58, "width": 38, "height": 16}},
                             {"text": preview, "center": {"x": 140, "y": 86}, "bbox": {"x": 96, "y": 78, "width": 90, "height": 16}},
                         ],
@@ -373,7 +373,7 @@ class DiagnosticsTests(unittest.TestCase):
                 return {
                     "ok": True,
                     "elements": [
-                        {"text": "心安", "center": {"x": 255, "y": 28}, "bbox": {"x": 236, "y": 20, "width": 38, "height": 16}},
+                        {"text": "联系人A", "center": {"x": 255, "y": 28}, "bbox": {"x": 236, "y": 20, "width": 38, "height": 16}},
                         {"text": "12:04" if stage["msg"] == 1 else "12:05", "center": {"x": 400, "y": 200}, "bbox": {"x": 380, "y": 192, "width": 40, "height": 14}},
                         {"text": msg_txt, "center": {"x": 340, "y": 250}, "bbox": {"x": 295, "y": 242, "width": 100, "height": 16}},
                     ],
@@ -397,7 +397,7 @@ class DiagnosticsTests(unittest.TestCase):
         r2 = self.engine.monitor_once(auto_reply=True, confirm_send=True)
         self.assertEqual(r2["repliesDispatched"], 0)
         self.assertEqual(r2["actions"][0]["status"], "rate_limited")
-        st2 = self.engine.monitor.state_summary()["contacts"]["心安"]
+        st2 = self.engine.monitor.state_summary()["contacts"]["联系人A"]
         self.assertTrue(st2.get("pendingGapRetry"))
 
         # 冷却结束后（1000 -> 1140 > 90s）即使无未读角标也应自动重检并回复
@@ -406,7 +406,7 @@ class DiagnosticsTests(unittest.TestCase):
         r3 = self.engine.monitor_once(auto_reply=True, confirm_send=True)
         self.assertEqual(r3["repliesDispatched"], 1)
         self.assertEqual(len(sent_texts), 2)
-        st3 = self.engine.monitor.state_summary()["contacts"]["心安"]
+        st3 = self.engine.monitor.state_summary()["contacts"]["联系人A"]
         self.assertFalse(st3.get("pendingGapRetry", False))
         self.assertNotIn("lastRateLimitReason", st3)
 
@@ -503,7 +503,7 @@ class DiagnosticsTests(unittest.TestCase):
         # 3) 第三方开源链接不应把自家 github.com/Harzva/wechat-bot 定价/FAQ 硬塞进 sys_prompt
         recorded.clear()
         self.engine.personas.generate_smart_reply(
-            "心安",
+            "联系人A",
             "LoopForge 的开源地址是：https://github.com/Tencent/LoopForge，可以去那里看完整文档和源码。",
             knowledge_store=self.engine.knowledge,
             binding={"role": "friend", "aiPersona": "wecom-kf-pro"},
@@ -526,7 +526,7 @@ class DiagnosticsTests(unittest.TestCase):
 
         bubbles = WeChatLiveInspector.cluster_message_bubbles(
             [
-                {"text": "心安", "x": 570, "y": 400, "bbox": {"x": 557, "y": 392, "width": 26, "height": 16}},
+                {"text": "联系人A", "x": 570, "y": 400, "bbox": {"x": 557, "y": 392, "width": 26, "height": 16}},
                 {"text": "看到这个Fable 5.2纯代码视频效果很强", "x": 680, "y": 440, "bbox": {"x": 565, "y": 431, "width": 220, "height": 18}},
                 {"text": "W 高老师的分享局", "x": 620, "y": 552, "bbox": {"x": 570, "y": 544, "width": 100, "height": 14}},
             ],
@@ -535,8 +535,8 @@ class DiagnosticsTests(unittest.TestCase):
             image_path=card_png,
         )
         self.assertEqual(len(bubbles), 1)
-        self.assertEqual(bubbles[0].get("sender"), "心安")
-        self.assertTrue(bubbles[0]["text"].startswith("心安: "))
+        self.assertEqual(bubbles[0].get("sender"), "联系人A")
+        self.assertTrue(bubbles[0]["text"].startswith("联系人A: "))
         self.assertIn("高老师的分享局", bubbles[0]["text"])
 
     def test_wechat_ai_assistant_yuanbao_and_xiaowei_integration(self):
@@ -553,8 +553,8 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertTrue(is_wechat_ai_assistant_name("元宝"))
         self.assertTrue(is_wechat_ai_assistant_name("腾讯元宝"))
         self.assertTrue(is_wechat_ai_assistant_name("小微"))
-        self.assertFalse(is_wechat_ai_assistant_name("安晓心"))
-        self.assertFalse(is_wechat_ai_assistant_name("心安"))
+        self.assertFalse(is_wechat_ai_assistant_name("语音助手"))
+        self.assertFalse(is_wechat_ai_assistant_name("联系人A"))
         self.assertFalse(is_wechat_ai_assistant_name("https"))
         self.assertTrue(is_explicit_wechat_ai_mention("@元宝 请总结这篇文章"))
         self.assertTrue(is_explicit_wechat_ai_mention("@小微 看看这段视频"))
@@ -637,7 +637,7 @@ class DiagnosticsTests(unittest.TestCase):
                 if stage["step"] == 1:
                     els = base_els + [
                         {"text": "12:01", "center": {"x": 669, "y": 175}, "bbox": {"x": 651, "y": 170, "width": 36, "height": 10}},
-                        {"text": "心安", "center": {"x": 570, "y": 208}, "bbox": {"x": 557, "y": 200, "width": 26, "height": 16}},
+                        {"text": "联系人A", "center": {"x": 570, "y": 208}, "bbox": {"x": 557, "y": 200, "width": 26, "height": 16}},
                         {"text": "@元宝 请总结这条视频", "center": {"x": 650, "y": 240}, "bbox": {"x": 565, "y": 232, "width": 170, "height": 18}},
                     ]
                 elif stage["step"] == 2:
@@ -649,7 +649,7 @@ class DiagnosticsTests(unittest.TestCase):
                 else:
                     els = base_els + [
                         {"text": "12:03", "center": {"x": 669, "y": 175}, "bbox": {"x": 651, "y": 170, "width": 36, "height": 10}},
-                        {"text": "心安", "center": {"x": 570, "y": 360}, "bbox": {"x": 557, "y": 352, "width": 26, "height": 16}},
+                        {"text": "联系人A", "center": {"x": 570, "y": 360}, "bbox": {"x": 557, "y": 352, "width": 26, "height": 16}},
                         {"text": "这条视频核心讲了什么？", "center": {"x": 655, "y": 392}, "bbox": {"x": 565, "y": 384, "width": 180, "height": 18}},
                     ]
                 return {"ok": True, "elements": els}
@@ -687,7 +687,7 @@ class DiagnosticsTests(unittest.TestCase):
                     f"http://127.0.0.1:{port}/api/wechat-ai-assist",
                     data=json.dumps({
                         "target": "openbot",
-                        "contentHint": "心安: 看看这条视频号教程",
+                        "contentHint": "联系人A: 看看这条视频号教程",
                         "mode": mode,
                         "bubbles": sample_bubbles,
                         "dryRun": True,
@@ -749,17 +749,17 @@ class DiagnosticsTests(unittest.TestCase):
         )
         notes = self.engine.recent_media_notes("openbot")
         self.assertTrue(any("Fable 5.2" in n for n in notes))
-        preview = self.engine.preview_smart_reply("openbot", "心安: 这条视频讲了什么？", use_llm=False)
+        preview = self.engine.preview_smart_reply("openbot", "联系人A: 这条视频讲了什么？", use_llm=False)
         self.assertIn("Fable 5.2", preview["replyText"])
 
-        self.engine.bind_contact("安晓心", role="friend", ai_persona="wecom-kf-pro", auto_reply_enabled=True)
-        no_note_preview = self.engine.preview_smart_reply("安晓心", "帮我总结一下刚才发的文章重点", use_llm=False)
+        self.engine.bind_contact("语音助手", role="friend", ai_persona="wecom-kf-pro", auto_reply_enabled=True)
+        no_note_preview = self.engine.preview_smart_reply("语音助手", "帮我总结一下刚才发的文章重点", use_llm=False)
         self.assertEqual(no_note_preview["matchedCount"], 0)
         self.assertNotIn("WaveBot 是一款", no_note_preview["replyText"])
         self.assertIn("@元宝 解析 / 转发小微", no_note_preview["replyText"])
 
         # 3) _agent_dispatch_notes 任务优先级：最新气泡中的 link_deep_read 不被前面多条旧 agent_instruction 饿死
-        self.engine.bind_contact("心安", role="friend", auto_reply_enabled=True)
+        self.engine.bind_contact("联系人A", role="friend", auto_reply_enabled=True)
         called_urls = []
 
         def fake_analyze_link(url, *, contact="", context_text="", model_id="", **kwargs):
@@ -774,8 +774,8 @@ class DiagnosticsTests(unittest.TestCase):
             {"direction": "peer", "text": "最新链接：https://example.com/article W 高老师的分享局"},
         ]
         notes_out, receipt = self.engine.monitor._agent_dispatch_notes(
-            self.engine.bindings.get_binding("心安") or {},
-            "心安",
+            self.engine.bindings.get_binding("联系人A") or {},
+            "联系人A",
             bubbles,
             "最新链接：https://example.com/article",
             {"snapshotPath": ""},
@@ -802,7 +802,7 @@ class DiagnosticsTests(unittest.TestCase):
         import threading
         import urllib.request
 
-        self.engine.bind_contact("安晓心", role="friend", ai_persona="wecom-kf-pro", auto_reply_enabled=True)
+        self.engine.bind_contact("语音助手", role="friend", ai_persona="wecom-kf-pro", auto_reply_enabled=True)
 
         # 1) AI 员工岗位与极速/深思档位设置 + seeThinkAct 三步推理注入
         recorded = []
@@ -831,7 +831,7 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(g_res["speedMode"], "deep")
 
         novel_q = "请问下周三杭州西湖畔科技沙龙几点签到？"
-        p1 = self.engine.preview_smart_reply("安晓心", f"安晓心: {novel_q}", use_llm=True)
+        p1 = self.engine.preview_smart_reply("语音助手", f"语音助手: {novel_q}", use_llm=True)
         self.assertTrue(p1["ok"])
         self.assertEqual(p1["matchedCount"], 0)
         self.assertIn("seeThinkAct", p1)
@@ -841,7 +841,7 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertIn("act", sta)
         self.assertEqual(sta["think"]["speedMode"], "deep")
         self.assertEqual(sta["think"]["taskGoal"], "专注技术方案与部署边界解答")
-        self.assertEqual(sta["see"]["speaker"], "安晓心")
+        self.assertEqual(sta["see"]["speaker"], "语音助手")
         self.assertIn("专注技术方案与部署边界解答", recorded[0][0]["content"])
         self.assertIn("深思模式", recorded[0][0]["content"])
 
@@ -859,8 +859,8 @@ class DiagnosticsTests(unittest.TestCase):
             learn_req = urllib.request.Request(
                 f"http://127.0.0.1:{port}/api/workos/learn-correction",
                 data=json.dumps({
-                    "target": "安晓心",
-                    "incoming_text": f"安晓心: {novel_q}",
+                    "target": "语音助手",
+                    "incoming_text": f"语音助手: {novel_q}",
                     "corrected_reply": "下周三杭州西湖畔科技沙龙 14:00 开始签到，14:30 准时开场，凭报名码入场。",
                     "original_draft": p1["replyText"],
                 }).encode("utf-8"),
@@ -876,7 +876,7 @@ class DiagnosticsTests(unittest.TestCase):
             prev_req = urllib.request.Request(
                 f"http://127.0.0.1:{port}/api/reply-preview",
                 data=json.dumps({
-                    "target": "安晓心",
+                    "target": "语音助手",
                     "incoming_text": novel_q,
                     "use_llm": False,
                     "speed_mode": "deep",
@@ -919,9 +919,9 @@ class DiagnosticsTests(unittest.TestCase):
         from wechat_control.doc_ingestor import ALLOWED_TEST_CONTACTS
         from wechat_control.web_console import render_web_console_html
 
-        self.assertEqual(ALLOWED_TEST_CONTACTS, ("安晓心", "心安", "openbot"))
+        self.assertEqual(ALLOWED_TEST_CONTACTS, ("语音助手", "联系人A", "openbot"))
 
-        # 使用默认未覆写 allowed_groups 的引擎，验证测试联系人白名单仅严守 ["安晓心", "心安", "openbot"]
+        # 使用默认未覆写 allowed_groups 的引擎，验证测试联系人白名单仅严守 ["语音助手", "联系人A", "openbot"]
         work_dir = self.data / "dualapp_engine"
         work_engine = WeChatControlEngine(
             audit_log_path=work_dir / "audit.jsonl",
@@ -935,7 +935,7 @@ class DiagnosticsTests(unittest.TestCase):
             reports_dir=work_dir / "reports",
         )
         work_engine.auth_grant(ALL_CAPABILITIES, authorized_by="diag-dualapp-test")
-        work_engine.bind_contact("安晓心", role="friend", ai_persona="wecom-kf-pro", auto_reply_enabled=True)
+        work_engine.bind_contact("语音助手", role="friend", ai_persona="wecom-kf-pro", auto_reply_enabled=True)
 
         native_calls = []
         mock_windows = [
@@ -955,7 +955,7 @@ class DiagnosticsTests(unittest.TestCase):
                 "appLabel": "微信",
                 "bundleID": "com.tencent.xinWeChat",
                 "pid": 60968,
-                "title": "安晓心",
+                "title": "语音助手",
                 "isMainWindow": False,
                 "bounds": {"x": 1380, "y": 484, "width": 598, "height": 640},
             },
@@ -1065,7 +1065,7 @@ class DiagnosticsTests(unittest.TestCase):
 
             # 3) POST /api/workos/bind-window 支持 wechat 与 wecom 持久化
             for bind_payload in (
-                {"appId": "wechat", "windowID": 11503, "windowTitle": "安晓心"},
+                {"appId": "wechat", "windowID": 11503, "windowTitle": "语音助手"},
                 {"appId": "wecom", "windowID": 3776, "windowTitle": "企业微信"},
             ):
                 req = urllib.request.Request(
@@ -1175,8 +1175,8 @@ class DiagnosticsTests(unittest.TestCase):
                 self.assertFalse(conf_res["promptUpdated"])
 
             hit_reply = work_engine.preview_smart_reply(
-                "安晓心",
-                "安晓心: 星云净水器 Pro 怎么使用？",
+                "语音助手",
+                "语音助手: 星云净水器 Pro 怎么使用？",
                 use_llm=False,
             )
             self.assertTrue(hit_reply["ok"])
@@ -1205,7 +1205,7 @@ class DiagnosticsTests(unittest.TestCase):
             work_engine.models = _MockConsultHub()  # type: ignore[assignment]
             try:
                 llm_prev = work_engine.preview_smart_reply(
-                    "安晓心",
+                    "语音助手",
                     "星云净水器 Pro 怎么使用？",
                     use_llm=True,
                 )
@@ -1217,15 +1217,15 @@ class DiagnosticsTests(unittest.TestCase):
 
             # 6) needsHumanReview 在退款/投诉场景为 True
             refund_prev = work_engine.preview_smart_reply(
-                "安晓心",
-                "安晓心: 这台机器用不了我要申请退款并投诉",
+                "语音助手",
+                "语音助手: 这台机器用不了我要申请退款并投诉",
                 use_llm=False,
             )
             self.assertTrue(refund_prev["ok"])
             self.assertTrue(refund_prev["needsHumanReview"])
             self.assertTrue(bool(refund_prev["humanReviewReason"]))
 
-            # 7) 联系白名单严守仅 ["安晓心", "心安", "openbot"] 及合规助手（拒绝 "陌生人"）
+            # 7) 联系白名单严守仅 ["语音助手", "联系人A", "openbot"] 及合规助手（拒绝 "陌生人"）
             stranger_req = urllib.request.Request(
                 f"{base}/api/wechat-ai-assist",
                 data=json.dumps({
@@ -1274,22 +1274,22 @@ class DiagnosticsTests(unittest.TestCase):
             "windowID": 11503,
             "isMainWindow": False,
             "splitX": 0.0,
-            "windowTitle": "安晓心",
+            "windowTitle": "语音助手",
             "windowBounds": {"x": 1380, "y": 484, "width": 598, "height": 640},
             "elements": [
-                {"text": "安晓心", "bbox": {"x": 28, "y": 20, "width": 52, "height": 16}, "center": {"x": 54, "y": 28}, "confidence": 0.99},
+                {"text": "语音助手", "bbox": {"x": 28, "y": 20, "width": 52, "height": 16}, "center": {"x": 54, "y": 28}, "confidence": 0.99},
                 {"text": "请问企业版支持离线部署吗？", "bbox": {"x": 40, "y": 142, "width": 200, "height": 18}, "center": {"x": 70, "y": 151}, "confidence": 0.98},
                 {"text": "支持离线部署与内网私有化", "bbox": {"x": 340, "y": 212, "width": 195, "height": 18}, "center": {"x": 438, "y": 221}, "confidence": 0.97},
             ],
         }
         structured = inspector.extract_structured_bubbles(popout_ocr)
-        self.assertEqual(structured["headerTitle"], "安晓心")
+        self.assertEqual(structured["headerTitle"], "语音助手")
         self.assertEqual(len(structured["bubbles"]), 2)
         self.assertEqual(structured["bubbles"][0]["direction"], "peer")
         self.assertIn("离线部署", structured["bubbles"][0]["text"])
         self.assertEqual(structured["bubbles"][1]["direction"], "self")
 
-        # 验证 find_popout_window("安晓心") 与 inspect_messages("安晓心") 走免切换直连（无 click 切换主窗）
+        # 验证 find_popout_window("语音助手") 与 inspect_messages("语音助手") 走免切换直连（无 click 切换主窗）
         native_cmds = []
 
         def fake_native_popout(args, timeout=15.0):
@@ -1311,7 +1311,7 @@ class DiagnosticsTests(unittest.TestCase):
                             "windowID": 11503,
                             "appId": "wechat",
                             "appLabel": "微信",
-                            "title": "安晓心",
+                            "title": "语音助手",
                             "isMainWindow": False,
                             "bounds": {"x": 1380, "y": 484, "width": 598, "height": 640},
                         },
@@ -1322,16 +1322,16 @@ class DiagnosticsTests(unittest.TestCase):
             return {"ok": True}
 
         inspector._run_native = fake_native_popout  # type: ignore[method-assign]
-        found = inspector.find_popout_window("安晓心")
+        found = inspector.find_popout_window("语音助手")
         self.assertIsNotNone(found)
         self.assertEqual(found["windowID"], 11503)
 
-        inspected = inspector.inspect_messages("安晓心")
+        inspected = inspector.inspect_messages("语音助手")
         self.assertTrue(inspected["ok"])
         self.assertTrue(inspected["popoutWindow"])
         self.assertTrue(inspected["zeroSwitch"])
         self.assertEqual(inspected["windowID"], 11503)
-        self.assertEqual(inspected["headerTitle"], "安晓心")
+        self.assertEqual(inspected["headerTitle"], "语音助手")
         self.assertEqual(len(inspected["bubbles"]), 2)
         self.assertIn("离线部署", inspected["bubbles"][0]["text"])
         self.assertFalse(any(c and c[0] == "click" for c in native_cmds))
@@ -1378,14 +1378,14 @@ class DiagnosticsTests(unittest.TestCase):
             coalescer.merge_intervals([(1.0, 2.8), (1.8, 3.6), (5.0, 6.8)]),
             [(1.0, 3.6), (5.0, 6.8)],
         )
-        self.assertIsNone(coalescer.push("安晓心", "在吗", now_ts=100.0))
-        self.assertIsNone(coalescer.push("安晓心", "猫乱尿怎么喷", now_ts=100.9))
+        self.assertIsNone(coalescer.push("语音助手", "在吗", now_ts=100.0))
+        self.assertIsNone(coalescer.push("语音助手", "猫乱尿怎么喷", now_ts=100.9))
         # 未过 1.8s 窗暂不 drain
         self.assertEqual(coalescer.drain_ready(now_ts=102.0), [])
         # 超过 1.8s 窗自动合并输出
         ready = coalescer.drain_ready(now_ts=103.0)
         self.assertEqual(len(ready), 1)
-        self.assertEqual(ready[0]["target"], "安晓心")
+        self.assertEqual(ready[0]["target"], "语音助手")
         self.assertEqual(ready[0]["mergedText"], "在吗 猫乱尿怎么喷")
         self.assertEqual(ready[0]["messageCount"], 2)
         self.assertTrue(ready[0]["coalesced"])
@@ -1464,7 +1464,7 @@ class DiagnosticsTests(unittest.TestCase):
                 "windowID": 11503,
                 "appId": "wechat",
                 "appLabel": "微信",
-                "title": "安晓心",
+                "title": "语音助手",
                 "isMainWindow": False,
                 "dHash64": "031af0c060343853",
                 "bounds": {"x": 1380, "y": 484, "width": 598, "height": 640},
@@ -1473,7 +1473,7 @@ class DiagnosticsTests(unittest.TestCase):
                 "windowID": 11509,
                 "appId": "wechat",
                 "appLabel": "微信",
-                "title": "苏文璐",
+                "title": "联系人B",
                 "isMainWindow": False,
                 "dHash64": "abcdef0123456789",
                 "bounds": {"x": 1804, "y": 699, "width": 598, "height": 640},
@@ -1488,12 +1488,12 @@ class DiagnosticsTests(unittest.TestCase):
                 "bounds": {"x": 853, "y": 30, "width": 960, "height": 1320},
             },
         ]
-        lanes = TwoTierWindowCoordinator.plan_lanes(["安晓心", "心安", "openbot"], sample_windows)
-        self.assertEqual([p["target"] for p in lanes["fastLanePopouts"]], ["安晓心"])
+        lanes = TwoTierWindowCoordinator.plan_lanes(["语音助手", "联系人A", "openbot"], sample_windows)
+        self.assertEqual([p["target"] for p in lanes["fastLanePopouts"]], ["语音助手"])
         self.assertEqual(lanes["fastLanePopouts"][0]["windowID"], 11503)
         self.assertTrue(lanes["fastLanePopouts"][0]["zeroSwitch"])
-        self.assertEqual(lanes["mainWindowFallbackTargets"], ["心安", "openbot"])
-        self.assertEqual([p["title"] for p in lanes["protectedReadOnlyPopouts"]], ["苏文璐"])
+        self.assertEqual(lanes["mainWindowFallbackTargets"], ["联系人A", "openbot"])
+        self.assertEqual([p["title"] for p in lanes["protectedReadOnlyPopouts"]], ["联系人B"])
         self.assertTrue(lanes["protectedReadOnlyPopouts"][0]["readOnly"])
 
         # 5) web_console.py 新增 v2.4.71 DOM 标记校验
@@ -1521,8 +1521,8 @@ class DiagnosticsTests(unittest.TestCase):
             reports_dir=sched_dir / "reports",
         )
         sched_engine.auth_grant(ALL_CAPABILITIES, authorized_by="diag-v2471-test")
-        sched_engine.bind_contact("安晓心", role="friend", ai_persona="wecom-kf-pro", auto_reply_enabled=True, special_care=True)
-        sched_engine.bind_contact("心安", role="friend", ai_persona="wecom-kf-pro", auto_reply_enabled=True)
+        sched_engine.bind_contact("语音助手", role="friend", ai_persona="wecom-kf-pro", auto_reply_enabled=True, special_care=True)
+        sched_engine.bind_contact("联系人A", role="friend", ai_persona="wecom-kf-pro", auto_reply_enabled=True)
         sched_engine.bind_contact("openbot", role="group", ai_persona="wecom-kf-pro", auto_reply_enabled=True)
 
         def fake_native_sched(args, timeout=15.0):
@@ -1565,10 +1565,10 @@ class DiagnosticsTests(unittest.TestCase):
                 r1 = json.loads(resp.read().decode("utf-8"))
                 self.assertTrue(r1["ok"])
                 self.assertEqual(r1["scanSource"], "dhash-windows")
-                self.assertEqual([p["target"] for p in r1["fastLanePopouts"]], ["安晓心"])
+                self.assertEqual([p["target"] for p in r1["fastLanePopouts"]], ["语音助手"])
                 self.assertTrue(r1["fastLanePopouts"][0]["shouldRunOcr"])
-                self.assertEqual(set(r1["mainWindowFallbackTargets"]), {"心安", "openbot"})
-                self.assertEqual([p["title"] for p in r1["protectedReadOnlyPopouts"]], ["苏文璐"])
+                self.assertEqual(set(r1["mainWindowFallbackTargets"]), {"联系人A", "openbot"})
+                self.assertEqual([p["title"] for p in r1["protectedReadOnlyPopouts"]], ["联系人B"])
                 self.assertIsNotNone(r1["dispatchReport"])
                 self.assertEqual(r1["dispatchReport"]["taskCount"], 3)
 
@@ -1657,7 +1657,7 @@ class DiagnosticsTests(unittest.TestCase):
             reports_dir=w_dir / "reports",
         )
         w_engine.auth_grant(ALL_CAPABILITIES, authorized_by="diag-v2472-test")
-        w_engine.bind_contact("安晓心", role="friend", auto_reply_enabled=True)
+        w_engine.bind_contact("语音助手", role="friend", auto_reply_enabled=True)
         # 写入一个历史误采气泡，验证 profile_contacts/hosting_friends 自动过滤脏片段
         w_engine.bind_contact("家床头朝哪边啊?", role="friend", auto_reply_enabled=False)
 
@@ -1688,7 +1688,7 @@ class DiagnosticsTests(unittest.TestCase):
                 "appLabel": "微信",
                 "bundleID": "com.tencent.xinWeChat",
                 "pid": 60968,
-                "title": "苏文璐",
+                "title": "联系人B",
                 "isMainWindow": False,
                 "bounds": {"x": 1804, "y": 699, "width": 598, "height": 640},
             },

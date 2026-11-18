@@ -3188,6 +3188,10 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
               <input type="text" id="quickAnnotateNote" placeholder="红框标注说明" style="width:116px; padding:3px 7px; font-size:11.5px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text);" />
               <button type="button" class="btn-outline sm" onclick="searchAndSendWebImageQuick()" title="联网搜图并发送给当前好友">🔍 搜图发送</button>
               <button type="button" class="btn-outline sm" onclick="annotateAndSendImageQuick()" title="对好友发来的图片画红框编号标注重点并回传">🖍️ 标注图片回传</button>
+              <button type="button" class="btn-outline sm" onclick="joinTencentMeetingQuick()" title="点击微信里的腾讯会议卡片入会并拉起 Bot Studio 语音参会发言">🎧 点卡片入会+Bot发言</button>
+              <button type="button" class="btn-outline sm" onclick="voiceCallQuick('dial')" title="向当前好友拨打微信/企微语音电话并用 AI 语音实时对话">📞 打语音电话</button>
+              <button type="button" class="btn-outline sm" onclick="voiceCallQuick('answer')" title="一键接听微信/企微来电并连入 AI 语音对话">📲 接听来电</button>
+              <button type="button" class="btn-outline sm" onclick="voiceCallQuick('hangup')" title="挂断当前通话并自动恢复本机麦克风">📴 挂断</button>
             </div>
             <textarea id="sendText" placeholder="输入回复，或点下方「生成草稿」/「@元宝 解析」自动起草"></textarea>
             <div class="chat-composer-bar">
@@ -6529,6 +6533,68 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       }
     }
 
+    async function joinTencentMeetingQuick() {
+      if (sendInFlight || serviceBlocked) return;
+      const target = (document.getElementById("sendTarget")?.value || "").trim();
+      const rawHint = (document.getElementById("quickImageQuery")?.value || "").trim();
+      const codeMatch = rawHint.match(/(\d[\d\s\-]{7,13}\d)/);
+      const meetingCode = codeMatch ? codeMatch[1].replace(/[\s\-]+/g, "") : "";
+      const pwdMatch = rawHint.match(/(?:密码[:：\s]*)([A-Za-z0-9]{4,8})/);
+      const pwdVal = (document.getElementById("quickAnnotateNote")?.value || "").trim() || (pwdMatch ? pwdMatch[1] : "");
+      const mode = document.getElementById("sendMode")?.value || "dry_run";
+      const dryRun = mode !== "confirm_send";
+      try {
+        const { data } = await apiJson("/api/join-meeting-botstudio", {
+          method: "POST",
+          body: JSON.stringify({
+            target,
+            meeting_code: meetingCode,
+            password: pwdVal,
+            click_card: true,
+            dry_run: dryRun,
+            confirm_send: !dryRun,
+          }),
+        });
+        document.getElementById("sendReceiptBox").innerHTML =
+          `<div class="send-receipt"><p>${data.joined ? "已点击腾讯会议卡片入会并拉起 Bot Studio 语音参会。" : (data.needsPassword ? "已点开卡片唤起腾讯会议，请在右侧输入会议密码。" : (dryRun ? "已完成腾讯会议卡片入会预检（未实点击）。" : "已触发入会流程。"))}</p><details><summary>查看回执</summary><pre class="code-box">${escapeHtml(JSON.stringify(data, null, 2))}</pre></details></div>`;
+      } catch (err) {
+        setDraftStatus("腾讯会议入会失败: " + err.message, "error");
+      }
+    }
+
+    async function voiceCallQuick(action) {
+      if (sendInFlight || serviceBlocked) return;
+      const target = (document.getElementById("sendTarget")?.value || "").trim();
+      const mode = document.getElementById("sendMode")?.value || "dry_run";
+      const dryRun = mode !== "confirm_send";
+      const hint = (document.getElementById("quickImageQuery")?.value || "").trim().toLowerCase();
+      const app = hint.includes("wecom") || hint.includes("企微") || hint.includes("企业") ? "wecom" : (action === "dial" ? "wechat" : "all");
+      const greeting = (document.getElementById("sendText")?.value || "").trim();
+      try {
+        const { data } = await apiJson("/api/voice-call", {
+          method: "POST",
+          body: JSON.stringify({
+            target,
+            action: action || "dial",
+            app,
+            call_type: "audio",
+            greeting,
+            dry_run: dryRun,
+            confirm_send: !dryRun,
+          }),
+        });
+        const label = action === "hangup"
+          ? (dryRun ? "已预检挂断通话。" : "已挂断通话并恢复本机麦克风。")
+          : (action === "answer"
+            ? (dryRun ? "已预检接听来电。" : "已尝试接听来电并拉起 AI 语音通话。")
+            : (dryRun ? "已完成微信语音拨号预检（未实点击）。" : "已拨出微信语音电话并启动实时语音伴侣。"));
+        document.getElementById("sendReceiptBox").innerHTML =
+          `<div class="send-receipt"><p>${label}</p><details><summary>查看通话回执</summary><pre class="code-box">${escapeHtml(JSON.stringify(data, null, 2))}</pre></details></div>`;
+      } catch (err) {
+        setDraftStatus("语音通话操作失败: " + err.message, "error");
+      }
+    }
+
     function syncSendModeLabel() {
       const mode = document.getElementById("sendMode").value;
       const labels = {
@@ -8123,7 +8189,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       if (typeof win?.isAllowlistedTarget === "boolean") return win.isAllowlistedTarget;
       const rawTitle = String(win?.title || "").trim().toLowerCase();
       if (!rawTitle) return false;
-      const allowed = WORKOS_STATE?.harness?.governance?.allowedTargets || ["安晓心", "心安", "openbot"];
+      const allowed = WORKOS_STATE?.harness?.governance?.allowedTargets || ["语音助手", "联系人A", "openbot"];
       return allowed.some((t) => {
         const clean = String(t || "").trim().toLowerCase();
         return clean && (rawTitle === clean || rawTitle.includes(clean));
@@ -9558,7 +9624,7 @@ MOBILE_REMOTE_HTML = r"""<!DOCTYPE html>
     </section>
   </main>
   <script>
-    let LAST_TARGETS = ["安晓心", "心安", "openbot"];
+    let LAST_TARGETS = ["语音助手", "联系人A", "openbot"];
     const esc = s => String(s || "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
     async function refreshMobile() {
       try {

@@ -1359,6 +1359,456 @@ class WeChatControlEngine:
         )
         return {**send_res, "annotation": ann_res}
 
+    def _start_botstudio_meeting_daemon(
+        self,
+        *,
+        meeting_code: str,
+        contact: str = "",
+        agenda: str = "",
+    ) -> Dict[str, Any]:
+        """Ensure Bot Studio live spoken meeting daemon (`bin/botstudio-live-meeting.cjs`) is running."""
+        import os
+        import subprocess
+
+        bot_studio_bin = Path("/Users/mac/Applications/Bot Studio.app/Contents/MacOS/Bot Studio")
+        if not bot_studio_bin.is_file():
+            return {"ok": False, "status": "botstudio_not_installed"}
+
+        script_candidates = [
+            self.bundle_root / "bin" / "botstudio-live-meeting.cjs",
+            self.plugin_root / "bin" / "botstudio-live-meeting.cjs",
+            Path(__file__).resolve().parent.parent / "bin" / "botstudio-live-meeting.cjs",
+        ]
+        script_path = next((p for p in script_candidates if p.is_file()), None)
+        if script_path is None:
+            return {"ok": False, "status": "meeting_script_missing"}
+
+        logs_dir = self.plugin_root / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        pid_file = logs_dir / "botstudio_live_meeting.pid"
+        if pid_file.is_file():
+            try:
+                old_pid = int(pid_file.read_text(encoding="utf-8").strip())
+                os.kill(old_pid, 0)
+                return {"ok": True, "status": "already_running", "pid": old_pid, "meetingCode": meeting_code}
+            except Exception:
+                pass
+
+        log_fp = open(logs_dir / "botstudio_live_meeting.log", "ab")
+        env = dict(os.environ)
+        env["HOME"] = str(Path.home())
+        env["WECHAT_BOT_DATA_DIR"] = str(self.plugin_root)
+        env["ELECTRON_RUN_AS_NODE"] = "1"
+        cmd = [
+            str(bot_studio_bin),
+            str(script_path),
+            "--meeting-code",
+            str(meeting_code or "7794329581"),
+            "--contact",
+            str(contact or ""),
+            "--agenda",
+            str(agenda or ""),
+        ]
+        proc = subprocess.Popen(
+            cmd,
+            stdout=log_fp,
+            stderr=log_fp,
+            stdin=subprocess.DEVNULL,
+            env=env,
+            start_new_session=True,
+        )
+        return {"ok": True, "status": "started", "pid": proc.pid, "meetingCode": meeting_code}
+
+    def join_tencent_meeting_and_start_botstudio(
+        self,
+        target: str,
+        *,
+        meeting_code: str = "",
+        password: str = "",
+        agenda: str = "",
+        click_card: bool = True,
+        dry_run: bool = False,
+        confirm_send: bool = True,
+        target_window_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Click WeChat Tencent Meeting card / open wemeet:// and start Bot Studio voice participant."""
+        will_live = (not dry_run) and bool(confirm_send)
+        self._require("send_text_live" if will_live else "send_text_dry_run")
+        clean_target = str(target or "").strip()
+        if clean_target and self.allowlist.enabled and not self.allowlist.is_allowed(clean_target):
+            return {
+                "ok": False,
+                "status": "blocked_allowlist",
+                "target": clean_target,
+                "error": f"Target {clean_target!r} is not in allowed contacts.",
+            }
+
+        popout_win = None
+        effective_wid: Optional[int] = int(target_window_id) if target_window_id is not None else None
+        if effective_wid is None and clean_target and hasattr(self, "inspector"):
+            try:
+                popout_win = self.inspector.find_popout_window(clean_target, app="all")
+                if popout_win and popout_win.get("windowID"):
+                    effective_wid = int(popout_win["windowID"])
+            except Exception:
+                popout_win = None
+
+        args = ["join-tencent-meeting"]
+        if click_card:
+            args.append("--click-card")
+        if effective_wid is not None:
+            args += ["--window-id", str(effective_wid)]
+            pw_title = str((popout_win or {}).get("title") or "").strip()
+            if pw_title:
+                args += ["--window-title", pw_title]
+        clean_code = re.sub(r"\D+", "", str(meeting_code or ""))
+        if clean_code:
+            args += ["--meeting-code", clean_code]
+        if str(password or "").strip():
+            args += ["--password", str(password).strip()]
+        if not will_live:
+            args.append("--dry-run")
+
+        native_res = self._run_native(args, timeout=25.0)
+        resolved_code = str(native_res.get("meetingCode") or clean_code)
+        botstudio_res: Dict[str, Any] = {"ok": False, "status": "dry_run_skipped"}
+        if will_live and native_res.get("ok"):
+            botstudio_res = self._start_botstudio_meeting_daemon(
+                meeting_code=resolved_code or "7794329581",
+                contact=clean_target,
+                agenda=agenda,
+            )
+
+        res = {
+            "ok": bool(native_res.get("ok")),
+            "status": (
+                "in_meeting"
+                if native_res.get("joined")
+                else ("needs_password" if native_res.get("needsPassword") else ("dry_run_ok" if not will_live else "initiated"))
+            ),
+            "target": clean_target,
+            "meetingCode": resolved_code,
+            "joined": bool(native_res.get("joined")),
+            "needsPassword": bool(native_res.get("needsPassword")),
+            "windowID": effective_wid,
+            "native": native_res,
+            "botStudio": botstudio_res,
+        }
+        self.audit.log("join_tencent_meeting_botstudio", res["status"], res)
+        return res
+
+    def _start_voip_voice_daemon(
+        self,
+        *,
+        app: str = "wechat",
+        target: str = "",
+        greeting: str = "",
+        instructions: str = "",
+        idle_input_uid: str = "",
+        assume_connected: bool = False,
+        restart_if_running: bool = False,
+    ) -> Dict[str, Any]:
+        """Start the live WeChat/WeCom VoIP voice companion daemon (`bin/wechat-voip-call.cjs`)."""
+        import os
+        import signal
+        import subprocess
+
+        bot_studio_bin = Path("/Users/mac/Applications/Bot Studio.app/Contents/MacOS/Bot Studio")
+        if not bot_studio_bin.is_file():
+            return {"ok": False, "status": "botstudio_not_installed"}
+
+        script_candidates = [
+            self.bundle_root / "bin" / "wechat-voip-call.cjs",
+            self.plugin_root / "bin" / "wechat-voip-call.cjs",
+            Path(__file__).resolve().parent.parent / "bin" / "wechat-voip-call.cjs",
+        ]
+        script_path = next((p for p in script_candidates if p.is_file()), None)
+        if script_path is None:
+            return {"ok": False, "status": "voip_script_missing"}
+
+        logs_dir = self.plugin_root / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        pid_file = logs_dir / "wechat_voip_call.pid"
+        if pid_file.is_file():
+            try:
+                old_pid = int(pid_file.read_text(encoding="utf-8").strip())
+                os.kill(old_pid, 0)
+                if not restart_if_running:
+                    return {"ok": True, "status": "already_running", "pid": old_pid, "app": app, "target": target}
+                os.kill(old_pid, signal.SIGTERM)
+                import time as _time
+                _time.sleep(0.35)
+            except Exception:
+                pass
+
+        log_fp = open(logs_dir / "wechat_voip_call.log", "ab")
+        env = dict(os.environ)
+        env["HOME"] = str(Path.home())
+        env["WECHAT_BOT_DATA_DIR"] = str(self.plugin_root)
+        env["WECHAT_VISION_AX_BIN"] = str(self.binary_path)
+        env["ELECTRON_RUN_AS_NODE"] = "1"
+        cmd = [
+            str(bot_studio_bin),
+            str(script_path),
+            "--app",
+            str(app or "wechat"),
+        ]
+        if str(target or "").strip():
+            cmd += ["--target", str(target).strip()]
+        if str(greeting or "").strip():
+            cmd += ["--greeting", str(greeting).strip()]
+        if str(instructions or "").strip():
+            cmd += ["--instructions", str(instructions).strip()]
+        if str(idle_input_uid or "").strip():
+            cmd += ["--idle-input-uid", str(idle_input_uid).strip()]
+        if assume_connected:
+            cmd.append("--assume-connected")
+        proc = subprocess.Popen(
+            cmd,
+            stdout=log_fp,
+            stderr=log_fp,
+            stdin=subprocess.DEVNULL,
+            env=env,
+            start_new_session=True,
+        )
+        return {"ok": True, "status": "started", "pid": proc.pid, "app": app, "target": target}
+
+    def get_voice_call_status(self) -> Dict[str, Any]:
+        """Inspect live WeChat/WeCom VoIP daemon state, CoreAudio input device, and recent call summaries."""
+        state_path = self.plugin_root / "logs" / "voip_call_state.json"
+        summaries_path = self.plugin_root / "logs" / "voip_call_summaries.json"
+        daemon_state: Dict[str, Any] = {}
+        if state_path.is_file():
+            try:
+                daemon_state = json.loads(state_path.read_text(encoding="utf-8"))
+            except Exception:
+                daemon_state = {}
+        summaries: List[Dict[str, Any]] = []
+        if summaries_path.is_file():
+            try:
+                raw_sum = json.loads(summaries_path.read_text(encoding="utf-8"))
+                if isinstance(raw_sum, list):
+                    summaries = raw_sum[-5:]
+            except Exception:
+                summaries = []
+        native_scan = self._run_native(["voice-call", "--action", "status", "--app-id", "all"], timeout=8.0)
+        audio_info = self._run_native(["audio-devices"], timeout=5.0)
+        return {
+            "ok": True,
+            "daemon": daemon_state,
+            "calls": native_scan.get("calls") or [],
+            "callStatus": native_scan.get("callStatus") or daemon_state.get("callStatus") or "idle",
+            "defaultInput": audio_info.get("defaultInput"),
+            "inputDevices": audio_info.get("inputDevices") or [],
+            "recentSummaries": summaries,
+        }
+
+    def voice_call(
+        self,
+        target: str = "",
+        *,
+        action: str = "dial",
+        app: str = "wechat",
+        call_type: str = "audio",
+        greeting: str = "",
+        instructions: str = "",
+        auto_voice_agent: bool = True,
+        idle_input_uid: str = "",
+        dry_run: bool = False,
+        confirm_send: bool = True,
+        skip_navigation: bool = False,
+        target_window_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Place, answer, inspect, or hang up a native WeChat / WeCom VoIP voice/video call with live AI voice agent."""
+        import os
+        import signal
+        import urllib.request
+
+        clean_action = str(action or "dial").strip().lower()
+        if clean_action not in ("dial", "join", "answer", "hangup", "status"):
+            return {"ok": False, "error_code": "unsupported_action", "error": f"Unsupported action: {clean_action}"}
+        clean_app = str(app or "wechat").strip().lower()
+        if clean_app not in ("wechat", "wecom", "all"):
+            clean_app = "wechat"
+        clean_call_type = "video" if str(call_type or "audio").strip().lower() == "video" else "audio"
+        clean_target = str(target or "").strip()
+
+        if clean_action == "status":
+            return self.get_voice_call_status()
+
+        will_live = (not dry_run) and bool(confirm_send)
+        self._require("send_text_live" if will_live else "send_text_dry_run")
+
+        if clean_action == "dial" and clean_target and self.allowlist.enabled and not self.allowlist.is_allowed(clean_target):
+            return {
+                "ok": False,
+                "status": "blocked_allowlist",
+                "target": clean_target,
+                "error": f"Target {clean_target!r} is not in allowed contacts.",
+            }
+
+        saved_mic_file = self.plugin_root / "logs" / "voip_saved_input_device.json"
+
+        if clean_action == "hangup":
+            if will_live:
+                try:
+                    req = urllib.request.Request("http://127.0.0.1:18797/hangup", data=b"{}", method="POST")
+                    with urllib.request.urlopen(req, timeout=1.5):
+                        pass
+                except Exception:
+                    pid_file = self.plugin_root / "logs" / "wechat_voip_call.pid"
+                    if pid_file.is_file():
+                        try:
+                            os.kill(int(pid_file.read_text(encoding="utf-8").strip()), signal.SIGTERM)
+                        except Exception:
+                            pass
+            args = ["voice-call", "--action", "hangup", "--app-id", clean_app or "all", "--save-file", str(saved_mic_file)]
+            if not will_live:
+                args.append("--dry-run")
+            native_res = self._run_native(args, timeout=12.0)
+            if will_live and saved_mic_file.is_file():
+                self._run_native(["set-input-device", "--restore", "--save-file", str(saved_mic_file)], timeout=6.0)
+            audio_after = self._run_native(["audio-devices"], timeout=5.0)
+            res = {
+                "ok": bool(native_res.get("ok")),
+                "action": "hangup",
+                "status": "dry_run_ok" if not will_live else ("hung_up" if native_res.get("hungUp") else "idle"),
+                "native": native_res,
+                "defaultInput": audio_after.get("defaultInput"),
+            }
+            self.audit.log("voice_call_hangup", res["status"], res)
+            return res
+
+        if clean_action == "answer":
+            args = ["voice-call", "--action", "answer", "--app-id", clean_app or "all"]
+            if not will_live:
+                args.append("--dry-run")
+            native_res = self._run_native(args, timeout=12.0)
+            daemon_res: Dict[str, Any] = {"ok": False, "status": "dry_run_skipped"}
+            if will_live and native_res.get("ok") and auto_voice_agent:
+                answered_app = ((native_res.get("afterState") or {}).get("calls") or [{}])[0].get("appId") or (clean_app if clean_app != "all" else "wechat")
+                daemon_res = self._start_voip_voice_daemon(
+                    app=str(answered_app),
+                    target=clean_target,
+                    greeting=greeting,
+                    instructions=instructions,
+                    idle_input_uid=idle_input_uid,
+                    assume_connected=True,
+                    restart_if_running=True,
+                )
+            res = {
+                "ok": bool(native_res.get("ok")),
+                "action": "answer",
+                "status": "dry_run_ok" if not will_live else ("answered" if native_res.get("answered") else "answer_failed"),
+                "target": clean_target,
+                "native": native_res,
+                "voiceDaemon": daemon_res,
+            }
+            self.audit.log("voice_call_answer", res["status"], res)
+            return res
+
+        # action == "dial" or "join"
+        if will_live:
+            pre_scan = self._run_native(["voice-call", "--action", "status", "--app-id", clean_app or "all"], timeout=6.0)
+            if pre_scan.get("callStatus") == "connected":
+                daemon_res = self._start_voip_voice_daemon(
+                    app="wecom" if clean_app == "wecom" else "wechat",
+                    target=clean_target,
+                    greeting=greeting,
+                    instructions=instructions,
+                    idle_input_uid=idle_input_uid,
+                    assume_connected=True,
+                    restart_if_running=True,
+                )
+                res = {
+                    "ok": True,
+                    "action": clean_action,
+                    "app": "wecom" if clean_app == "wecom" else "wechat",
+                    "target": clean_target,
+                    "alreadyInCall": True,
+                    "status": "connected",
+                    "native": pre_scan,
+                    "voiceDaemon": daemon_res,
+                }
+                self.audit.log("voice_call_join_connected", res["status"], res)
+                return res
+            if clean_action == "join":
+                if pre_scan.get("callStatus") == "ringing_incoming":
+                    return self.voice_call(
+                        clean_target,
+                        action="answer",
+                        app=clean_app,
+                        greeting=greeting,
+                        instructions=instructions,
+                        auto_voice_agent=auto_voice_agent,
+                        idle_input_uid=idle_input_uid,
+                        dry_run=dry_run,
+                        confirm_send=confirm_send,
+                    )
+                return {"ok": False, "action": "join", "status": "no_active_call", "native": pre_scan}
+
+        effective_wid: Optional[int] = int(target_window_id) if target_window_id is not None else None
+        popout_win = None
+        if clean_app == "wechat":
+            if effective_wid is None and clean_target and hasattr(self, "inspector"):
+                try:
+                    popout_win = self.inspector.find_popout_window(clean_target, app="wechat")
+                    if popout_win and popout_win.get("windowID"):
+                        effective_wid = int(popout_win["windowID"])
+                except Exception:
+                    popout_win = None
+            if effective_wid is None and clean_target and (not skip_navigation) and will_live and hasattr(self, "inspector"):
+                nav = self.inspector.select_session(clean_target)
+                if not nav.get("ok"):
+                    return {
+                        "ok": False,
+                        "action": "dial",
+                        "status": "target_navigation_failed",
+                        "target": clean_target,
+                        "error": nav.get("error", f"Failed to navigate to {clean_target!r}."),
+                    }
+
+        args = ["voice-call", "--action", "dial", "--app-id", "all" if clean_app == "all" else clean_app, "--call-type", clean_call_type]
+        if clean_app == "all":
+            # Default dial app to wechat unless specified
+            args[4] = "wechat"
+        if effective_wid is not None:
+            args += ["--window-id", str(effective_wid)]
+            pw_title = str((popout_win or {}).get("title") or "").strip()
+            if pw_title:
+                args += ["--window-title", pw_title]
+        elif clean_target:
+            args += ["--target", clean_target]
+        if not will_live:
+            args.append("--dry-run")
+
+        native_res = self._run_native(args, timeout=15.0)
+        daemon_res: Dict[str, Any] = {"ok": False, "status": "dry_run_skipped"}
+        if will_live and native_res.get("ok") and auto_voice_agent:
+            daemon_res = self._start_voip_voice_daemon(
+                app="wecom" if clean_app == "wecom" else "wechat",
+                target=clean_target or str(native_res.get("windowTitle") or ""),
+                greeting=greeting,
+                instructions=instructions,
+                idle_input_uid=idle_input_uid,
+                assume_connected=False,
+                restart_if_running=True,
+            )
+
+        res = {
+            "ok": bool(native_res.get("ok")),
+            "action": "dial",
+            "app": "wecom" if clean_app == "wecom" else "wechat",
+            "callType": clean_call_type,
+            "target": clean_target,
+            "windowID": effective_wid or native_res.get("windowID"),
+            "status": "dry_run_ok" if not will_live else ("dialing" if native_res.get("initiated") else "dial_failed"),
+            "native": native_res,
+            "voiceDaemon": daemon_res,
+        }
+        self.audit.log("voice_call_dial", res["status"], res)
+        return res
+
     # ------------------------------------------------------------------
     # Bound Contacts, Deep Observation, Friend Style & Frequency Analytics
     # ------------------------------------------------------------------
