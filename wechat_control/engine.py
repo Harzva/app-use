@@ -649,7 +649,7 @@ class WeChatControlEngine:
                 "error": f"Native binary not compiled at {self.binary_path}",
             }
         cmd_name = args[0] if args else ""
-        mutating_input = cmd_name in ("click", "scroll", "focus-input", "paste-and-verify")
+        mutating_input = cmd_name in ("click", "scroll", "focus-input", "paste-and-verify", "send-sticker")
         rpa_x: Optional[float] = None
         rpa_y: Optional[float] = None
         if mutating_input:
@@ -1119,6 +1119,95 @@ class WeChatControlEngine:
         audit_payload = result if expected_window_id is None else {"fingerprint": fp, "stage": "workbench"}
         self.audit.log("send_text", status_label, audit_payload)
         return result
+
+    def send_wechat_sticker(
+        self,
+        target: str,
+        *,
+        tab: str = "favorites",
+        slot: int = 0,
+        emoji_code: str = "",
+        dry_run: bool = False,
+        confirm_send: bool = True,
+        skip_navigation: bool = False,
+        target_window_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Send an official WeChat emoji shortcode (`[旺柴]`/`[捂脸]`) or click a favorite/emoji panel sticker."""
+        clean_target = str(target or "").strip()
+        if not clean_target:
+            return {"ok": False, "error": "Target contact is required."}
+
+        clean_emoji = str(emoji_code or "").strip()
+        if clean_emoji:
+            from .humanizer_affect import normalize_wechat_emojis
+
+            if not (clean_emoji.startswith("[") and clean_emoji.endswith("]")):
+                clean_emoji = f"[{clean_emoji}]"
+            normalized_emoji = normalize_wechat_emojis(clean_emoji, fallback_emote="[旺柴]")
+            return self.send_text(
+                clean_target,
+                normalized_emoji,
+                dry_run=dry_run,
+                silent_mode=bool(dry_run or not confirm_send),
+                confirm_send=bool(confirm_send and not dry_run),
+                skip_navigation=skip_navigation,
+                target_window_id=target_window_id,
+            )
+
+        will_send = (not dry_run) and bool(confirm_send)
+        self._require("send_text_live" if will_send else "send_text_dry_run")
+        if self.allowlist.enabled and not self.allowlist.is_allowed(clean_target):
+            return {
+                "ok": False,
+                "status": "blocked_allowlist",
+                "target": clean_target,
+                "error": f"Target {clean_target!r} is not in allowed groups/contacts.",
+            }
+
+        clean_tab = "emoji" if str(tab or "").strip().lower() == "emoji" else "favorites"
+        clean_slot = max(0, min(24, int(slot or 0)))
+
+        popout_win = None
+        effective_wid: Optional[int] = int(target_window_id) if target_window_id is not None else None
+        if effective_wid is None and hasattr(self, "inspector"):
+            try:
+                popout_win = self.inspector.find_popout_window(clean_target, app="all")
+                if popout_win and popout_win.get("windowID"):
+                    effective_wid = int(popout_win["windowID"])
+            except Exception:
+                popout_win = None
+
+        if effective_wid is None and (not skip_navigation) and (not dry_run):
+            nav = self.inspector.select_session(clean_target)
+            if not nav.get("ok"):
+                return {
+                    "ok": False,
+                    "status": "target_navigation_failed",
+                    "target": clean_target,
+                    "error": nav.get("error", f"Failed to select {clean_target!r}"),
+                }
+
+        args = ["send-sticker", "--tab", clean_tab, "--slot", str(clean_slot)]
+        if effective_wid is not None:
+            args += ["--window-id", str(effective_wid)]
+            pw_title = str((popout_win or {}).get("title") or "").strip()
+            if pw_title:
+                args += ["--window-title", pw_title]
+        if not will_send:
+            args.append("--dry-run")
+
+        native_res = self._run_native(args, timeout=15.0)
+        res = {
+            "ok": bool(native_res.get("ok")),
+            "status": "sent" if (will_send and native_res.get("sent")) else ("dry_run_ok" if native_res.get("ok") else native_res.get("error_code", "native_error")),
+            "target": clean_target,
+            "tab": clean_tab,
+            "slot": clean_slot,
+            "windowID": effective_wid,
+            "native": native_res,
+        }
+        self.audit.log("send_sticker", res["status"], res)
+        return res
 
     # ------------------------------------------------------------------
     # Bound Contacts, Deep Observation, Friend Style & Frequency Analytics

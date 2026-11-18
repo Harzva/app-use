@@ -234,6 +234,55 @@ class TestHumanizerAffectAndCardRead(unittest.TestCase):
         self.assertTrue(smart["ok"])
         self.assertTrue(Path(summary["syncPath"]).is_file())
 
+    def test_official_wechat_emojis_normalization_and_sticker_sender(self) -> None:
+        from wechat_control import OFFICIAL_WECHAT_EMOJIS, normalize_wechat_emojis
+
+        # Non-WeChat shortcodes like [思考] / [笑哭] / [doge] must normalize to official WeChat graphical emojis
+        self.assertEqual(normalize_wechat_emojis("压力确实大 [思考]"), "压力确实大 [机智]")
+        self.assertEqual(normalize_wechat_emojis("笑不活了 [笑哭]"), "笑不活了 [破涕为笑]")
+        self.assertEqual(normalize_wechat_emojis("太强了 [doge]"), "太强了 [旺柴]")
+        # Media tags must NOT be corrupted
+        self.assertEqual(normalize_wechat_emojis("[图片] 看看这个 [视频]"), "[图片] 看看这个 [视频]")
+
+        # humanize_wechat_reply always emits official WeChat graphical emojis for real-human contacts
+        affect = EuphoriaAffectEngine(self.tmp / "affect_emoji.json")
+        ctrl = affect.appraise_and_update("联系人B", "这个视频详细说下核心点", now_ts=2000.0)["controls"]
+        self.assertGreaterEqual(ctrl.emote_probability, 0.75)
+        self.assertNotEqual(ctrl.recommended_emote, "[思考]")
+        self.assertIn(ctrl.recommended_emote.strip("[]"), OFFICIAL_WECHAT_EMOJIS)
+
+        replied = humanize_wechat_reply(
+            "宁德时代那段主要讲技术迭代太快了，得抱团应对压力[思考]。",
+            persona_id="warm-companion",
+            affect_controls=ctrl,
+            allow_emote=True,
+        )
+        self.assertNotIn("[思考]", replied)
+        self.assertIn("[机智]", replied)
+
+        # send_wechat_sticker supports both emoji shortcode and native sticker panel dispatch
+        native_calls = []
+
+        def fake_sticker_native(args, timeout=15.0):
+            native_calls.append(list(args))
+            if args[0] == "list-app-windows":
+                return {
+                    "ok": True,
+                    "windows": [{"windowID": 14393, "title": "联系人A", "isMainWindow": False, "bounds": {"x": 927, "y": 177, "width": 1523, "height": 1160}}],
+                }
+            if args[0] == "send-sticker":
+                return {"ok": True, "sent": False, "dryRun": True, "tab": "favorites", "slot": 0}
+            return {"ok": True, "sent": False}
+
+        self.engine._run_native = fake_sticker_native  # type: ignore[method-assign]
+        res_panel = self.engine.send_wechat_sticker("联系人A", tab="favorites", slot=0, dry_run=True, confirm_send=False)
+        self.assertTrue(res_panel["ok"])
+        self.assertTrue(any(c[0] == "send-sticker" and "--tab" in c and "favorites" in c for c in native_calls))
+
+        res_code = self.engine.send_wechat_sticker("联系人A", emoji_code="思考", dry_run=True, confirm_send=False)
+        self.assertTrue(res_code["ok"])
+        self.assertEqual(res_code["status"], "dry_run_ok")
+
 
 if __name__ == "__main__":
     unittest.main()

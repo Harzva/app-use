@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .humanizer_affect import OFFICIAL_WECHAT_EMOJIS
 from .io_utils import atomic_write_json
 from .safety import normalize_chat_name
 
@@ -84,7 +85,10 @@ def evaluate_turn_human_likeness(reply_text: str, incoming_text: str = "") -> Di
     if not conversational_len:
         issues.append("reply_too_short_or_too_long")
 
-    has_emote = bool(_WECHAT_EMOTE_RE.search(text))
+    has_emote = any(
+        tag in OFFICIAL_WECHAT_EMOJIS
+        for tag in re.findall(r"\[([^\[\]\s:：]{1,6})\]", text)
+    )
     shared_tokens = {
         tok
         for tok in re.findall(r"[A-Za-z0-9_]{2,}|[\u4e00-\u9fff]{2}", incoming)

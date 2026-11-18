@@ -24,9 +24,11 @@ from .coevolution_engine import (
 from .engine import WeChatControlEngine
 from .human_activity_guard import HumanActivityGuard
 from .humanizer_affect import (
+    OFFICIAL_WECHAT_EMOJIS,
     EuphoriaAffectEngine,
     blend_persona_partitions,
     humanize_wechat_reply,
+    normalize_wechat_emojis,
     parse_sibyl_feedback_command,
 )
 from .knowledge_kf_engine import PersonaSwitchEngine, WeChatKnowledgeStore
@@ -60,6 +62,7 @@ __all__ = [
     "HumanActivityGuard",
     "HumanJitter",
     "MagpieProviderHub",
+    "OFFICIAL_WECHAT_EMOJIS",
     "OutgoingMessageRegistry",
     "PersonaSwitchEngine",
     "ReadbackMismatchError",
@@ -85,6 +88,7 @@ __all__ = [
     "evaluate_turn_human_likeness",
     "humanize_wechat_reply",
     "map_magpie_model",
+    "normalize_wechat_emojis",
     "parse_sibyl_feedback_command",
     "render_web_console_html",
     "serve_http",

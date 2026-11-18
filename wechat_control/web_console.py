@@ -3172,6 +3172,19 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
                 <p class="draft-status" id="draftStatus" role="status" hidden></p>
               </div>
             </div>
+            <div id="emojiQuickBar" style="display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-bottom:6px; font-size:12px;">
+              <span style="color:var(--text-muted); font-size:11.5px;">😊 微信小表情：</span>
+              <button type="button" class="btn-outline sm" onclick="insertWeChatEmoji('[旺柴]')">[旺柴]</button>
+              <button type="button" class="btn-outline sm" onclick="insertWeChatEmoji('[捂脸]')">[捂脸]</button>
+              <button type="button" class="btn-outline sm" onclick="insertWeChatEmoji('[机智]')">[机智]</button>
+              <button type="button" class="btn-outline sm" onclick="insertWeChatEmoji('[破涕为笑]')">[破涕为笑]</button>
+              <button type="button" class="btn-outline sm" onclick="insertWeChatEmoji('[呲牙]')">[呲牙]</button>
+              <button type="button" class="btn-outline sm" onclick="insertWeChatEmoji('[偷笑]')">[偷笑]</button>
+              <button type="button" class="btn-outline sm" onclick="insertWeChatEmoji('[吃瓜]')">[吃瓜]</button>
+              <button type="button" class="btn-outline sm" onclick="insertWeChatEmoji('[让我看看]')">[让我看看]</button>
+              <button type="button" class="btn-outline sm" onclick="insertWeChatEmoji('[苦笑]')">[苦笑]</button>
+              <button type="button" class="btn-outline sm" onclick="sendWeChatStickerQuick('favorites', 0)" title="点击微信表情面板「❤️ 收藏表情」第1个并发送">❤️ 发收藏表情</button>
+            </div>
             <textarea id="sendText" placeholder="输入回复，或点下方「生成草稿」/「@元宝 解析」自动起草"></textarea>
             <div class="chat-composer-bar">
               <div class="composer-actions">
@@ -6423,6 +6436,44 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         setDraftStatus("没有收到操作回执。请核对微信后再决定是否重试。", "error");
       } finally {
         sendInFlight = false;
+      }
+    }
+
+    function insertWeChatEmoji(code) {
+      const editor = document.getElementById("sendText");
+      if (!editor) return;
+      const start = editor.selectionStart ?? editor.value.length;
+      const end = editor.selectionEnd ?? editor.value.length;
+      const cur = editor.value || "";
+      const prefixSpace = (start > 0 && !/\s$/.test(cur.slice(0, start))) ? " " : "";
+      const insertText = prefixSpace + code;
+      editor.value = cur.slice(0, start) + insertText + cur.slice(end);
+      editor.focus();
+      const pos = start + insertText.length;
+      editor.setSelectionRange(pos, pos);
+    }
+
+    async function sendWeChatStickerQuick(tab = "favorites", slot = 0) {
+      if (sendInFlight || serviceBlocked) return;
+      const recipient = document.getElementById("sendTarget");
+      const modeSelect = document.getElementById("sendMode");
+      const target = (recipient?.value || "").trim();
+      if (!target) {
+        setDraftStatus("请先选择要发送表情的好友。", "error");
+        return;
+      }
+      const mode = modeSelect ? modeSelect.value : "dry_run";
+      const dryRun = mode !== "confirm_send";
+      if (!dryRun && !(await confirmLiveSend(target, `[微信${tab === "emoji" ? "小表情" : "收藏表情"} #${slot + 1}]`))) return;
+      try {
+        const { data } = await apiJson("/api/send-sticker", {
+          method: "POST",
+          body: JSON.stringify({ target, tab, slot, dry_run: dryRun, confirm_send: !dryRun }),
+        });
+        document.getElementById("sendReceiptBox").innerHTML =
+          `<div class="send-receipt"><p>${data.ok ? (dryRun ? "表情坐标模拟检查完成，未真实点击。" : "已触发微信表情发送。") : "表情发送未成功。"}</p><details><summary>查看回执</summary><pre class="code-box">${escapeHtml(JSON.stringify(data, null, 2))}</pre></details></div>`;
+      } catch (err) {
+        setDraftStatus("发送表情失败: " + err.message, "error");
       }
     }
 

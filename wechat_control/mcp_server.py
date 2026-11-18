@@ -2084,6 +2084,18 @@ def create_http_server(
                         except Exception:
                             pass
                     self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/send-sticker":
+                    res = engine.send_wechat_sticker(
+                        target=str(body.get("target") or ""),
+                        tab=str(body.get("tab") or "favorites"),
+                        slot=int(body.get("slot") or 0),
+                        emoji_code=str(body.get("emoji_code") or body.get("emojiCode") or ""),
+                        dry_run=bool(body.get("dry_run", body.get("dryRun", False))),
+                        confirm_send=bool(body.get("confirm_send", body.get("confirmSend", True))),
+                        skip_navigation=bool(body.get("skip_navigation", body.get("skipNavigation", False))),
+                        target_window_id=int(body["target_window_id"]) if body.get("target_window_id") else None,
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
                 elif path == "/import-chatlog":
                     src = Path(str(body["source_path"]))
                     out = Path(str(body["output_dir"])) if body.get("output_dir") else None

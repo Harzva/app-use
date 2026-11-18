@@ -2240,6 +2240,115 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
     writeJSON(resp)
 }
 
+func cmdSendSticker(flags: Set<String>, options: [String: String]) {
+    guard AXIsProcessTrusted() else {
+        failJSON("Accessibility permission (AXIsProcessTrusted) is not granted.", code: "ax_permission_denied")
+    }
+    let (_, targetKind) = resolveTargetApp(options: options, allowWindowLookupWhenOmitted: true)
+    let ensured = ensureAppMainWindow(kind: targetKind)
+    guard let app = ensured.app else {
+        failJSON("\(targetKind.appLabel) is not running.", code: targetKind.notRunningErrorCode, extra: ["appId": targetKind.appId])
+    }
+
+    let windows = listWindows(for: targetKind)
+    let hasWindowSelector = options["window-id"] != nil || !(options["window-title"] ?? "").isEmpty
+    guard let targetWin = selectTargetWindow(in: windows, options: options) else {
+        failJSON(
+            "No matching visible \(targetKind.appLabel) window found.",
+            code: hasWindowSelector ? "window_not_found" : "no_window",
+            extra: ["appId": targetKind.appId]
+        )
+    }
+
+    let tab = (options["tab"] ?? "favorites").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let slot = max(0, min(24, Int(options["slot"] ?? "0") ?? 0))
+    let dryRun = flags.contains("dry-run") || options["dry-run"] == "1"
+
+    let leftPaneOffset: Double = {
+        if let rawSplit = options["split-x"], let parsed = Double(rawSplit), parsed > 0 {
+            return parsed
+        }
+        return targetWin.isMainWindow ? max(218.0, min(320.0, targetWin.width * 0.36)) : 0.0
+    }()
+
+    let emojiBtnX = targetWin.x + leftPaneOffset + 25.0
+    let emojiBtnY = targetWin.y + targetWin.height - 29.0
+    let tabX = targetWin.x + leftPaneOffset + (tab == "emoji" ? 68.0 : 102.0)
+    let tabY = targetWin.y + targetWin.height - 78.0
+
+    let slotX: Double
+    let slotY: Double
+    if tab == "emoji" {
+        let col = slot % 8
+        let row = slot / 8
+        slotX = targetWin.x + leftPaneOffset + 38.0 + Double(col) * 38.0
+        slotY = targetWin.y + targetWin.height - 355.0 + Double(row) * 38.0
+    } else {
+        let col = slot % 5
+        let row = slot / 5
+        slotX = targetWin.x + leftPaneOffset + 50.0 + Double(col) * 68.0
+        slotY = targetWin.y + targetWin.height - 375.0 + Double(row) * 68.0
+    }
+
+    if dryRun {
+        writeJSON([
+            "ok": true,
+            "sent": false,
+            "dryRun": true,
+            "tab": tab,
+            "slot": slot,
+            "windowID": targetWin.windowID,
+            "windowTitle": targetWin.title,
+            "emojiButton": ["x": emojiBtnX, "y": emojiBtnY],
+            "tabButton": ["x": tabX, "y": tabY],
+            "slotPoint": ["x": slotX, "y": slotY],
+        ])
+        return
+    }
+
+    if let twApp = NSRunningApplication(processIdentifier: targetWin.pid) {
+        _ = twApp.unhide()
+        _ = twApp.activate(options: [.activateIgnoringOtherApps])
+    } else {
+        _ = app.activate(options: [.activateIgnoringOtherApps])
+    }
+    if let axWin = findAXWindow(pid: targetWin.pid, kind: targetKind, targetWin: targetWin, reqTitle: options["window-title"]) {
+        _ = AXUIElementSetAttributeValue(axWin, kAXMainAttribute as CFString, kCFBooleanTrue)
+        _ = AXUIElementPerformAction(axWin, kAXRaiseAction as CFString)
+    }
+    usleep(220_000)
+
+    let (frontOK, frontDesc) = isAppFrontmost(targetKind)
+    guard frontOK else {
+        failJSON("Aborted: frontmost app is '\(frontDesc)', expected \(targetKind.appLabel).", code: "not_frontmost", extra: ["appId": targetKind.appId])
+    }
+
+    // 1) Open emoji/sticker popover
+    moveAndClick(x: emojiBtnX, y: emojiBtnY)
+    usleep(280_000)
+    // 2) Switch to requested tab (favorites ❤️ or default emoji 😊)
+    moveAndClick(x: tabX, y: tabY)
+    usleep(240_000)
+    // 3) Click target sticker / emoji cell
+    moveAndClick(x: slotX, y: slotY)
+    usleep(180_000)
+    // For emoji text cells, confirm sending with Return (favorite stickers send directly on click)
+    if tab == "emoji" {
+        postKey(keyCode: kKeyReturn)
+        usleep(220_000)
+    }
+
+    writeJSON([
+        "ok": true,
+        "sent": true,
+        "tab": tab,
+        "slot": slot,
+        "windowID": targetWin.windowID,
+        "windowTitle": targetWin.title,
+        "slotPoint": ["x": slotX, "y": slotY],
+    ])
+}
+
 func renderPDFPageToCGImage(_ page: PDFPage, maxDimension: CGFloat = 2200.0, scale: CGFloat = 2.0) -> CGImage? {
     let cropBox = page.bounds(for: .cropBox)
     guard cropBox.width > 1, cropBox.height > 1 else { return nil }
@@ -2441,9 +2550,11 @@ case "focus-input":
     cmdFocusInput(options: parsed.options)
 case "paste-and-verify":
     cmdPasteAndVerify(flags: parsed.flags, options: parsed.options)
+case "send-sticker":
+    cmdSendSticker(flags: parsed.flags, options: parsed.options)
 default:
     writeJSON([
         "ok": true,
-        "usage": "wechat-vision-ax <status|list-app-windows|dhash-windows|hid-idle|ax-tree|ocr|capture-ocr|set-window-frame|extract-pdf-text|extract-video-frames|render-test-image|click|right-click|scroll|activate|request-permissions|focus-input|paste-and-verify> [options]",
+        "usage": "wechat-vision-ax <status|list-app-windows|dhash-windows|hid-idle|ax-tree|ocr|capture-ocr|set-window-frame|extract-pdf-text|extract-video-frames|render-test-image|click|right-click|scroll|activate|request-permissions|focus-input|paste-and-verify|send-sticker> [options]",
     ])
 }

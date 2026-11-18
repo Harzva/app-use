@@ -315,6 +315,7 @@ class EuphoriaAffectEngine:
                     "emotions": {},
                     "lastTs": ts,
                     "lastTrigger": "init",
+                    "turnCount": 0,
                 }
                 self._contacts[key] = entry
             self._decay_entry(entry, ts)
@@ -326,9 +327,12 @@ class EuphoriaAffectEngine:
             entry["emotions"] = emos
             entry["lastTs"] = ts
             entry["lastTrigger"] = imp["kind"]
+            turn_idx = int(entry.get("turnCount") or 0)
+            entry["turnCount"] = turn_idx + 1
             self._save()
             snapshot = dict(entry)
             snapshot["emotions"] = dict(emos)
+            snapshot["turnCount"] = turn_idx
 
         controls = self.expression_style(snapshot, trigger_kind=imp["kind"])
         return {
@@ -343,6 +347,7 @@ class EuphoriaAffectEngine:
         arousal = float(state.get("arousal") or 0.35)
         emos = dict(state.get("emotions") or {})
         dominant = max(emos.items(), key=lambda kv: kv[1])[0] if emos else "calm"
+        turn_idx = max(0, int(state.get("turnCount") or 0))
 
         caution_emo = float(emos.get("caution") or 0.0)
         amusement_emo = float(emos.get("amusement") or 0.0)
@@ -356,24 +361,34 @@ class EuphoriaAffectEngine:
 
         if caution_emo >= 0.4 or trigger_kind == "friction":
             tone = "坦诚核实不绕弯，带一点自嘲缓和气氛，不辩解也不打官腔"
-            emote = "[捂脸]"
-            emote_prob = 0.75
+            pool = ("[捂脸]", "[苦笑]", "[擦汗]")
+            emote = pool[turn_idx % len(pool)]
+            emote_prob = 0.85
         elif amusement_emo >= 0.4 or trigger_kind == "banter_playful":
             tone = "松弛幽默像熟人接梗，不端着也不堆砌语气词"
-            emote = "[旺柴]"
-            emote_prob = 0.85
+            pool = ("[旺柴]", "[破涕为笑]", "[偷笑]", "[呲牙]")
+            emote = pool[turn_idx % len(pool)]
+            emote_prob = 0.90
         elif curiosity_emo >= 0.4 or trigger_kind == "intellectual_share":
             tone = "内行直击核心点位，专业有见地但保持日常聊天松弛感"
-            emote = "[思考]"
-            emote_prob = 0.35
+            pool = ("[机智]", "[让我看看]", "[吃瓜]")
+            emote = pool[turn_idx % len(pool)]
+            emote_prob = 0.82
         elif joy_emo >= 0.4 or trigger_kind == "praise":
             tone = "明快坦然接住肯定，简短有温度"
-            emote = "[旺柴]"
-            emote_prob = 0.65
+            pool = ("[旺柴]", "[呲牙]", "[偷笑]")
+            emote = pool[turn_idx % len(pool)]
+            emote_prob = 0.88
+        elif trigger_kind == "inquiry":
+            tone = "自然平稳把关键点讲透，不打官腔"
+            pool = ("[机智]", "[让我看看]", "[旺柴]")
+            emote = pool[turn_idx % len(pool)]
+            emote_prob = 0.78
         else:
-            tone = "自然平稳口语，直白不油腻"
-            emote = "[机智]"
-            emote_prob = 0.20
+            tone = "自然平稳口语，像熟人微信随手回消息"
+            pool = ("[呲牙]", "[偷笑]", "[旺柴]", "[愉快]", "[机智]")
+            emote = pool[turn_idx % len(pool)]
+            emote_prob = 0.78
 
         return ExpressionControls(
             warmth=warmth,
@@ -421,6 +436,71 @@ _ENUM_WORD_RE = re.compile(
 _ENUM_DIGIT_RE = re.compile(
     r"(?:(?:^|(?<=[\s，。；]))[1-9]\d?\s*[\.、\)）]\s+)"
 )
+
+# 官方微信原生内置小表情编码（macOS / iOS / Windows 微信均可直接渲染为黄色图形表情）
+# 注意：微信并没有 [思考]（那是微博/抖音写法，微信会直接显示成纯文字 [思考]！）
+OFFICIAL_WECHAT_EMOJIS: frozenset[str] = frozenset({
+    "旺柴", "捂脸", "机智", "破涕为笑", "呲牙", "偷笑", "奸笑", "吃瓜", "让我看看", "疑问",
+    "Emm", "苦笑", "叹气", "裂开", "666", "强", "抱拳", "握手", "调皮", "憨笑", "愉快",
+    "笑脸", "害羞", "脸红", "无语", "嘿哈", "耶", "加油", "汗", "天啊", "社会社会", "好的",
+    "打脸", "哇", "翻白眼", "微笑", "撇嘴", "色", "发呆", "得意", "流泪", "闭嘴", "睡",
+    "大哭", "尴尬", "发怒", "惊讶", "难过", "囧", "抓狂", "吐", "白眼", "傲慢", "困",
+    "惊恐", "流汗", "悠闲", "奋斗", "咒骂", "嘘", "晕", "衰", "骷髅", "敲打", "再见",
+    "擦汗", "抠鼻", "鼓掌", "坏笑", "右哼哼", "鄙视", "委屈", "快哭了", "阴险", "亲亲",
+    "可怜", "生病", "恐惧", "失望", "皱眉", "嘴唇", "爱心", "心碎", "拥抱", "弱", "胜利",
+    "勾引", "拳头", "OK", "合十", "啤酒", "咖啡", "蛋糕", "玫瑰", "凋谢", "庆祝", "礼物",
+    "红包", "發", "福", "烟花", "爆竹", "猪头", "跳跳", "发抖", "转圈", "拥抱",
+})
+
+WECHAT_EMOJI_ALIAS_MAP: Dict[str, str] = {
+    "思考": "机智",
+    "想一想": "让我看看",
+    "深思": "机智",
+    "沉思": "让我看看",
+    "笑哭": "破涕为笑",
+    "哭笑不得": "破涕为笑",
+    "doge": "旺柴",
+    "狗头": "旺柴",
+    "无奈": "苦笑",
+    "摊手": "苦笑",
+    "汗颜": "擦汗",
+    "点赞": "强",
+    "赞": "强",
+    "抱抱": "拥抱",
+    "哈哈": "呲牙",
+    "大笑": "呲牙",
+    "好奇": "让我看看",
+    "疑惑": "疑问",
+    "摸头": "愉快",
+    "开心": "愉快",
+    "偷乐": "偷笑",
+    "比心": "爱心",
+}
+
+_PROTECTED_MEDIA_BRACKETS: frozenset[str] = frozenset({
+    "图片", "视频", "链接", "语音", "文件", "动画表情", "图片消息", "视频消息",
+    "位置", "名片", "红包", "转账", "小程序", "聊天记录",
+})
+
+
+def normalize_wechat_emojis(text: str, *, fallback_emote: str = "[机智]") -> str:
+    """Convert non-WeChat bracket emotes like [思考]/[笑哭] into official graphical WeChat emojis."""
+    raw = str(text or "")
+    if not raw or "[" not in raw:
+        return raw
+
+    def _repl(match: re.Match[str]) -> str:
+        tag = match.group(1).strip()
+        if not tag or tag in _PROTECTED_MEDIA_BRACKETS or tag in OFFICIAL_WECHAT_EMOJIS:
+            return match.group(0)
+        mapped = WECHAT_EMOJI_ALIAS_MAP.get(tag) or WECHAT_EMOJI_ALIAS_MAP.get(tag.lower())
+        if mapped:
+            return f"[{mapped}]"
+        if not tag.isdigit() and re.fullmatch(r"[\u4e00-\u9fffA-Za-z]{2,5}", tag):
+            return fallback_emote if fallback_emote else ""
+        return match.group(0)
+
+    return re.sub(r"\[([^\[\]\s:：]{1,6})\]", _repl, raw)
 
 
 def humanize_wechat_reply(
@@ -486,17 +566,24 @@ def humanize_wechat_reply(
     # 5. Strip stiff trailing period `。` at message end (real WeChat texting drops trailing full stops)
     out = re.sub(r"。\s*$", "", out).strip()
 
-    # 6. Inject at most one context-appropriate WeChat expression ([旺柴] / [捂脸] / etc.)
-    has_wechat_emote = bool(re.search(r"\[[\u4e00-\u9fffA-Za-z0-9]{1,6}\]", out))
+    # 6. Normalize non-WeChat emoji shortcodes (e.g. [思考] -> [机智]) so WeChat renders graphical yellow faces
+    fallback_e = affect_controls.recommended_emote if (affect_controls and affect_controls.recommended_emote) else "[机智]"
+    out = normalize_wechat_emojis(out, fallback_emote=fallback_e)
+
+    # 7. Inject context-appropriate official WeChat expression ([旺柴] / [捂脸] / [机智] / [呲牙] etc.)
+    has_wechat_emote = any(
+        tag in OFFICIAL_WECHAT_EMOJIS
+        for tag in re.findall(r"\[([^\[\]\s:：]{1,6})\]", out)
+    )
     if (
         allow_emote
         and not has_wechat_emote
         and affect_controls is not None
-        and persona_id in ("warm-friend", "owner-digital-twin")
-        and affect_controls.emote_probability >= 0.55
+        and persona_id in ("warm-friend", "owner-digital-twin", "warm-companion")
+        and affect_controls.emote_probability >= 0.50
         and affect_controls.recommended_emote
     ):
-        emote = affect_controls.recommended_emote
+        emote = normalize_wechat_emojis(affect_controls.recommended_emote)
         if len(out) + len(emote) + 1 <= max_len:
             out = f"{out.rstrip('!！ ')} {emote}"
 
