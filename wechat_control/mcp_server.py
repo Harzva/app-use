@@ -629,13 +629,13 @@ MCP_TOOLS: List[Dict[str, Any]] = [
     },
     {
         "name": "wechat_voice_call",
-        "description": "Place, join an active call, answer, inspect, or hang up a native WeChat or WeCom VoIP voice/video call with live AI voice dialogue and safe mic restore.",
+        "description": "Place, join an active call, answer, inspect, or hang up a native WeChat, WeCom, Feishu, or DingTalk VoIP voice/video call with live AI voice dialogue and safe mic restore.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "target": {"type": "string", "default": ""},
                 "action": {"type": "string", "enum": ["dial", "join", "answer", "hangup", "status"], "default": "dial"},
-                "app": {"type": "string", "enum": ["wechat", "wecom", "all"], "default": "wechat"},
+                "app": {"type": "string", "enum": ["wechat", "wecom", "feishu", "dingtalk", "all"], "default": "wechat"},
                 "call_type": {"type": "string", "enum": ["audio", "video"], "default": "audio"},
                 "greeting": {"type": "string", "default": ""},
                 "instructions": {"type": "string", "default": ""},
@@ -688,7 +688,7 @@ MCP_TOOLS: List[Dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "target": {"type": "string", "default": "联系人A"},
+                "target": {"type": "string", "default": "心安"},
                 "incoming_text": {"type": "string", "default": ""},
             },
             "required": ["target"],
@@ -700,10 +700,312 @@ MCP_TOOLS: List[Dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "target": {"type": "string", "default": "联系人A"},
+                "target": {"type": "string", "default": "心安"},
                 "overrides": {"type": "object", "default": {}},
             },
             "required": ["target"],
+        },
+    },
+    {
+        "name": "omni_channels_status",
+        "description": "List all 6 channels (Feishu/Lark, DingTalk, Xiaohongshu, Douyin, WeChat, WeCom), installed desktop/web/open-source capabilities, and optional live probe.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "channel": {"type": "string", "default": "all"},
+                "probe_live": {"type": "boolean", "default": False},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "omni_channel_inspect",
+        "description": "Inspect sessions, comments, or visible messages for Feishu, DingTalk, Xiaohongshu, Douyin, WeChat, or WeCom.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "channel": {"type": "string", "default": "feishu"},
+                "action": {"type": "string", "enum": ["sessions", "messages"], "default": "sessions"},
+                "target": {"type": "string", "default": ""},
+                "query": {"type": "string", "default": ""},
+                "limit": {"type": "integer", "default": 20},
+                "launch_if_needed": {"type": "boolean", "default": False},
+            },
+            "required": ["channel"],
+        },
+    },
+    {
+        "name": "omni_channel_send",
+        "description": "Safely send or dry-run verify a message/reply on Feishu, DingTalk, Xiaohongshu, Douyin, WeChat, or WeCom (via Desktop RPA, ego-browser web RPA, or HMAC Webhook/OpenAPI).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "channel": {"type": "string"},
+                "target": {"type": "string", "default": ""},
+                "text": {"type": "string"},
+                "mode": {"type": "string", "enum": ["auto", "rpa", "web", "webhook", "open_api"], "default": "auto"},
+                "dry_run": {"type": "boolean", "default": True},
+                "confirm_send": {"type": "boolean", "default": False},
+            },
+            "required": ["channel", "text"],
+        },
+    },
+    {
+        "name": "omni_channel_leads",
+        "description": "Extract commercial intent leads from Feishu, DingTalk, Xiaohongshu, or Douyin interactions and optionally enroll hot/warm leads into SalesCRM.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "channel": {"type": "string"},
+                "target": {"type": "string", "default": ""},
+                "query": {"type": "string", "default": ""},
+                "sync_crm": {"type": "boolean", "default": True},
+            },
+            "required": ["channel"],
+        },
+    },
+    {
+        "name": "app_use_list_apps",
+        "description": "Discover running and installed macOS applications across System, Applications, User, and SanDisk, automatically tagging AI Agent Apps vs standard productivity apps.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "include_installed": {"type": "boolean", "default": True},
+                "category": {"type": "string", "enum": ["all", "agent_app", "productivity", "im_social", "dev_tool", "browser"], "default": "all"},
+                "running_only": {"type": "boolean", "default": False},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "app_use_list_agents",
+        "description": "List all selectable Agent backends (Magpie multi-model routing groups, custom providers, local CLI agents, and offline AX+OCR heuristic planner) for App-Use SOP synthesis.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "refresh_models": {"type": "boolean", "default": False},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "app_use_inspect",
+        "description": "Inspect live AXUIElement controls, inputs, buttons, window geometry, and Apple Vision OCR text of ANY macOS app (including Agent Apps) by bundle_id or app_name.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "bundle_id": {"type": "string", "default": ""},
+                "app_name": {"type": "string", "default": ""},
+                "app_path": {"type": "string", "default": ""},
+                "launch_if_needed": {"type": "boolean", "default": False},
+                "allow_activate": {"type": "boolean", "default": True},
+                "max_nodes": {"type": "integer", "default": 350},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "app_use_build_sop",
+        "description": "Use any chosen Agent backend (Magpie model, local CLI agent, or heuristic planner) to automatically generate BOTH a structured SOP Markdown and an executable RPA Workflow JSON for any macOS app.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "goal": {"type": "string"},
+                "bundle_id": {"type": "string", "default": ""},
+                "app_name": {"type": "string", "default": ""},
+                "app_path": {"type": "string", "default": ""},
+                "agent_id": {"type": "string", "default": ""},
+                "provider_id": {"type": "string"},
+                "custom_agent_prompt": {"type": "string", "default": ""},
+                "inspect_live": {"type": "boolean", "default": True},
+                "launch_if_needed": {"type": "boolean", "default": False},
+                "attach_screenshot": {"type": "boolean", "default": False},
+                "save": {"type": "boolean", "default": True},
+            },
+            "required": ["goal"],
+        },
+    },
+    {
+        "name": "app_use_run_workflow",
+        "description": "Validate (dry_run=true) or live-execute (dry_run=false, confirm_run=true) a saved or ad-hoc App-Use RPA workflow with HumanActivityGuard protection, OCR/AX readback, output capture, and runtime self-healing.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workflow_id": {"type": "string"},
+                "workflow": {"type": "object"},
+                "params": {"type": "object"},
+                "dry_run": {"type": "boolean", "default": True},
+                "confirm_run": {"type": "boolean", "default": False},
+                "respect_human_guard": {"type": "boolean", "default": True},
+                "self_heal": {"type": "boolean", "default": True},
+                "auto_patch_workflow": {"type": "boolean", "default": False},
+                "heal_agent_id": {"type": "string", "default": ""},
+                "dispatch_mode": {"type": "string", "enum": ["auto", "headless_ax_first", "foreground_hid_only"], "default": "auto"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "app_use_explore_and_build",
+        "description": "Autonomously observe, plan, act (when dry_run=false and confirm_run=true), verify, and compile a reusable App-Use SOP + parameterized workflow on a macOS desktop app.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "goal": {"type": "string"},
+                "bundle_id": {"type": "string"},
+                "app_name": {"type": "string"},
+                "app_path": {"type": "string"},
+                "agent_id": {"type": "string"},
+                "max_turns": {"type": "integer", "default": 6},
+                "dry_run": {"type": "boolean", "default": True},
+                "confirm_run": {"type": "boolean", "default": False},
+                "respect_human_guard": {"type": "boolean", "default": True},
+                "launch_if_needed": {"type": "boolean", "default": True},
+                "save": {"type": "boolean", "default": True},
+            },
+            "required": ["goal"],
+        },
+    },
+    {
+        "name": "app_use_run_pipeline",
+        "description": "Execute a cross-app multi-stage RPA pipeline passing captured output variables ({{var}}) from one macOS app workflow into downstream app stages.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "pipeline_id": {"type": "string"},
+                "pipeline": {"type": "object"},
+                "initial_params": {"type": "object"},
+                "dry_run": {"type": "boolean", "default": True},
+                "confirm_run": {"type": "boolean", "default": False},
+                "respect_human_guard": {"type": "boolean", "default": True},
+                "self_heal": {"type": "boolean", "default": True},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "app_use_record_demo",
+        "description": "Start, inspect, or stop-and-compile a human desktop demonstration recorder into a parameterized App-Use SOP + workflow.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["start", "status", "stop_and_compile"],
+                    "default": "status",
+                },
+                "max_duration_sec": {"type": "number", "default": 180.0},
+                "poll_interval_sec": {"type": "number", "default": 0.45},
+                "target_bundle_id": {"type": "string", "default": ""},
+                "goal_hint": {"type": "string", "default": ""},
+                "agent_id": {"type": "string", "default": ""},
+                "save": {"type": "boolean", "default": True},
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "app_use_export_skill",
+        "description": "Export a saved App-Use workflow and SOP into a portable SKILL.md bundle directory.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workflow_id": {"type": "string"},
+                "out_dir": {"type": "string"},
+            },
+            "required": ["workflow_id"],
+        },
+    },
+    {
+        "name": "app_use_generalize_app",
+        "description": "4-phase zero-hardcoding generalization pipeline for any unseen macOS app: Inspect+Archetype -> Agent Synthesis -> Trajectory Optimize+Readiness Score -> DryRun+Export SKILL.md.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "goal": {"type": "string"},
+                "bundle_id": {"type": "string"},
+                "app_name": {"type": "string"},
+                "app_path": {"type": "string"},
+                "agent_id": {"type": "string"},
+                "mode": {"type": "string", "enum": ["auto", "explore", "synthesize"], "default": "auto"},
+                "max_turns": {"type": "integer", "default": 4},
+                "launch_if_needed": {"type": "boolean", "default": True},
+                "dry_run_verify": {"type": "boolean", "default": True},
+                "export_skill": {"type": "boolean", "default": True},
+                "save": {"type": "boolean", "default": True},
+                "custom_agent_prompt": {"type": "string"},
+            },
+            "required": ["goal"],
+        },
+    },
+    {
+        "name": "app_use_state_graph",
+        "description": "Inspect the learned App-Use UI transition graph (nodes & verified transitions) for one bundle_id or global summary.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "bundle_id": {"type": "string"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "app_use_install_meta_skill",
+        "description": "Install or update the global app-use-meta-builder SKILL.md across ~/.agents/skills, Antigravity, Codex, Managed Codex, and OpenCode.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "install_global": {"type": "boolean", "default": True},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "app_use_watch_parallel",
+        "description": "Concurrently observe multiple desktop app windows without stealing focus (--no-activate) and return UI stateHashes, modal blockers, and inferred archetypes.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "targets": {"type": "array", "items": {"type": "object"}},
+                "include_ocr": {"type": "boolean", "default": False},
+                "max_workers": {"type": "integer", "default": 4},
+            },
+            "required": ["targets"],
+        },
+    },
+    {
+        "name": "app_use_run_parallel",
+        "description": "Execute multiple App-Use workflows concurrently with parallel perception/wait and serialized ForegroundHIDLease mutex protection.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "jobs": {"type": "array", "items": {"type": "object"}},
+                "dry_run": {"type": "boolean", "default": True},
+                "confirm_run": {"type": "boolean", "default": False},
+                "respect_human_guard": {"type": "boolean", "default": True},
+                "self_heal": {"type": "boolean", "default": True},
+                "max_workers": {"type": "integer", "default": 4},
+                "dispatch_mode": {"type": "string", "enum": ["auto", "headless_ax_first", "foreground_hid_only"], "default": "auto"},
+            },
+            "required": ["jobs"],
+        },
+    },
+    {
+        "name": "app_use_concurrency_status",
+        "description": "Get live multi-window App-Use concurrency swimlane telemetry, ForegroundHIDLease contention stats, and anti-ban pacer stats.",
+        "inputSchema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "app_use_risk_profile",
+        "description": "Inspect anti-ban risk tier classification and recommended dispatch mode for a macOS app (safe_native vs moderate_agent_or_web vs high_risk_social).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "bundle_id": {"type": "string", "default": ""},
+                "app_name": {"type": "string", "default": ""},
+                "app_path": {"type": "string", "default": ""},
+            },
+            "required": [],
         },
     },
 ]
@@ -1084,13 +1386,185 @@ class WeChatMCPServer:
             return self.engine.crm_overview(auto_sync=bool(args.get("auto_sync", True)))
         if name == "wechat_salescrm_analyze":
             return self.engine.crm_analyze_contact(
-                str(args.get("target") or "联系人A"),
+                str(args.get("target") or "心安"),
                 incoming_text=str(args.get("incoming_text") or ""),
             )
         if name == "wechat_salescrm_formulas":
             return self.engine.crm_evaluate_formulas(
-                str(args.get("target") or "联系人A"),
+                str(args.get("target") or "心安"),
                 overrides=args.get("overrides") if isinstance(args.get("overrides"), dict) else None,
+            )
+        if name == "omni_channels_status":
+            return self.engine.omni_overview(
+                probe_live=bool(args.get("probe_live", False)),
+                channel=str(args.get("channel") or "all"),
+            )
+        if name == "omni_channel_inspect":
+            action = str(args.get("action") or "sessions").strip().lower()
+            if action == "messages":
+                return self.engine.omni_read_messages(
+                    str(args.get("channel") or "feishu"),
+                    target=str(args.get("target") or ""),
+                    limit=int(args.get("limit", 20)),
+                    launch_if_needed=bool(args.get("launch_if_needed", False)),
+                )
+            return self.engine.omni_list_sessions(
+                str(args.get("channel") or "feishu"),
+                limit=int(args.get("limit", 20)),
+                query=str(args.get("query") or args.get("target") or ""),
+                launch_if_needed=bool(args.get("launch_if_needed", False)),
+            )
+        if name == "omni_channel_send":
+            return self.engine.omni_send(
+                str(args["channel"]),
+                str(args.get("target") or ""),
+                str(args["text"]),
+                mode=str(args.get("mode") or "auto"),
+                dry_run=bool(args.get("dry_run", True)),
+                confirm_send=bool(args.get("confirm_send", False)),
+            )
+        if name == "omni_channel_leads":
+            return self.engine.omni_extract_leads(
+                str(args["channel"]),
+                target=str(args.get("target") or ""),
+                query=str(args.get("query") or ""),
+                messages=args.get("messages") if isinstance(args.get("messages"), list) else None,
+                sync_crm=bool(args.get("sync_crm", True)),
+            )
+        if name == "app_use_list_apps":
+            return self.engine.app_use_list_apps(
+                include_installed=bool(args.get("include_installed", True)),
+                category=str(args.get("category") or "all"),
+                running_only=bool(args.get("running_only", False)),
+            )
+        if name == "app_use_list_agents":
+            return self.engine.app_use_list_agents(
+                refresh_models=bool(args.get("refresh_models", False)),
+            )
+        if name == "app_use_inspect":
+            return self.engine.app_use_inspect_app(
+                bundle_id=str(args.get("bundle_id") or ""),
+                app_name=str(args.get("app_name") or ""),
+                app_path=str(args.get("app_path") or ""),
+                launch_if_needed=bool(args.get("launch_if_needed", False)),
+                allow_activate=bool(args.get("allow_activate", True)),
+                max_nodes=int(args.get("max_nodes", 350)),
+            )
+        if name == "app_use_build_sop":
+            return self.engine.app_use_build_sop(
+                str(args.get("goal") or ""),
+                bundle_id=str(args.get("bundle_id") or ""),
+                app_name=str(args.get("app_name") or ""),
+                app_path=str(args.get("app_path") or ""),
+                agent_id=str(args.get("agent_id") or ""),
+                provider_id=args.get("provider_id") or None,
+                custom_agent_prompt=str(args.get("custom_agent_prompt") or ""),
+                inspect_live=bool(args.get("inspect_live", True)),
+                launch_if_needed=bool(args.get("launch_if_needed", False)),
+                attach_screenshot=bool(args.get("attach_screenshot", False)),
+                save=bool(args.get("save", True)),
+            )
+        if name == "app_use_run_workflow":
+            return self.engine.app_use_run_workflow(
+                workflow_id=args.get("workflow_id") or None,
+                workflow=args.get("workflow") if isinstance(args.get("workflow"), dict) else None,
+                params=args.get("params") if isinstance(args.get("params"), dict) else None,
+                dry_run=bool(args.get("dry_run", True)),
+                confirm_run=bool(args.get("confirm_run", False)),
+                respect_human_guard=bool(args.get("respect_human_guard", True)),
+                self_heal=bool(args.get("self_heal", True)),
+                auto_patch_workflow=bool(args.get("auto_patch_workflow", False)),
+                heal_agent_id=str(args.get("heal_agent_id") or ""),
+                dispatch_mode=str(args.get("dispatch_mode") or "auto"),
+            )
+        if name == "app_use_explore_and_build":
+            return self.engine.app_use_explore(
+                goal=str(args.get("goal") or ""),
+                bundle_id=str(args.get("bundle_id") or ""),
+                app_name=str(args.get("app_name") or ""),
+                app_path=str(args.get("app_path") or ""),
+                agent_id=str(args.get("agent_id") or ""),
+                max_turns=int(args.get("max_turns", 6) or 6),
+                dry_run=bool(args.get("dry_run", True)),
+                confirm_run=bool(args.get("confirm_run", False)),
+                respect_human_guard=bool(args.get("respect_human_guard", True)),
+                launch_if_needed=bool(args.get("launch_if_needed", True)),
+                save=bool(args.get("save", True)),
+            )
+        if name == "app_use_run_pipeline":
+            return self.engine.app_use_run_pipeline(
+                pipeline_id=args.get("pipeline_id") or None,
+                pipeline=args.get("pipeline") if isinstance(args.get("pipeline"), dict) else None,
+                initial_params=args.get("initial_params") if isinstance(args.get("initial_params"), dict) else None,
+                dry_run=bool(args.get("dry_run", True)),
+                confirm_run=bool(args.get("confirm_run", False)),
+                respect_human_guard=bool(args.get("respect_human_guard", True)),
+                self_heal=bool(args.get("self_heal", True)),
+            )
+        if name == "app_use_record_demo":
+            action = str(args.get("action") or "status").strip().lower()
+            if action == "start":
+                return self.engine.app_use_recording_start(
+                    max_duration_sec=float(args.get("max_duration_sec", 180.0)),
+                    poll_interval_sec=float(args.get("poll_interval_sec", 0.45)),
+                    target_bundle_id=str(args.get("target_bundle_id") or ""),
+                )
+            if action in ("stop", "stop_and_compile", "compile"):
+                return self.engine.app_use_recording_stop_and_compile(
+                    goal_hint=str(args.get("goal_hint") or ""),
+                    agent_id=str(args.get("agent_id") or ""),
+                    save=bool(args.get("save", True)),
+                )
+            return self.engine.app_use_recording_status()
+        if name == "app_use_export_skill":
+            return self.engine.app_use_export_skill(
+                str(args.get("workflow_id") or ""),
+                out_dir=args.get("out_dir") or None,
+            )
+        if name == "app_use_generalize_app":
+            return self.engine.app_use_generalize_app(
+                goal=str(args.get("goal") or ""),
+                bundle_id=str(args.get("bundle_id") or ""),
+                app_name=str(args.get("app_name") or ""),
+                app_path=str(args.get("app_path") or ""),
+                agent_id=str(args.get("agent_id") or ""),
+                mode=str(args.get("mode") or "auto"),
+                max_turns=int(args.get("max_turns", 4) or 4),
+                launch_if_needed=bool(args.get("launch_if_needed", True)),
+                dry_run_verify=bool(args.get("dry_run_verify", True)),
+                export_skill=bool(args.get("export_skill", True)),
+                save=bool(args.get("save", True)),
+                custom_agent_prompt=str(args.get("custom_agent_prompt") or ""),
+            )
+        if name == "app_use_state_graph":
+            return self.engine.app_use_get_state_graph(bundle_id=args.get("bundle_id") or None)
+        if name == "app_use_install_meta_skill":
+            return self.engine.app_use_install_meta_skill(
+                install_global=bool(args.get("install_global", True)),
+            )
+        if name == "app_use_watch_parallel":
+            return self.engine.app_use_watch_parallel(
+                targets=list(args.get("targets") or []),
+                include_ocr=bool(args.get("include_ocr", False)),
+                max_workers=int(args.get("max_workers", 4) or 4),
+            )
+        if name == "app_use_run_parallel":
+            return self.engine.app_use_run_parallel(
+                jobs=list(args.get("jobs") or []),
+                dry_run=bool(args.get("dry_run", True)),
+                confirm_run=bool(args.get("confirm_run", False)),
+                respect_human_guard=bool(args.get("respect_human_guard", True)),
+                self_heal=bool(args.get("self_heal", True)),
+                max_workers=int(args.get("max_workers", 4) or 4),
+                dispatch_mode=str(args.get("dispatch_mode") or "auto"),
+            )
+        if name == "app_use_concurrency_status":
+            return self.engine.app_use_concurrency_status()
+        if name == "app_use_risk_profile":
+            return self.engine.app_use_risk_profile(
+                bundle_id=str(args.get("bundle_id") or ""),
+                app_name=str(args.get("app_name") or ""),
+                app_path=str(args.get("app_path") or ""),
             )
         raise KeyError(f"Unknown tool: {name}")
 
@@ -1389,10 +1863,20 @@ def create_http_server(
         def _send_html(self, code: int, html: str) -> None:
             self._send_bytes(code, html.encode("utf-8"), "text/html; charset=utf-8")
 
-        def _send_bytes(self, code: int, data: bytes, content_type: str, *, private: bool = False) -> None:
+        def _send_bytes(
+            self,
+            code: int,
+            data: bytes,
+            content_type: str,
+            *,
+            private: bool = False,
+            no_cache: bool = False,
+        ) -> None:
             self.send_response(code)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(data)))
+            if no_cache and not private:
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             if private:
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("X-Content-Type-Options", "nosniff")
@@ -1514,6 +1998,101 @@ def create_http_server(
                     self._send_json(200, engine.crm_overview(auto_sync=auto_sync))
                 elif path == "/api/crm/reminders":
                     self._send_json(200, engine.crm_list_reminders())
+                elif path == "/api/omni/channels":
+                    probe_live = str((query.get("probe") or ["0"])[0]).lower() in ("1", "true", "yes")
+                    ch = str((query.get("channel") or ["all"])[0])
+                    self._send_json(200, engine.omni_overview(probe_live=probe_live, channel=ch))
+                elif path == "/api/omni/sessions":
+                    ch = str((query.get("channel") or ["feishu"])[0])
+                    limit = int((query.get("limit") or ["20"])[0] or 20)
+                    q_str = str((query.get("query") or [""])[0])
+                    launch = str((query.get("launch") or ["0"])[0]).lower() in ("1", "true", "yes")
+                    self._send_json(200, engine.omni_list_sessions(ch, limit=limit, query=q_str, launch_if_needed=launch))
+                elif path == "/api/omni/messages":
+                    ch = str((query.get("channel") or ["feishu"])[0])
+                    target = _maybe_unquote_target((query.get("target") or [""])[0])
+                    limit = int((query.get("limit") or ["20"])[0] or 20)
+                    launch = str((query.get("launch") or ["0"])[0]).lower() in ("1", "true", "yes")
+                    self._send_json(200, engine.omni_read_messages(ch, target=target, limit=limit, launch_if_needed=launch))
+                elif path == "/api/app-use/apps":
+                    include_installed = str((query.get("include_installed") or ["1"])[0]).lower() not in ("0", "false", "no")
+                    cat = str((query.get("category") or ["all"])[0])
+                    running_only = str((query.get("running_only") or ["0"])[0]).lower() in ("1", "true", "yes")
+                    self._send_json(200, engine.app_use_list_apps(include_installed=include_installed, category=cat, running_only=running_only))
+                elif path == "/api/app-use/agents":
+                    refresh = str((query.get("refresh") or ["0"])[0]).lower() in ("1", "true", "yes")
+                    self._send_json(200, engine.app_use_list_agents(refresh_models=refresh))
+                elif path == "/api/app-use/workflows":
+                    bid = str((query.get("bundle_id") or [""])[0]) or None
+                    self._send_json(200, engine.app_use_list_workflows(bundle_id=bid))
+                elif path == "/api/app-use/pipelines":
+                    self._send_json(200, engine.app_use_list_pipelines())
+                elif path == "/api/app-use/runs":
+                    try:
+                        limit = int((query.get("limit") or ["30"])[0] or 30)
+                    except Exception:
+                        limit = 30
+                    limit = max(1, min(limit, 200))
+                    self._send_json(200, engine.app_use_list_runs(limit=limit))
+                elif path == "/api/app-use/recording":
+                    self._send_json(200, engine.app_use_recording_status())
+                elif path == "/api/app-use/state-graph":
+                    bid = str((query.get("bundle_id") or [""])[0]) or None
+                    self._send_json(200, engine.app_use_get_state_graph(bundle_id=bid))
+                elif path == "/api/app-use/concurrency-status":
+                    self._send_json(200, engine.app_use_concurrency_status())
+                elif path == "/api/app-use/risk-profile":
+                    bid = str((query.get("bundle_id") or query.get("bundleId") or [""])[0])
+                    aname = str((query.get("app_name") or query.get("appName") or [""])[0])
+                    apath = str((query.get("app_path") or query.get("appPath") or [""])[0])
+                    self._send_json(200, engine.app_use_risk_profile(bundle_id=bid, app_name=aname, app_path=apath))
+                elif path.startswith("/api/app-use/artifact/"):
+                    raw_name = unquote(path[len("/api/app-use/artifact/"):]).strip()
+                    if (
+                        not raw_name
+                        or raw_name.startswith(".")
+                        or len(raw_name) <= 4
+                        or "/" in raw_name
+                        or "\\" in raw_name
+                        or ".." in raw_name
+                        or "\x00" in raw_name
+                        or not raw_name.lower().endswith(".png")
+                        or Path(raw_name).name != raw_name
+                    ):
+                        self._send_json(400, {"ok": False, "error": "Invalid artifact filename"})
+                        return
+                    candidate_dirs = [
+                        Path("/Volumes/SanDisk/Builds/WeChatBot/app-use-runs"),
+                        Path("/Volumes/SanDisk/Builds/WeChatBot/app-use-verify"),
+                    ]
+                    insp_snaps = getattr(getattr(engine, "inspector", None), "snapshots_dir", None)
+                    if insp_snaps:
+                        insp_path = Path(insp_snaps)
+                        candidate_dirs.extend(
+                            [
+                                insp_path,
+                                insp_path / "app-use-runs",
+                                insp_path / "app-use-verify",
+                            ]
+                        )
+                    studio_snaps = getattr(getattr(engine, "app_use", None), "runs_dir", None)
+                    if studio_snaps:
+                        candidate_dirs.append(Path(studio_snaps))
+                    found_file: Optional[Path] = None
+                    for base_dir in candidate_dirs:
+                        try:
+                            base_resolved = base_dir.resolve()
+                            cand = (base_resolved / raw_name).resolve()
+                            if cand.parent == base_resolved and cand.is_file():
+                                found_file = cand
+                                break
+                        except Exception:
+                            continue
+                    if found_file is None:
+                        self._send_json(404, {"ok": False, "error": f"Artifact not found: {raw_name}"})
+                        return
+                    self._send_bytes(200, found_file.read_bytes(), "image/png", no_cache=True)
+                    return
                 elif path in ("/botstudio-page", "/botstudio-page/") or path.startswith("/botstudio-page/"):
                     pages_root = engine.botstudio_bridge.pages_dir.resolve()
                     rel_name = "index.html"
@@ -1597,7 +2176,7 @@ def create_http_server(
                     avatar_base = (engine.inspector.snapshots_dir.parent / "avatars").resolve()
                     candidate = (avatar_base / safe_name).resolve()
                     if candidate.parent == avatar_base and candidate.is_file():
-                        self._send_bytes(200, candidate.read_bytes(), "image/png")
+                        self._send_bytes(200, candidate.read_bytes(), "image/png", no_cache=True)
                         return
                     self._send_json(404, {"ok": False, "error": f"Avatar not found: {safe_name}"})
                 elif path == "/doctor":
@@ -1771,6 +2350,18 @@ def create_http_server(
                         target=str(body.get("target") or ""),
                         snapshot_path=str(body.get("snapshot_path") or ""),
                         crop=body.get("crop") if isinstance(body.get("crop"), dict) else None,
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/avatars/refresh":
+                    targets_raw = body.get("targets")
+                    targets_arg = (
+                        [str(x).strip() for x in targets_raw if str(x).strip()]
+                        if isinstance(targets_raw, list)
+                        else None
+                    )
+                    res = engine.refresh_avatars(
+                        targets=targets_arg,
+                        capture_fresh=bool(body.get("capture_fresh", body.get("captureFresh", True))),
                     )
                     self._send_json(200 if res.get("ok") else 400, res)
                 elif path == "/api/export-article":
@@ -2248,7 +2839,7 @@ def create_http_server(
                             self._send_json(
                                 200,
                                 engine.crm_analyze_contact(
-                                    str(body.get("target") or "联系人A"),
+                                    str(body.get("target") or "心安"),
                                     incoming_text=str(body.get("incoming_text") or body.get("incomingText") or ""),
                                     formula_overrides=ov if isinstance(ov, dict) else None,
                                 ),
@@ -2258,7 +2849,7 @@ def create_http_server(
                             self._send_json(
                                 200,
                                 engine.crm_evaluate_formulas(
-                                    str(body.get("target") or "联系人A"),
+                                    str(body.get("target") or "心安"),
                                     overrides=ov if isinstance(ov, dict) else None,
                                 ),
                             )
@@ -2266,7 +2857,7 @@ def create_http_server(
                             self._send_json(
                                 200,
                                 engine.crm_adopt_draft(
-                                    str(body.get("target") or "联系人A"),
+                                    str(body.get("target") or "心安"),
                                     rank_index=int(body.get("rank_index") or body.get("rank") or 1),
                                     send_mode=str(body.get("send_mode") or body.get("sendMode") or "adopt_only"),
                                 ),
@@ -2284,6 +2875,244 @@ def create_http_server(
                             self._send_json(404, {"ok": False, "error": f"Unknown CRM endpoint: {path}"})
                     except ValueError as exc:
                         self._send_json(400, {"ok": False, "error": str(exc)})
+                elif path == "/api/omni/probe":
+                    res = engine.omni_probe(
+                        str(body.get("channel") or "feishu"),
+                        launch_if_needed=bool(body.get("launch_if_needed", body.get("launchIfNeeded", False))),
+                        include_web=bool(body.get("include_web", body.get("includeWeb", True))),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/omni/send":
+                    res = engine.omni_send(
+                        str(body.get("channel") or "feishu"),
+                        str(body.get("target") or ""),
+                        str(body.get("text") or ""),
+                        mode=str(body.get("mode") or "auto"),
+                        dry_run=bool(body.get("dry_run", body.get("dryRun", True))),
+                        confirm_send=bool(body.get("confirm_send", body.get("confirmSend", False))),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/omni/leads":
+                    res = engine.omni_extract_leads(
+                        str(body.get("channel") or "feishu"),
+                        target=str(body.get("target") or ""),
+                        query=str(body.get("query") or ""),
+                        messages=body.get("messages") if isinstance(body.get("messages"), list) else None,
+                        sync_crm=bool(body.get("sync_crm", body.get("syncCrm", True))),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/omni/config":
+                    updates = body.get("updates") if isinstance(body.get("updates"), dict) else body
+                    res = engine.omni_update_config(updates if isinstance(updates, dict) else {})
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/omni/finish-browser":
+                    self._send_json(200, engine.omni_finish_browser_space())
+                elif path == "/api/omni/open-auth":
+                    res = engine.omni_open_auth(
+                        str(body.get("channel") or "feishu"),
+                        action_type=str(body.get("action_type") or body.get("actionType") or "auto"),
+                        target_view=str(body.get("target_view") or body.get("targetView") or "home"),
+                        dry_run=bool(body.get("dry_run", body.get("dryRun", False))),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/app-use/inspect":
+                    raw_wid = body.get("window_id") if "window_id" in body else body.get("windowId")
+                    res = engine.app_use_inspect_app(
+                        bundle_id=str(body.get("bundle_id") or body.get("bundleId") or ""),
+                        app_name=str(body.get("app_name") or body.get("appName") or ""),
+                        app_path=str(body.get("app_path") or body.get("appPath") or ""),
+                        window_id=int(raw_wid) if raw_wid not in (None, "", 0) else None,
+                        window_title=str(body.get("window_title") or body.get("windowTitle") or ""),
+                        launch_if_needed=bool(body.get("launch_if_needed", body.get("launchIfNeeded", False))),
+                        allow_activate=bool(body.get("allow_activate", body.get("allowActivate", True))),
+                        max_nodes=int(body.get("max_nodes") or body.get("maxNodes") or 350),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/app-use/build-sop":
+                    res = engine.app_use_build_sop(
+                        str(body.get("goal") or ""),
+                        bundle_id=str(body.get("bundle_id") or body.get("bundleId") or ""),
+                        app_name=str(body.get("app_name") or body.get("appName") or ""),
+                        app_path=str(body.get("app_path") or body.get("appPath") or ""),
+                        agent_id=str(body.get("agent_id") or body.get("agentId") or ""),
+                        provider_id=body.get("provider_id") or body.get("providerId") or None,
+                        custom_agent_prompt=str(body.get("custom_agent_prompt") or body.get("customAgentPrompt") or ""),
+                        inspect_live=bool(body.get("inspect_live", body.get("inspectLive", True))),
+                        launch_if_needed=bool(body.get("launch_if_needed", body.get("launchIfNeeded", False))),
+                        attach_screenshot=bool(body.get("attach_screenshot", body.get("attachScreenshot", False))),
+                        save=bool(body.get("save", True)),
+                        parameters_hint=body.get("parameters_hint") or body.get("parametersHint"),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/app-use/save-workflow":
+                    wf = body.get("workflow") if isinstance(body.get("workflow"), dict) else body
+                    res = engine.app_use_save_workflow(
+                        wf if isinstance(wf, dict) else {},
+                        sop_markdown=str(body.get("sop_markdown") or body.get("sopMarkdown") or ""),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/app-use/delete-workflow":
+                    wid = str(body.get("workflow_id") or body.get("workflowId") or body.get("id") or "")
+                    res = engine.app_use_delete_workflow(wid)
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/app-use/run":
+                    res = engine.app_use_run_workflow(
+                        workflow_id=body.get("workflow_id") or body.get("workflowId") or None,
+                        workflow=body.get("workflow") if isinstance(body.get("workflow"), dict) else None,
+                        params=body.get("params") if isinstance(body.get("params"), dict) else None,
+                        dry_run=bool(body.get("dry_run", body.get("dryRun", True))),
+                        confirm_run=bool(body.get("confirm_run", body.get("confirmRun", False))),
+                        respect_human_guard=bool(body.get("respect_human_guard", body.get("respectHumanGuard", True))),
+                        self_heal=bool(body.get("self_heal", body.get("selfHeal", True))),
+                        auto_patch_workflow=bool(body.get("auto_patch_workflow", body.get("autoPatchWorkflow", False))),
+                        heal_agent_id=str(body.get("heal_agent_id") or body.get("healAgentId") or ""),
+                        dispatch_mode=str(body.get("dispatch_mode") or body.get("dispatchMode") or "auto"),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/app-use/export-kb":
+                    wid = str(body.get("workflow_id") or body.get("workflowId") or body.get("id") or "")
+                    res = engine.app_use_export_sop_to_kb(wid)
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/app-use/explore":
+                    try:
+                        max_turns = int(body.get("max_turns", body.get("maxTurns", 6)) or 6)
+                    except Exception:
+                        max_turns = 6
+                    res = engine.app_use_explore(
+                        goal=str(body.get("goal") or ""),
+                        bundle_id=str(body.get("bundle_id") or body.get("bundleId") or ""),
+                        app_name=str(body.get("app_name") or body.get("appName") or ""),
+                        app_path=str(body.get("app_path") or body.get("appPath") or ""),
+                        agent_id=str(body.get("agent_id") or body.get("agentId") or ""),
+                        max_turns=max_turns,
+                        dry_run=bool(body.get("dry_run", body.get("dryRun", True))),
+                        confirm_run=bool(body.get("confirm_run", body.get("confirmRun", False))),
+                        respect_human_guard=bool(body.get("respect_human_guard", body.get("respectHumanGuard", True))),
+                        launch_if_needed=bool(body.get("launch_if_needed", body.get("launchIfNeeded", True))),
+                        save=bool(body.get("save", True)),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/app-use/pipelines/save":
+                    pl = body.get("pipeline") if isinstance(body.get("pipeline"), dict) else body
+                    res = engine.app_use_save_pipeline(pl if isinstance(pl, dict) else {})
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/app-use/pipelines/delete":
+                    pid = str(body.get("pipeline_id") or body.get("pipelineId") or body.get("id") or "")
+                    res = engine.app_use_delete_pipeline(pid)
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/app-use/pipelines/run":
+                    init_p = (
+                        body.get("initial_params")
+                        if isinstance(body.get("initial_params"), dict)
+                        else (body.get("initialParams") if isinstance(body.get("initialParams"), dict) else None)
+                    )
+                    res = engine.app_use_run_pipeline(
+                        pipeline_id=body.get("pipeline_id") or body.get("pipelineId") or None,
+                        pipeline=body.get("pipeline") if isinstance(body.get("pipeline"), dict) else None,
+                        initial_params=init_p,
+                        dry_run=bool(body.get("dry_run", body.get("dryRun", True))),
+                        confirm_run=bool(body.get("confirm_run", body.get("confirmRun", False))),
+                        respect_human_guard=bool(body.get("respect_human_guard", body.get("respectHumanGuard", True))),
+                        self_heal=bool(body.get("self_heal", body.get("selfHeal", True))),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/app-use/recording/start":
+                    try:
+                        max_dur = float(body.get("max_duration_sec", body.get("maxDurationSec", 180.0)))
+                    except Exception:
+                        max_dur = 180.0
+                    try:
+                        poll_iv = float(body.get("poll_interval_sec", body.get("pollIntervalSec", 0.45)))
+                    except Exception:
+                        poll_iv = 0.45
+                    res = engine.app_use_recording_start(
+                        max_duration_sec=max_dur,
+                        poll_interval_sec=poll_iv,
+                        target_bundle_id=str(body.get("target_bundle_id") or body.get("targetBundleId") or ""),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/app-use/recording/stop":
+                    res = engine.app_use_recording_stop_and_compile(
+                        goal_hint=str(body.get("goal_hint") or body.get("goalHint") or ""),
+                        agent_id=str(body.get("agent_id") or body.get("agentId") or ""),
+                        save=bool(body.get("save", True)),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/app-use/rollback":
+                    wid = str(body.get("workflow_id") or body.get("workflowId") or body.get("id") or "")
+                    try:
+                        rev_idx = int(body.get("revision_index", body.get("revisionIndex", -1)))
+                    except Exception:
+                        rev_idx = -1
+                    res = engine.app_use_rollback_workflow(wid, revision_index=rev_idx)
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/app-use/export-skill":
+                    wid = str(body.get("workflow_id") or body.get("workflowId") or body.get("id") or "")
+                    res = engine.app_use_export_skill(
+                        wid,
+                        out_dir=body.get("out_dir") or body.get("outDir") or None,
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/app-use/generalize":
+                    try:
+                        max_turns = int(body.get("max_turns", body.get("maxTurns", 4)) or 4)
+                    except Exception:
+                        max_turns = 4
+                    res = engine.app_use_generalize_app(
+                        goal=str(body.get("goal") or ""),
+                        bundle_id=str(body.get("bundle_id") or body.get("bundleId") or ""),
+                        app_name=str(body.get("app_name") or body.get("appName") or ""),
+                        app_path=str(body.get("app_path") or body.get("appPath") or ""),
+                        agent_id=str(body.get("agent_id") or body.get("agentId") or ""),
+                        mode=str(body.get("mode") or "auto"),
+                        max_turns=max_turns,
+                        launch_if_needed=bool(body.get("launch_if_needed", body.get("launchIfNeeded", True))),
+                        dry_run_verify=bool(body.get("dry_run_verify", body.get("dryRunVerify", True))),
+                        export_skill=bool(body.get("export_skill", body.get("exportSkill", True))),
+                        save=bool(body.get("save", True)),
+                        custom_agent_prompt=str(body.get("custom_agent_prompt") or body.get("customAgentPrompt") or ""),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/app-use/install-meta-skill":
+                    res = engine.app_use_install_meta_skill(
+                        install_global=bool(body.get("install_global", body.get("installGlobal", True))),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/app-use/ground-preview":
+                    step_obj = body.get("step") if isinstance(body.get("step"), dict) else body
+                    res = engine.app_use_ground_preview(
+                        step_obj if isinstance(step_obj, dict) else {},
+                        bundle_id=str(body.get("bundle_id") or body.get("bundleId") or ""),
+                        app_name=str(body.get("app_name") or body.get("appName") or ""),
+                        app_path=str(body.get("app_path") or body.get("appPath") or ""),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/app-use/watch-parallel":
+                    try:
+                        mw = int(body.get("max_workers", body.get("maxWorkers", 4)) or 4)
+                    except Exception:
+                        mw = 4
+                    res = engine.app_use_watch_parallel(
+                        targets=list(body.get("targets") or []),
+                        include_ocr=bool(body.get("include_ocr", body.get("includeOcr", False))),
+                        max_workers=mw,
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/app-use/run-parallel":
+                    try:
+                        mw = int(body.get("max_workers", body.get("maxWorkers", 4)) or 4)
+                    except Exception:
+                        mw = 4
+                    res = engine.app_use_run_parallel(
+                        jobs=list(body.get("jobs") or []),
+                        dry_run=bool(body.get("dry_run", body.get("dryRun", True))),
+                        confirm_run=bool(body.get("confirm_run", body.get("confirmRun", False))),
+                        respect_human_guard=bool(body.get("respect_human_guard", body.get("respectHumanGuard", True))),
+                        self_heal=bool(body.get("self_heal", body.get("selfHeal", True))),
+                        max_workers=mw,
+                        dispatch_mode=str(body.get("dispatch_mode") or body.get("dispatchMode") or "auto"),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
                 else:
                     self._send_json(404, {"ok": False, "error": f"Unknown endpoint: {path}"})
             except StudioPluginUnauthorizedError as exc:

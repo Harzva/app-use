@@ -2,7 +2,7 @@
   "schema": "openbot.codex-workbench-plugin/1",
   "pluginId": "dsh2codex:dsh-plugin-wechat-ecosystem",
   "packageName": "@dsh-market/wechat-ecosystem",
-  "version": "2.4.77",
+  "version": "2.9.0",
   "origin": "dsh2codex-adapter",
   "sourceOrigin": "local-dsh-plugin",
   "adapter": {
@@ -31,14 +31,16 @@
         "wechat_media_export_panel",
         "wechat_soul_kf_panel",
         "wechat_salescrm_panel",
+        "app_use_generalization_panel",
+        "dsh_plugin_tools",
         "wechat_ecosystem_delivery"
       ],
       "stats": {
-        "panelCount": 5,
-        "actionCount": 12,
-        "zeroLlmCount": 1,
+        "panelCount": 7,
+        "actionCount": 21,
+        "zeroLlmCount": 2,
         "turnTemplateCount": 1,
-        "dshDelegateCount": 10
+        "dshDelegateCount": 18
       },
       "quickPrompts": [
         {
@@ -56,7 +58,8 @@
       "kind": "zero_llm_console",
       "summary": "直连 Codex AppServer 只读 RPC 与 DeepSeek L2 感知工具，零模型 Token 消耗。",
       "panelIds": [
-        "wechat_live_rpa_panel"
+        "wechat_live_rpa_panel",
+        "dsh_plugin_tools"
       ],
       "actions": [
         {
@@ -67,6 +70,16 @@
           "mode": "appserver_rpc",
           "zeroLLM": true,
           "rpcMethod": "thread/list",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "dsh_plugin_tools",
+          "panelTitle": "插件工具动作面板",
+          "actionId": "app_use_inspect",
+          "title": "基于 AXUIElement + Apple Vision OCR 扫描任意 macOS 应用窗口控件树、语义锚点、弹窗阻断及拓扑原型 (0-LLM L2 OCR)",
+          "mode": "bridge_l2",
+          "zeroLLM": true,
+          "bridgeTool": "l2_ocr",
           "requiresApproval": false
         }
       ]
@@ -82,6 +95,8 @@
         "wechat_media_export_panel",
         "wechat_soul_kf_panel",
         "wechat_salescrm_panel",
+        "app_use_generalization_panel",
+        "dsh_plugin_tools",
         "wechat_ecosystem_delivery"
       ],
       "actions": [
@@ -196,6 +211,94 @@
           "requiresApproval": false
         },
         {
+          "panelId": "app_use_generalization_panel",
+          "panelTitle": "🚀 Universal App-Use 泛化工厂 · 无焦点多窗口并发与反风控泳道",
+          "actionId": "appuse_list_apps",
+          "title": "盘点本机应用与三级反风控策略 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「app_use_list_apps」：盘点本机已安装及运行中的 macOS 桌面应用，返回类别与三级反风控风险档案 (safe_native / moderate_agent_or_web / high_risk_social)",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "app_use_generalization_panel",
+          "panelTitle": "🚀 Universal App-Use 泛化工厂 · 无焦点多窗口并发与反风控泳道",
+          "actionId": "appuse_generalize",
+          "title": "一键泛化未知新 App 并导出 Skill (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「app_use_generalize_app」：对任意未知桌面新 App 执行 4 阶段自动化泛化：探测原型 → AI 合成带锚点包流程 → 去噪与 A-F 就绪度评分 → 导出独立可复用 Skill",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "app_use_generalization_panel",
+          "panelTitle": "🚀 Universal App-Use 泛化工厂 · 无焦点多窗口并发与反风控泳道",
+          "actionId": "appuse_watch_parallel",
+          "title": "多窗口无焦点并发监视 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「app_use_watch_parallel」：多窗口无焦点并发监视（--no-activate），零焦点抢占同时采集多个桌面 App 的 UI stateHash、弹窗状态与拓扑分类",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "app_use_generalization_panel",
+          "panelTitle": "🚀 Universal App-Use 泛化工厂 · 无焦点多窗口并发与反风控泳道",
+          "actionId": "appuse_run_parallel",
+          "title": "多窗口并发执行工作流 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「app_use_run_parallel」：多窗口并发执行多条 App-Use 工作流：安全原生 App 后台无焦点 AX 真并行，高风控社交 App 强制走 ForegroundHIDLease + 拟真节奏抖动",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "app_use_generalization_panel",
+          "panelTitle": "🚀 Universal App-Use 泛化工厂 · 无焦点多窗口并发与反风控泳道",
+          "actionId": "appuse_risk_profile",
+          "title": "查询目标应用反风控分级 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「app_use_risk_profile」：查询目标应用的三级反风控分级、随机抖动区间及无焦点 AX 准入策略",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "app_use_generalization_panel",
+          "panelTitle": "🚀 Universal App-Use 泛化工厂 · 无焦点多窗口并发与反风控泳道",
+          "actionId": "appuse_concurrency",
+          "title": "查看多窗口并发泳道与锁状态 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「app_use_concurrency_status」：查询当前多窗口并发泳道实时状态、无焦点 AX 占比、ForegroundHIDLease 争用与反风控节流统计",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "dsh_plugin_tools",
+          "panelTitle": "插件工具动作面板",
+          "actionId": "app_use_run_workflow",
+          "title": "验证 (dry_run=true) 或实机运行 (confirm_run=true) App-Use RPA 工作流；安全原生 App 支持 headless_ax_first 后台零抢焦点执行，社交/金融 App 强… (委派 DS…",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「app_use_run_workflow」：验证 (dry_run=true) 或实机运行 (confirm_run=true) App-Use RPA 工作流；安全原生 App 支持 headless_ax_first 后台零抢焦点执行，社交/金融 App 强制人类拟真保护",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "dsh_plugin_tools",
+          "panelTitle": "插件工具动作面板",
+          "actionId": "app_use_run_pipeline",
+          "title": "运行跨应用联动流水线（将前一阶段 captureAs 采集结果注入后续桌面应用），支持 waitUntilChanged 状态等待 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「app_use_run_pipeline」：运行跨应用联动流水线（将前一阶段 captureAs 采集结果注入后续桌面应用），支持 waitUntilChanged 状态等待",
+          "requiresApproval": false
+        },
+        {
           "panelId": "wechat_ecosystem_delivery",
           "panelTitle": "微信全生态 RPA 与 Benchmark 交付门禁 (Vertical)",
           "actionId": "wechat_full_acceptance",
@@ -220,8 +323,8 @@
       "schema": "openbot.codex-workbench-preset/1"
     }
   ],
-  "panelCount": 5,
-  "actionCount": 12,
+  "panelCount": 7,
+  "actionCount": 21,
   "preset": {
     "schema": "openbot.codex-workbench-preset/1",
     "id": "dsh2codex__dsh-market_wechat-ecosystem",
@@ -245,14 +348,16 @@
           "wechat_media_export_panel",
           "wechat_soul_kf_panel",
           "wechat_salescrm_panel",
+          "app_use_generalization_panel",
+          "dsh_plugin_tools",
           "wechat_ecosystem_delivery"
         ],
         "stats": {
-          "panelCount": 5,
-          "actionCount": 12,
-          "zeroLlmCount": 1,
+          "panelCount": 7,
+          "actionCount": 21,
+          "zeroLlmCount": 2,
           "turnTemplateCount": 1,
-          "dshDelegateCount": 10
+          "dshDelegateCount": 18
         },
         "quickPrompts": [
           {
@@ -270,7 +375,8 @@
         "kind": "zero_llm_console",
         "summary": "直连 Codex AppServer 只读 RPC 与 DeepSeek L2 感知工具，零模型 Token 消耗。",
         "panelIds": [
-          "wechat_live_rpa_panel"
+          "wechat_live_rpa_panel",
+          "dsh_plugin_tools"
         ],
         "actions": [
           {
@@ -281,6 +387,16 @@
             "mode": "appserver_rpc",
             "zeroLLM": true,
             "rpcMethod": "thread/list",
+            "requiresApproval": false
+          },
+          {
+            "panelId": "dsh_plugin_tools",
+            "panelTitle": "插件工具动作面板",
+            "actionId": "app_use_inspect",
+            "title": "基于 AXUIElement + Apple Vision OCR 扫描任意 macOS 应用窗口控件树、语义锚点、弹窗阻断及拓扑原型 (0-LLM L2 OCR)",
+            "mode": "bridge_l2",
+            "zeroLLM": true,
+            "bridgeTool": "l2_ocr",
             "requiresApproval": false
           }
         ]
@@ -296,6 +412,8 @@
           "wechat_media_export_panel",
           "wechat_soul_kf_panel",
           "wechat_salescrm_panel",
+          "app_use_generalization_panel",
+          "dsh_plugin_tools",
           "wechat_ecosystem_delivery"
         ],
         "actions": [
@@ -407,6 +525,94 @@
             "zeroLLM": true,
             "bridgeTool": "delegate_to_dsh_bot",
             "defaultTask": "调用 DSH 插件工具「wechat_salescrm_formulas」：计算开源 SalesCRM 核心数学公式 BQ / BSP / BWS / PV 与最佳营业推进动作",
+            "requiresApproval": false
+          },
+          {
+            "panelId": "app_use_generalization_panel",
+            "panelTitle": "🚀 Universal App-Use 泛化工厂 · 无焦点多窗口并发与反风控泳道",
+            "actionId": "appuse_list_apps",
+            "title": "盘点本机应用与三级反风控策略 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「app_use_list_apps」：盘点本机已安装及运行中的 macOS 桌面应用，返回类别与三级反风控风险档案 (safe_native / moderate_agent_or_web / high_risk_social)",
+            "requiresApproval": false
+          },
+          {
+            "panelId": "app_use_generalization_panel",
+            "panelTitle": "🚀 Universal App-Use 泛化工厂 · 无焦点多窗口并发与反风控泳道",
+            "actionId": "appuse_generalize",
+            "title": "一键泛化未知新 App 并导出 Skill (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「app_use_generalize_app」：对任意未知桌面新 App 执行 4 阶段自动化泛化：探测原型 → AI 合成带锚点包流程 → 去噪与 A-F 就绪度评分 → 导出独立可复用 Skill",
+            "requiresApproval": false
+          },
+          {
+            "panelId": "app_use_generalization_panel",
+            "panelTitle": "🚀 Universal App-Use 泛化工厂 · 无焦点多窗口并发与反风控泳道",
+            "actionId": "appuse_watch_parallel",
+            "title": "多窗口无焦点并发监视 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「app_use_watch_parallel」：多窗口无焦点并发监视（--no-activate），零焦点抢占同时采集多个桌面 App 的 UI stateHash、弹窗状态与拓扑分类",
+            "requiresApproval": false
+          },
+          {
+            "panelId": "app_use_generalization_panel",
+            "panelTitle": "🚀 Universal App-Use 泛化工厂 · 无焦点多窗口并发与反风控泳道",
+            "actionId": "appuse_run_parallel",
+            "title": "多窗口并发执行工作流 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「app_use_run_parallel」：多窗口并发执行多条 App-Use 工作流：安全原生 App 后台无焦点 AX 真并行，高风控社交 App 强制走 ForegroundHIDLease + 拟真节奏抖动",
+            "requiresApproval": false
+          },
+          {
+            "panelId": "app_use_generalization_panel",
+            "panelTitle": "🚀 Universal App-Use 泛化工厂 · 无焦点多窗口并发与反风控泳道",
+            "actionId": "appuse_risk_profile",
+            "title": "查询目标应用反风控分级 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「app_use_risk_profile」：查询目标应用的三级反风控分级、随机抖动区间及无焦点 AX 准入策略",
+            "requiresApproval": false
+          },
+          {
+            "panelId": "app_use_generalization_panel",
+            "panelTitle": "🚀 Universal App-Use 泛化工厂 · 无焦点多窗口并发与反风控泳道",
+            "actionId": "appuse_concurrency",
+            "title": "查看多窗口并发泳道与锁状态 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「app_use_concurrency_status」：查询当前多窗口并发泳道实时状态、无焦点 AX 占比、ForegroundHIDLease 争用与反风控节流统计",
+            "requiresApproval": false
+          },
+          {
+            "panelId": "dsh_plugin_tools",
+            "panelTitle": "插件工具动作面板",
+            "actionId": "app_use_run_workflow",
+            "title": "验证 (dry_run=true) 或实机运行 (confirm_run=true) App-Use RPA 工作流；安全原生 App 支持 headless_ax_first 后台零抢焦点执行，社交/金融 App 强… (委派 DS…",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「app_use_run_workflow」：验证 (dry_run=true) 或实机运行 (confirm_run=true) App-Use RPA 工作流；安全原生 App 支持 headless_ax_first 后台零抢焦点执行，社交/金融 App 强制人类拟真保护",
+            "requiresApproval": false
+          },
+          {
+            "panelId": "dsh_plugin_tools",
+            "panelTitle": "插件工具动作面板",
+            "actionId": "app_use_run_pipeline",
+            "title": "运行跨应用联动流水线（将前一阶段 captureAs 采集结果注入后续桌面应用），支持 waitUntilChanged 状态等待 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「app_use_run_pipeline」：运行跨应用联动流水线（将前一阶段 captureAs 采集结果注入后续桌面应用），支持 waitUntilChanged 状态等待",
             "requiresApproval": false
           },
           {
@@ -829,6 +1035,320 @@
         ]
       },
       {
+        "id": "app_use_generalization_panel",
+        "title": "🚀 Universal App-Use 泛化工厂 · 无焦点多窗口并发与反风控泳道",
+        "kind": "codex-panel",
+        "description": "泛化任意未知 macOS 桌面 App 为可复用 SOP/Skill；安全原生 App 默认后台无焦点 AX 直调真并发，高风控社交/金融 App 强制前台拟真节奏防封护栏。",
+        "fields": [
+          {
+            "id": "running_only",
+            "label": "仅列出当前运行中的应用",
+            "type": "toggle",
+            "defaultValue": true,
+            "required": false
+          },
+          {
+            "id": "category",
+            "label": "按类别筛选 (all / agent_app / productivity / im_social / dev_tool / browser)",
+            "type": "text",
+            "defaultValue": "all",
+            "required": false
+          },
+          {
+            "id": "goal",
+            "label": "目标业务流程与验收目标",
+            "type": "text",
+            "defaultValue": "搜索并提取右侧详情内容",
+            "required": true
+          },
+          {
+            "id": "bundle_id",
+            "label": "目标应用 Bundle ID",
+            "type": "text",
+            "defaultValue": "com.apple.Dictionary",
+            "required": false
+          },
+          {
+            "id": "agent_id",
+            "label": "指定构建 SOP 的 Agent（留空自动优选）",
+            "type": "text",
+            "defaultValue": "",
+            "required": false
+          },
+          {
+            "id": "dry_run_verify",
+            "label": "生成后自动 Dry-Run 锚点校验",
+            "type": "toggle",
+            "defaultValue": true,
+            "required": false
+          },
+          {
+            "id": "export_skill",
+            "label": "自动导出便携式 SKILL.md 包",
+            "type": "toggle",
+            "defaultValue": true,
+            "required": false
+          },
+          {
+            "id": "launch_if_needed",
+            "label": "未运行时自动拉起目标应用",
+            "type": "toggle",
+            "defaultValue": true,
+            "required": false
+          },
+          {
+            "id": "targets",
+            "label": "要并发监视的窗口目标列表 ([{\"bundle_id\":\"...\"}])",
+            "type": "text",
+            "defaultValue": "[object Object],[object Object]",
+            "required": true
+          },
+          {
+            "id": "include_ocr",
+            "label": "是否同时运行 Apple Vision OCR",
+            "type": "toggle",
+            "defaultValue": false,
+            "required": false
+          },
+          {
+            "id": "max_workers",
+            "label": "最大并发线程数",
+            "type": "text",
+            "defaultValue": "4",
+            "required": false
+          },
+          {
+            "id": "jobs",
+            "label": "并行执行任务数组",
+            "type": "text",
+            "defaultValue": "",
+            "required": true
+          },
+          {
+            "id": "dry_run",
+            "label": "仅 Dry-Run 演练",
+            "type": "toggle",
+            "defaultValue": true,
+            "required": false
+          },
+          {
+            "id": "confirm_run",
+            "label": "确认实机并发运行",
+            "type": "toggle",
+            "defaultValue": false,
+            "required": false
+          },
+          {
+            "id": "dispatch_mode",
+            "label": "默认执行通道 (auto / headless_ax_first / foreground_hid_only)",
+            "type": "text",
+            "defaultValue": "auto",
+            "required": false
+          },
+          {
+            "id": "app_name",
+            "label": "目标应用名称（可选）",
+            "type": "text",
+            "defaultValue": "",
+            "required": false
+          },
+          {
+            "id": "targetBotId",
+            "label": "目标 DSH Bot ID",
+            "type": "text",
+            "placeholder": "bot_wechat_ecosystem",
+            "defaultValue": "bot_wechat_ecosystem",
+            "required": false
+          },
+          {
+            "id": "task",
+            "label": "委派子任务说明",
+            "type": "text",
+            "placeholder": "输入交由 DSH Bot 执行的子任务详情",
+            "defaultValue": "",
+            "required": false
+          }
+        ],
+        "actions": [
+          {
+            "id": "appuse_list_apps",
+            "title": "盘点本机应用与三级反风控策略 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "requiresApproval": false,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「app_use_list_apps」：盘点本机已安装及运行中的 macOS 桌面应用，返回类别与三级反风控风险档案 (safe_native / moderate_agent_or_web / high_risk_social)"
+          },
+          {
+            "id": "appuse_generalize",
+            "title": "一键泛化未知新 App 并导出 Skill (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "requiresApproval": false,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「app_use_generalize_app」：对任意未知桌面新 App 执行 4 阶段自动化泛化：探测原型 → AI 合成带锚点包流程 → 去噪与 A-F 就绪度评分 → 导出独立可复用 Skill"
+          },
+          {
+            "id": "appuse_watch_parallel",
+            "title": "多窗口无焦点并发监视 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "requiresApproval": false,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「app_use_watch_parallel」：多窗口无焦点并发监视（--no-activate），零焦点抢占同时采集多个桌面 App 的 UI stateHash、弹窗状态与拓扑分类"
+          },
+          {
+            "id": "appuse_run_parallel",
+            "title": "多窗口并发执行工作流 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "requiresApproval": false,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「app_use_run_parallel」：多窗口并发执行多条 App-Use 工作流：安全原生 App 后台无焦点 AX 真并行，高风控社交 App 强制走 ForegroundHIDLease + 拟真节奏抖动"
+          },
+          {
+            "id": "appuse_risk_profile",
+            "title": "查询目标应用反风控分级 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "requiresApproval": false,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「app_use_risk_profile」：查询目标应用的三级反风控分级、随机抖动区间及无焦点 AX 准入策略"
+          },
+          {
+            "id": "appuse_concurrency",
+            "title": "查看多窗口并发泳道与锁状态 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "requiresApproval": false,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「app_use_concurrency_status」：查询当前多窗口并发泳道实时状态、无焦点 AX 占比、ForegroundHIDLease 争用与反风控节流统计"
+          }
+        ]
+      },
+      {
+        "id": "dsh_plugin_tools",
+        "title": "插件工具动作面板",
+        "kind": "codex-panel",
+        "description": "从 @dsh-market/wechat-ecosystem 工具 JSON Schema 自动提取参数与执行映射。",
+        "fields": [
+          {
+            "id": "bundle_id",
+            "label": "目标应用 Bundle ID",
+            "type": "text",
+            "defaultValue": "com.apple.TextEdit",
+            "required": false
+          },
+          {
+            "id": "app_name",
+            "label": "目标应用名称（可选）",
+            "type": "text",
+            "defaultValue": "",
+            "required": false
+          },
+          {
+            "id": "launch_if_needed",
+            "label": "未运行时自动拉起应用",
+            "type": "toggle",
+            "defaultValue": true,
+            "required": false
+          },
+          {
+            "id": "workflow_id",
+            "label": "已保存的工作流 ID",
+            "type": "text",
+            "defaultValue": "",
+            "required": false
+          },
+          {
+            "id": "params",
+            "label": "运行时 {{变量}} 参数",
+            "type": "text",
+            "defaultValue": "[object Object]",
+            "required": false
+          },
+          {
+            "id": "dry_run",
+            "label": "仅 Dry-Run 安全演练",
+            "type": "toggle",
+            "defaultValue": true,
+            "required": false
+          },
+          {
+            "id": "confirm_run",
+            "label": "确认实机执行 (dry_run=false 时必填)",
+            "type": "toggle",
+            "defaultValue": false,
+            "required": false
+          },
+          {
+            "id": "dispatch_mode",
+            "label": "执行通道 (auto / headless_ax_first / foreground_hid_only)",
+            "type": "text",
+            "defaultValue": "auto",
+            "required": false
+          },
+          {
+            "id": "self_heal",
+            "label": "启用失败分类学自愈重试",
+            "type": "toggle",
+            "defaultValue": true,
+            "required": false
+          },
+          {
+            "id": "pipeline_id",
+            "label": "流水线 ID",
+            "type": "text",
+            "defaultValue": "",
+            "required": false
+          },
+          {
+            "id": "targetBotId",
+            "label": "目标 DSH Bot ID",
+            "type": "text",
+            "placeholder": "bot_wechat_ecosystem",
+            "defaultValue": "bot_wechat_ecosystem",
+            "required": false
+          },
+          {
+            "id": "task",
+            "label": "委派子任务说明",
+            "type": "text",
+            "placeholder": "输入交由 DSH Bot 执行的子任务详情",
+            "defaultValue": "",
+            "required": false
+          }
+        ],
+        "actions": [
+          {
+            "id": "app_use_inspect",
+            "title": "基于 AXUIElement + Apple Vision OCR 扫描任意 macOS 应用窗口控件树、语义锚点、弹窗阻断及拓扑原型 (0-LLM L2 OCR)",
+            "mode": "bridge_l2",
+            "zeroLLM": true,
+            "requiresApproval": false,
+            "bridgeTool": "l2_ocr"
+          },
+          {
+            "id": "app_use_run_workflow",
+            "title": "验证 (dry_run=true) 或实机运行 (confirm_run=true) App-Use RPA 工作流；安全原生 App 支持 headless_ax_first 后台零抢焦点执行，社交/金融 App 强… (委派 DS…",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "requiresApproval": false,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「app_use_run_workflow」：验证 (dry_run=true) 或实机运行 (confirm_run=true) App-Use RPA 工作流；安全原生 App 支持 headless_ax_first 后台零抢焦点执行，社交/金融 App 强制人类拟真保护"
+          },
+          {
+            "id": "app_use_run_pipeline",
+            "title": "运行跨应用联动流水线（将前一阶段 captureAs 采集结果注入后续桌面应用），支持 waitUntilChanged 状态等待 (委派 DSH)",
+            "mode": "delegate_bot",
+            "zeroLLM": true,
+            "requiresApproval": false,
+            "bridgeTool": "delegate_to_dsh_bot",
+            "defaultTask": "调用 DSH 插件工具「app_use_run_pipeline」：运行跨应用联动流水线（将前一阶段 captureAs 采集结果注入后续桌面应用），支持 waitUntilChanged 状态等待"
+          }
+        ]
+      },
+      {
         "id": "wechat_ecosystem_delivery",
         "title": "微信全生态 RPA 与 Benchmark 交付门禁 (Vertical)",
         "kind": "codex-panel",
@@ -847,5 +1367,5 @@
       }
     ]
   },
-  "sha256": "26198d544fbb6257923aafeaa454c25e8c02bd59aee1c9b44765e9d1f136ed54"
+  "sha256": "f86ae41d5c7e4d18494d1ddadabebf116c9f90f9f6efe68c8b173233edd9b70e"
 }

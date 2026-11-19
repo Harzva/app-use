@@ -3,7 +3,7 @@
   "id": "dsh-plugin-wechat-ecosystem",
   "name": "dsh-plugin-wechat-ecosystem",
   "packageName": "@dsh-market/wechat-ecosystem",
-  "version": "2.4.77",
+  "version": "2.9.0",
   "title": "微信全生态私域与内容工作台",
   "domain": "ops",
   "companionBotId": "bot_wechat_ecosystem",
@@ -290,6 +290,259 @@
         },
         "required": []
       }
+    },
+    {
+      "name": "app_use_list_apps",
+      "description": "盘点本机已安装及运行中的 macOS 桌面应用，返回类别与三级反风控风险档案 (safe_native / moderate_agent_or_web / high_risk_social)",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "running_only": {
+            "type": "boolean",
+            "title": "仅列出当前运行中的应用",
+            "default": true
+          },
+          "category": {
+            "type": "string",
+            "title": "按类别筛选 (all / agent_app / productivity / im_social / dev_tool / browser)",
+            "default": "all"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "app_use_inspect",
+      "description": "基于 AXUIElement + Apple Vision OCR 扫描任意 macOS 应用窗口控件树、语义锚点、弹窗阻断及拓扑原型",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "bundle_id": {
+            "type": "string",
+            "title": "目标应用 Bundle ID",
+            "default": "com.apple.TextEdit"
+          },
+          "app_name": {
+            "type": "string",
+            "title": "目标应用名称（可选）",
+            "default": ""
+          },
+          "launch_if_needed": {
+            "type": "boolean",
+            "title": "未运行时自动拉起应用",
+            "default": true
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "app_use_generalize_app",
+      "description": "对任意未知桌面新 App 执行 4 阶段自动化泛化：探测原型 → AI 合成带锚点包流程 → 去噪与 A-F 就绪度评分 → 导出独立可复用 Skill",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "goal": {
+            "type": "string",
+            "title": "目标业务流程与验收目标",
+            "default": "搜索并提取右侧详情内容"
+          },
+          "bundle_id": {
+            "type": "string",
+            "title": "目标应用 Bundle ID",
+            "default": "com.apple.Dictionary"
+          },
+          "agent_id": {
+            "type": "string",
+            "title": "指定构建 SOP 的 Agent（留空自动优选）",
+            "default": ""
+          },
+          "dry_run_verify": {
+            "type": "boolean",
+            "title": "生成后自动 Dry-Run 锚点校验",
+            "default": true
+          },
+          "export_skill": {
+            "type": "boolean",
+            "title": "自动导出便携式 SKILL.md 包",
+            "default": true
+          },
+          "launch_if_needed": {
+            "type": "boolean",
+            "title": "未运行时自动拉起目标应用",
+            "default": true
+          }
+        },
+        "required": ["goal"]
+      }
+    },
+    {
+      "name": "app_use_run_workflow",
+      "description": "验证 (dry_run=true) 或实机运行 (confirm_run=true) App-Use RPA 工作流；安全原生 App 支持 headless_ax_first 后台零抢焦点执行，社交/金融 App 强制人类拟真保护",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "title": "已保存的工作流 ID",
+            "default": ""
+          },
+          "params": {
+            "type": "object",
+            "title": "运行时 {{变量}} 参数",
+            "default": {}
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "仅 Dry-Run 安全演练",
+            "default": true
+          },
+          "confirm_run": {
+            "type": "boolean",
+            "title": "确认实机执行 (dry_run=false 时必填)",
+            "default": false
+          },
+          "dispatch_mode": {
+            "type": "string",
+            "title": "执行通道 (auto / headless_ax_first / foreground_hid_only)",
+            "default": "auto"
+          },
+          "self_heal": {
+            "type": "boolean",
+            "title": "启用失败分类学自愈重试",
+            "default": true
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "app_use_run_pipeline",
+      "description": "运行跨应用联动流水线（将前一阶段 captureAs 采集结果注入后续桌面应用），支持 waitUntilChanged 状态等待",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pipeline_id": {
+            "type": "string",
+            "title": "流水线 ID",
+            "default": ""
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "仅 Dry-Run 演练",
+            "default": true
+          },
+          "confirm_run": {
+            "type": "boolean",
+            "title": "确认实机联跑",
+            "default": false
+          },
+          "self_heal": {
+            "type": "boolean",
+            "title": "启用自愈重试",
+            "default": true
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "app_use_watch_parallel",
+      "description": "多窗口无焦点并发监视（--no-activate），零焦点抢占同时采集多个桌面 App 的 UI stateHash、弹窗状态与拓扑分类",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "targets": {
+            "type": "array",
+            "title": "要并发监视的窗口目标列表 ([{\"bundle_id\":\"...\"}])",
+            "default": [{"bundle_id": "com.tencent.xinWeChat"}, {"bundle_id": "com.apple.TextEdit"}]
+          },
+          "include_ocr": {
+            "type": "boolean",
+            "title": "是否同时运行 Apple Vision OCR",
+            "default": false
+          },
+          "max_workers": {
+            "type": "integer",
+            "title": "最大并发线程数",
+            "default": 4
+          }
+        },
+        "required": ["targets"]
+      }
+    },
+    {
+      "name": "app_use_run_parallel",
+      "description": "多窗口并发执行多条 App-Use 工作流：安全原生 App 后台无焦点 AX 真并行，高风控社交 App 强制走 ForegroundHIDLease + 拟真节奏抖动",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "jobs": {
+            "type": "array",
+            "title": "并行执行任务数组",
+            "default": []
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "仅 Dry-Run 演练",
+            "default": true
+          },
+          "confirm_run": {
+            "type": "boolean",
+            "title": "确认实机并发运行",
+            "default": false
+          },
+          "dispatch_mode": {
+            "type": "string",
+            "title": "默认执行通道 (auto / headless_ax_first / foreground_hid_only)",
+            "default": "auto"
+          },
+          "max_workers": {
+            "type": "integer",
+            "title": "最大并发线程数",
+            "default": 4
+          }
+        },
+        "required": ["jobs"]
+      }
+    },
+    {
+      "name": "app_use_risk_profile",
+      "description": "查询目标应用的三级反风控分级、随机抖动区间及无焦点 AX 准入策略",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "bundle_id": {
+            "type": "string",
+            "title": "目标应用 Bundle ID",
+            "default": "com.tencent.xinWeChat"
+          },
+          "app_name": {
+            "type": "string",
+            "title": "目标应用名称（可选）",
+            "default": ""
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "app_use_concurrency_status",
+      "description": "查询当前多窗口并发泳道实时状态、无焦点 AX 占比、ForegroundHIDLease 争用与反风控节流统计",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
     }
   ],
   "workbench": {
@@ -384,6 +637,49 @@
             "id": "crm_formulas",
             "title": "计算 SalesCRM 数学公式 (BQ / BSP / BWS / PV)",
             "tool": "wechat_salescrm_formulas",
+            "requiresApproval": false
+          }
+        ]
+      },
+      {
+        "id": "app_use_generalization_panel",
+        "title": "🚀 Universal App-Use 泛化工厂 · 无焦点多窗口并发与反风控泳道",
+        "description": "泛化任意未知 macOS 桌面 App 为可复用 SOP/Skill；安全原生 App 默认后台无焦点 AX 直调真并发，高风控社交/金融 App 强制前台拟真节奏防封护栏。",
+        "actions": [
+          {
+            "id": "appuse_list_apps",
+            "title": "盘点本机应用与三级反风控策略",
+            "tool": "app_use_list_apps",
+            "requiresApproval": false
+          },
+          {
+            "id": "appuse_generalize",
+            "title": "一键泛化未知新 App 并导出 Skill",
+            "tool": "app_use_generalize_app",
+            "requiresApproval": false
+          },
+          {
+            "id": "appuse_watch_parallel",
+            "title": "多窗口无焦点并发监视",
+            "tool": "app_use_watch_parallel",
+            "requiresApproval": false
+          },
+          {
+            "id": "appuse_run_parallel",
+            "title": "多窗口并发执行工作流",
+            "tool": "app_use_run_parallel",
+            "requiresApproval": false
+          },
+          {
+            "id": "appuse_risk_profile",
+            "title": "查询目标应用反风控分级",
+            "tool": "app_use_risk_profile",
+            "requiresApproval": false
+          },
+          {
+            "id": "appuse_concurrency",
+            "title": "查看多窗口并发泳道与锁状态",
+            "tool": "app_use_concurrency_status",
             "requiresApproval": false
           }
         ]

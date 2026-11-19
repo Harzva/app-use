@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <title>App-Use Studio — macOS Window-Scoped App-Use &amp; Meta-RPA Engine</title>
+  <style>
+    :root {
+      --bg-light: #ffffff;
+      --bg-dark: #0d1117;
+      --surface-light: #f6f8fa;
+      --surface-dark: #161b22;
+      --text-light: #111827;
+      --text-dark: #e6edf3;
+      --muted-light: #4b5563;
+      --muted-dark: #9da7b3;
+      --border-light: #d0d7de;
+      --border-dark: #30363d;
+      --accent-light: #111827;
+      --accent-dark: #f0f6fc;
+      --accent-text-light: #ffffff;
+      --accent-text-dark: #0d1117;
+      --code-bg-dark: #161b22;
+      --code-text-dark: #e6edf3;
+      --ok-light: #166534;
+      --ok-dark: #4ade80;
+      --warn-light: #92400e;
+      --warn-dark: #fbbf24;
+      --scrollbar-track-light: #f1f3f5;
+      --scrollbar-track-dark: #161b22;
+      --scrollbar-thumb-light: #6b7280;
+      --scrollbar-thumb-dark: #8b949e;
+
+      --bg: var(--bg-light);
+      --surface: var(--surface-light);
+      --text: var(--text-light);
+      --muted: var(--muted-light);
+      --border: var(--border-light);
+      --accent-color: var(--accent-light);
+      --accent-text: var(--accent-text-light);
+      --ok: var(--ok-light);
+      --warn: var(--warn-light);
+      --scrollbar-track: var(--scrollbar-track-light);
+      --scrollbar-thumb: var(--scrollbar-thumb-light);
+
+      color-scheme: light dark;
+      accent-color: var(--accent-color);
+      scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: var(--bg-dark);
+        --surface: var(--surface-dark);
+        --text: var(--text-dark);
+        --muted: var(--muted-dark);
+        --border: var(--border-dark);
+        --accent-color: var(--accent-dark);
+        --accent-text: var(--accent-text-dark);
+        --ok: var(--ok-dark);
+        --warn: var(--warn-dark);
+        --scrollbar-track: var(--scrollbar-track-dark);
+        --scrollbar-thumb: var(--scrollbar-thumb-dark);
+      }
+    }
+
+    @supports (color: light-dark(white, black)) {
+      :root {
+        --bg: light-dark(var(--bg-light), var(--bg-dark));
+        --surface: light-dark(var(--surface-light), var(--surface-dark));
+        --text: light-dark(var(--text-light), var(--text-dark));
+        --muted: light-dark(var(--muted-light), var(--muted-dark));
+        --border: light-dark(var(--border-light), var(--border-dark));
+        --accent-color: light-dark(var(--accent-light), var(--accent-dark));
+        --accent-text: light-dark(var(--accent-text-light), var(--accent-text-dark));
+        --ok: light-dark(var(--ok-light), var(--ok-dark));
+        --warn: light-dark(var(--warn-light), var(--warn-dark));
+        --scrollbar-track: light-dark(var(--scrollbar-track-light), var(--scrollbar-track-dark));
+        --scrollbar-thumb: light-dark(var(--scrollbar-thumb-light), var(--scrollbar-thumb-dark));
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", system-ui, sans-serif;
+      font-size: 15px;
+      line-height: 1.65;
+    }
+
+    a {
+      color: var(--text);
+      text-underline-offset: 3px;
+    }
+
+    a:hover {
+      opacity: 0.78;
+    }
+
+    .topbar {
+      border-bottom: 1px solid var(--border);
+      background-color: var(--bg);
+    }
+
+    .topbar-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .brand {
+      font-weight: 600;
+      font-size: 15px;
+      text-decoration: none;
+      letter-spacing: -0.01em;
+    }
+
+    .nav {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      font-size: 13.5px;
+    }
+
+    .nav a {
+      text-decoration: none;
+      color: var(--muted);
+    }
+
+    .nav a:hover {
+      color: var(--text);
+    }
+
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 36px 24px 64px;
+    }
+
+    .intro {
+      padding-bottom: 28px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 32px;
+      line-height: 1.2;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+    }
+
+    h2 {
+      margin: 36px 0 12px;
+      font-size: 21px;
+      line-height: 1.3;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+
+    h3 {
+      margin: 16px 0 6px;
+      font-size: 15.5px;
+      font-weight: 600;
+    }
+
+    p {
+      margin: 0 0 12px;
+      color: var(--text);
+    }
+
+    .lead {
+      max-width: 780px;
+      font-size: 16px;
+      color: var(--muted);
+      margin-bottom: 18px;
+    }
+
+    .meta-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+      font-size: 12.5px;
+    }
+
+    .tag {
+      display: inline-block;
+      padding: 3px 9px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background-color: var(--surface);
+      color: var(--muted);
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 13.5px;
+      font-weight: 500;
+      text-decoration: none;
+      border: 1px solid var(--border);
+      background-color: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    .btn-primary {
+      background-color: var(--accent-color);
+      color: var(--accent-text);
+      border-color: var(--accent-color);
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 14px;
+      margin-top: 12px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 14px;
+      margin-top: 12px;
+    }
+
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      background-color: var(--surface);
+    }
+
+    .card h3 {
+      margin-top: 0;
+    }
+
+    .card p:last-child {
+      margin-bottom: 0;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 13.5px;
+    }
+
+    .stat-num {
+      font-size: 24px;
+      font-weight: 650;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+      margin-bottom: 4px;
+    }
+
+    /* Responsive Tables (sticky headers + @container stacked fallback) */
+    .table-wrapper {
+      overflow: auto;
+      max-inline-size: 100%;
+      max-block-size: min(560px, 80vh);
+      container-type: inline-size;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background-color: var(--bg);
+      margin-top: 12px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 13.5px;
+      text-align: left;
+    }
+
+    caption {
+      text-align: left;
+      padding: 10px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      background-color: var(--surface);
+    }
+
+    thead {
+      position: sticky;
+      inset-block-start: 0;
+      z-index: 2;
+      background-color: var(--surface);
+    }
+
+    th,
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    thead th {
+      font-weight: 600;
+      white-space: nowrap;
+      border-bottom: 1px solid var(--border);
+    }
+
+    tbody th {
+      position: sticky;
+      inset-inline-start: 0;
+      z-index: 1;
+      background-color: var(--bg);
+      font-weight: 600;
+      white-space: nowrap;
+      border-inline-end: 1px solid var(--border);
+    }
+
+    tbody tr:last-child th,
+    tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .status-ok {
+      color: var(--ok);
+      font-weight: 600;
+    }
+
+    .status-warn {
+      color: var(--warn);
+      font-weight: 600;
+    }
+
+    @container (width < 640px) {
+      .table-wrapper {
+        border: none;
+        background-color: transparent;
+      }
+
+      table,
+      thead,
+      tbody,
+      tr,
+      th,
+      td {
+        display: block;
+      }
+
+      caption {
+        border: 1px solid var(--border);
+        border-radius: 8px 8px 0 0;
+      }
+
+      thead {
+        display: none;
+      }
+
+      tr {
+        margin-block-end: 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background-color: var(--bg);
+        overflow: hidden;
+      }
+
+      tbody th {
+        position: sticky;
+        inset-block-start: 0;
+        z-index: 2;
+        background-color: var(--surface);
+        border-inline-end: none;
+        border-bottom: 1px solid var(--border);
+      }
+
+      td {
+        white-space: normal;
+      }
+
+      #compare-table td:nth-child(2)::before {
+        content: var(--col-2) ": ";
+        font-weight: 600;
+        color: var(--muted);
+      }
+
+      #compare-table td:nth-child(3)::before {
+        content: var(--col-3) ": ";
+        font-weight: 600;
+        color: var(--muted);
+      }
+
+      #compare-table td:nth-child(4)::before {
+        content: var(--col-4) ": ";
+        font-weight: 600;
+        color: var(--muted);
+      }
+
+      #risk-table td:nth-child(2)::before {
+        content: var(--col-2) ": ";
+        font-weight: 600;
+        color: var(--muted);
+      }
+
+      #risk-table td:nth-child(3)::before {
+        content: var(--col-3) ": ";
+        font-weight: 600;
+        color: var(--muted);
+      }
+
+      #risk-table td:nth-child(4)::before {
+        content: var(--col-4) ": ";
+        font-weight: 600;
+        color: var(--muted);
+      }
+    }
+
+    /* Legacy WebKit scrollbar fallback */
+    @supports not (scrollbar-color: auto) {
+      .table-wrapper {
+        scrollbar-width: auto;
+      }
+      .table-wrapper::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+      }
+      .table-wrapper::-webkit-scrollbar-thumb {
+        background: var(--scrollbar-thumb);
+      }
+      .table-wrapper::-webkit-scrollbar-track {
+        background: var(--scrollbar-track);
+      }
+    }
+
+    #compare-table {
+      --col-2: "Browser-Use";
+      --col-3: "Computer-Use";
+      --col-4: "App-Use Studio";
+    }
+
+    #risk-table {
+      --col-2: "典型应用";
+      --col-3: "默认调度通道";
+      --col-4: "风控护栏";
+    }
+
+    .code-wrap {
+      position: relative;
+      margin-top: 10px;
+    }
+
+    pre,
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12.5px;
+    }
+
+    code {
+      padding: 1px 5px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background-color: var(--surface);
+    }
+
+    pre {
+      color-scheme: dark;
+      accent-color: var(--accent-color);
+      background-color: var(--code-bg-dark);
+      color: var(--code-text-dark);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      margin: 0;
+      line-height: 1.55;
+    }
+
+    pre code {
+      border: none;
+      background: transparent;
+      color: inherit;
+      padding: 0;
+    }
+
+    .copy-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      padding: 4px 8px;
+      font-size: 11.5px;
+      border-radius: 5px;
+      border: 1px solid #30363d;
+      background-color: #21262d;
+      color: #e6edf3;
+      cursor: pointer;
+    }
+
+    .copy-btn:hover {
+      background-color: #30363d;
+    }
+
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 20px 24px;
+      max-width: 1120px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#top">App-Use Studio</a>
+      <nav class="nav" aria-label="Primary">
+        <a href="#why">Why App-Use</a>
+        <a href="#architecture">5 大核心算法</a>
+        <a href="#risk-tiers">反风控分级</a>
+        <a href="#benchmarks">实机回执</a>
+        <a href="#quickstart">Quick Start</a>
+        <a href="https://github.com/Harzva/app-use">GitHub</a>
+        <a href="https://harzva.github.io/">Harzva</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="intro">
+      <h1>App-Use Studio</h1>
+      <p class="lead">
+        补齐智能体桌面行动最后一块拼图：<strong>Browser-Use → Computer-Use → App-Use</strong>。
+        专为 macOS 打造的<strong>窗口级桌面 App-Use 与 Meta-RPA 元能力引擎</strong>——结合
+        <code>AXUIElement</code> + <code>Apple Vision OCR</code>、安全原生 App 无焦点后台并发直调，以及社交客户端三级反风控护栏。
+      </p>
+      <div class="meta-row">
+        <span class="tag">v2.9.0 (build 2900)</span>
+        <span class="tag">macOS 14+ Apple Silicon</span>
+        <span class="tag">69 MCP Tools · 16 App-Use</span>
+        <span class="tag">Bot Studio (dsh2codex) Ready</span>
+      </div>
+      <div class="actions">
+        <a class="btn btn-primary" href="https://github.com/Harzva/app-use">GitHub · Harzva/app-use</a>
+        <a class="btn" href="#quickstart">5 分钟构建与接入</a>
+        <a class="btn" href="https://harzva.github.io/">返回 Harzva 主页</a>
+      </div>
+    </section>
+
+    <section id="why">
+      <h2>为什么需要独立的窗口级 App-Use？</h2>
+      <p class="muted">
+        Browser-Use 碰不到微信和原生桌面应用；传统 Computer-Use 把整块屏幕塞给模型，视野太泛且单鼠标无法安全并发。App-Use Studio 直接锁定单个 <code>bundleID + windowID</code>。
+      </p>
+      <div tabindex="0" role="region" aria-labelledby="compare-caption" class="table-wrapper">
+        <table id="compare-table">
+          <caption id="compare-caption">Browser-Use、Computer-Use 与 App-Use Studio 工程能力对比</caption>
+          <thead>
+            <tr>
+              <th scope="col">工程维度</th>
+              <th scope="col">Browser-Use</th>
+              <th scope="col">传统 Computer-Use</th>
+              <th scope="col">App-Use Studio</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">目标边界</th>
+              <td>仅限浏览器网页 DOM</td>
+              <td>全屏像素视野，受通知与无关窗干扰</td>
+              <td>精确锁定单一 <code>bundleID + windowID</code> 窗口</td>
+            </tr>
+            <tr>
+              <th scope="row">控件锚定</th>
+              <td>HTML 选择器（无桌面适用性）</td>
+              <td>像素坐标点击，窗口缩放即偏移</td>
+              <td>5 信号双语语义 + 相对坐标 + 邻域参照锚点包</td>
+            </tr>
+            <tr>
+              <th scope="row">多窗并发能力</th>
+              <td>浏览器多 Tab 并发</td>
+              <td>单光标争用，易把内容贴错窗口</td>
+              <td><code>--no-activate</code> 观察 + 无焦点 AX 真并发 + <code>ForegroundHIDLease</code></td>
+            </tr>
+            <tr>
+              <th scope="row">社交防风控</th>
+              <td>依赖站点接口限流</td>
+              <td>无分级直戳前景键鼠</td>
+              <td>强制隔离高风控社交客户端后台注入，拟真随机抖动</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="architecture">
+      <h2>5 大元能力算法 + 无焦点双通道执行</h2>
+      <div class="grid-2">
+        <article class="card">
+          <h3>1. 双语 5 信号语义定位 (`SemanticElementGrounder`)</h3>
+          <p class="muted">融合 EN/ZH 同义词群、CJK bigram、<code>identifier/role</code>、归一化坐标与 <code>neighborTexts</code>，对每个控件计算置信度与次优差值（margin）。</p>
+        </article>
+        <article class="card">
+          <h3>2. 拓扑原型识别与状态转移图 (`AppUIStateGraph`)</h3>
+          <p class="muted">零硬编码识别 6 类未知应用拓扑原型与登录/风险弹窗阻断，跨运行持续积累窗口 <code>stateHash</code> 迁移边。</p>
+        </article>
+        <article class="card">
+          <h3>3. 轨迹优化与 Readiness A–F 评分</h3>
+          <p class="muted">自动合并重复激活、剔除无状态变化死点击，并从 5 个维度对自动生成的工作流打出 0–100 可上线度得分。</p>
+        </article>
+        <article class="card">
+          <h3>4. 失败分类学定向自愈 &amp; 元技能导出</h3>
+          <p class="muted">按失败原因分支重激活、关闭模态框或触发 <code>pause_for_human</code>，并将未知新 App 一键打包为独立可复用 <code>SKILL.md</code>。</p>
+        </article>
+        <article class="card">
+          <h3>5. 无焦点 AX 直调 (`app-use-ax-action` / `set-value`)</h3>
+          <p class="muted">原生 Swift 在后台调用 <code>AXUIElementPerformAction</code> 与 <code>AXSetValue</code>，不激活窗、不动鼠标、不改剪贴板，不支持时平滑降级。</p>
+        </article>
+        <article class="card">
+          <h3>6. 并发互斥保护 (`ForegroundHIDLease`) + 泳道监控</h3>
+          <p class="muted">通过 <code>ConcurrencyLaneTracker</code> 实时追踪每窗在观察、无焦点直调、排队等锁、持锁与拟真冷却之间的毫秒级切换。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="risk-tiers">
+      <h2>三级反风控调度策略（Anti-Ban Risk Engine）</h2>
+      <p class="muted">
+        后台无焦点修改原生工具（TextEdit、Calculator 等）与 macOS VoiceOver 同源且无服务端风控；而微信、钉钉、小红书等社交/内容端若在失活状态被后台盲写，易产生“非前景整段注入”异常特征，因此引擎按风险分级严格硬隔离。
+      </p>
+      <div tabindex="0" role="region" aria-labelledby="risk-caption" class="table-wrapper">
+        <table id="risk-table">
+          <caption id="risk-caption">App-Use Studio 三级应用反风控执行策略</caption>
+          <thead>
+            <tr>
+              <th scope="col">风险等级</th>
+              <th scope="col">典型应用</th>
+              <th scope="col">默认调度通道</th>
+              <th scope="col">风控护栏参数</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row"><span class="status-warn">high_risk_social</span></th>
+              <td>微信、企微、钉钉、飞书、小红书、抖音、金融客户端</td>
+              <td><code>foreground_human_paced</code>（硬禁后台 AX 写注入）</td>
+              <td><code>350 ms</code> 最小冷却 + <code>260–780 ms</code> 随机抖动 · 只读探测限 <code>0.5 Hz</code></td>
+            </tr>
+            <tr>
+              <th scope="row">moderate_agent_or_web</th>
+              <td>ChatGPT、Claude、Chrome、Safari、Electron 工具</td>
+              <td><code>headless_ax_first</code>（失败平滑降级前台 HID）</td>
+              <td><code>120 ms</code> 最小冷却 + <code>90–240 ms</code> 轻节奏间隔</td>
+            </tr>
+            <tr>
+              <th scope="row"><span class="status-ok">safe_native</span></th>
+              <td>TextEdit、Calculator、Dictionary、Finder 等本地工具</td>
+              <td><code>headless_ax_first</code>（后台零抢焦点真并发）</td>
+              <td>无抖动冷却 · 零鼠标移动 · 零剪贴板触碰</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="benchmarks">
+      <h2>真机工程实测回执（`v2.9.0`）</h2>
+      <div class="grid-3">
+        <div class="card">
+          <div class="stat-num">174 / 174 OK</div>
+          <p class="muted">全量单元测试回归（<code>114.759s</code>，0 失败 / 0 跳过），覆盖 Meta 算法、Swift 双向降级与 DSH 编译。</p>
+        </div>
+        <div class="card">
+          <div class="stat-num">1.86x 并行加速</div>
+          <p class="muted">后台并发写 <code>TextEdit</code> + 操控 <code>Calculator</code>：前台始终停留 <code>Finder</code>，剪贴板哨兵未改，<code>headlessSharePct = 100%</code>。</p>
+        </div>
+        <div class="card">
+          <div class="stat-num">69 MCP 工具</div>
+          <p class="muted">标准 stdio JSON-RPC 2.0 暴露 16 个 <code>app_use_*</code> 工具，已接通 Codex CLI 与 Bot Studio DSH。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="quickstart">
+      <h2>Quick Start &amp; Codex / Bot Studio MCP 接入</h2>
+      <div class="code-wrap">
+        <button type="button" class="copy-btn" data-copy="cli-code">复制</button>
+        <pre id="cli-code"><code>git clone https://github.com/Harzva/app-use.git
+cd app-use
+./bin/build-standalone-app
+./bin/wechat-bot console --host 127.0.0.1 --port 18788</code></pre>
+      </div>
+      <div class="code-wrap">
+        <button type="button" class="copy-btn" data-copy="mcp-code">复制</button>
+        <pre id="mcp-code"><code>[mcp_servers.wechat-app-use]
+command = "/Users/&lt;your-user&gt;/Applications/WeChat Bot.app/Contents/Resources/bin/wechat-bot"
+args = ["serve-mcp"]
+
+[mcp_servers.wechat-app-use.env]
+HOME = "/Users/&lt;your-user&gt;"
+WECHAT_BOT_DATA_DIR = "/Users/&lt;your-user&gt;/Library/Application Support/WeChatBot"</code></pre>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>App-Use Studio · <a href="https://github.com/Harzva/app-use">Harzva/app-use</a></span>
+    <span><a href="https://harzva.github.io/">Harzva Portfolio</a></span>
+  </footer>
+
+  <script>
+    (function () {
+      const buttons = document.querySelectorAll(".copy-btn");
+      for (const btn of buttons) {
+        btn.addEventListener("click", async () => {
+          const targetId = btn.getAttribute("data-copy");
+          const pre = targetId ? document.getElementById(targetId) : null;
+          if (!pre) return;
+          try {
+            await navigator.clipboard.writeText(pre.innerText.trim());
+            const prev = btn.textContent;
+            btn.textContent = "已复制";
+            setTimeout(() => { btn.textContent = prev; }, 1400);
+          } catch (e) {
+            /* clipboard unavailable */
+          }
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

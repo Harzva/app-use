@@ -96,10 +96,10 @@ class TestHumanizerAffectAndCardRead(unittest.TestCase):
             "ok": True,
             "isMainWindow": False,
             "splitX": 0.0,
-            "windowTitle": "联系人A",
+            "windowTitle": "心安",
             "windowBounds": {"x": 927, "y": 177, "width": 1523, "height": 1160},
             "elements": [
-                {"text": "联系人A", "bbox": {"x": 13, "y": 49, "width": 31, "height": 18}, "center": {"x": 29, "y": 58}},
+                {"text": "心安", "bbox": {"x": 13, "y": 49, "width": 31, "height": 18}, "center": {"x": 29, "y": 58}},
                 {"text": "、6…", "bbox": {"x": 1399, "y": 46, "width": 109, "height": 19}, "center": {"x": 1453, "y": 55}},
                 {"text": "10:52", "bbox": {"x": 744, "y": 230, "width": 35, "height": 11}, "center": {"x": 761, "y": 236}},
                 {"text": "宁德时代董事长曾毓群反思：", "bbox": {"x": 93, "y": 283, "width": 139, "height": 14}, "center": {"x": 163, "y": 290}},
@@ -114,10 +114,10 @@ class TestHumanizerAffectAndCardRead(unittest.TestCase):
             ],
         }
         structured = self.engine.inspector.extract_structured_bubbles(ocr_payload, snapshot_path=snap)
-        self.assertEqual(structured["headerTitle"], "联系人A")
+        self.assertEqual(structured["headerTitle"], "心安")
         bubbles = structured["bubbles"]
         # Window title at y=58 must NOT leak into bubbles[0]
-        self.assertNotEqual(bubbles[0]["text"], "联系人A")
+        self.assertNotEqual(bubbles[0]["text"], "心安")
         types = [b["mediaType"] for b in bubbles]
         self.assertIn("channels_video", types)
         self.assertIn("wechat_article", types)
@@ -134,7 +134,7 @@ class TestHumanizerAffectAndCardRead(unittest.TestCase):
             calls.append(list(args))
             cmd = args[0]
             if cmd == "list-app-windows":
-                wins = [{"windowID": 14393, "title": "联系人A", "isMainWindow": False, "bounds": {"x": 927, "y": 177, "width": 1523, "height": 1160}}]
+                wins = [{"windowID": 14393, "title": "心安", "isMainWindow": False, "bounds": {"x": 927, "y": 177, "width": 1523, "height": 1160}}]
                 if win_state["opened"]:
                     wins.append({"windowID": 15001, "title": "ISPRS | CASGM", "isMainWindow": False, "bounds": {"x": 300, "y": 100, "width": 820, "height": 900}})
                 return {"ok": True, "windows": wins}
@@ -159,7 +159,7 @@ class TestHumanizerAffectAndCardRead(unittest.TestCase):
             window_bounds={"x": 927, "y": 177, "width": 1523, "height": 1160},
             window_id=14393,
             snapshot_path=snap,
-            contact="联系人A",
+            contact="心安",
             click_to_open=True,
         )
         self.assertTrue(deep["ok"])
@@ -268,18 +268,18 @@ class TestHumanizerAffectAndCardRead(unittest.TestCase):
             if args[0] == "list-app-windows":
                 return {
                     "ok": True,
-                    "windows": [{"windowID": 14393, "title": "联系人A", "isMainWindow": False, "bounds": {"x": 927, "y": 177, "width": 1523, "height": 1160}}],
+                    "windows": [{"windowID": 14393, "title": "心安", "isMainWindow": False, "bounds": {"x": 927, "y": 177, "width": 1523, "height": 1160}}],
                 }
             if args[0] == "send-sticker":
                 return {"ok": True, "sent": False, "dryRun": True, "tab": "favorites", "slot": 0}
             return {"ok": True, "sent": False}
 
         self.engine._run_native = fake_sticker_native  # type: ignore[method-assign]
-        res_panel = self.engine.send_wechat_sticker("联系人A", tab="favorites", slot=0, dry_run=True, confirm_send=False)
+        res_panel = self.engine.send_wechat_sticker("心安", tab="favorites", slot=0, dry_run=True, confirm_send=False)
         self.assertTrue(res_panel["ok"])
         self.assertTrue(any(c[0] == "send-sticker" and "--tab" in c and "favorites" in c for c in native_calls))
 
-        res_code = self.engine.send_wechat_sticker("联系人A", emoji_code="思考", dry_run=True, confirm_send=False)
+        res_code = self.engine.send_wechat_sticker("心安", emoji_code="思考", dry_run=True, confirm_send=False)
         self.assertTrue(res_code["ok"])
         self.assertEqual(res_code["status"], "dry_run_ok")
 
@@ -426,13 +426,13 @@ class TestHumanizerAffectAndCardRead(unittest.TestCase):
         )
 
         # 1) Parse both WeChat mini-program invite card text and full shared invite block with password
-        card_inv = extract_tencent_meeting_invite("主持人的个人会议室\n会议已经开始，请尽快加入会议\n会议号：779 432 9581\n腾讯会议")
+        card_inv = extract_tencent_meeting_invite("郝泽华的个人会议室\n会议已经开始，请尽快加入会议\n会议号：779 432 9581\n腾讯会议")
         self.assertIsNotNone(card_inv)
         self.assertEqual(card_inv["meetingCode"], "7794329581")
         self.assertEqual(card_inv["password"], "")
 
         full_inv = extract_tencent_meeting_invite(
-            "主持人 邀请您加入主持人的个人会议室\n"
+            "郝泽华 邀请您加入郝泽华的个人会议室\n"
             "https://meeting.tencent.com/p/7794329581?tk=1yuRm\n"
             "#腾讯会议：779-432-9581\n会议密码：498541"
         )

@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from .agent_dispatcher import WeChatAgentDispatcher
+from .app_use_studio import AppUseStudio
 from .article_exporter import WeChatArticleExporter
 from .auth_gate import StudioAuthGate, StudioPluginUnauthorizedError
 from .benchmark_suite import WeChatRPABenchmarkSuite
@@ -40,6 +41,7 @@ from .live_inspector import WeChatLiveInspector, _matches_target, _slugify_targe
 from .magpie_provider_hub import MagpieProviderHub
 from .media_link_analyzer import WeChatMediaLinkAnalyzer
 from .multi_window_scheduler import MultiWindowScheduler
+from .omni_channels import OmniChannelHub
 from .realtime_monitor import _looks_like_timestamp, WeChatRealtimeMonitor
 from .sales_crm_hub import WeChatSalesCRMHub
 from .soul_memory_profiler import SoulMemoryProfiler
@@ -494,6 +496,15 @@ class WeChatControlEngine:
         self.media_analyzer = WeChatMediaLinkAnalyzer(self)
         self.agent_dispatcher = WeChatAgentDispatcher(self)
         self.sales_crm = WeChatSalesCRMHub(self, db_path=resolved_kb.parent / "sales_crm.sqlite")
+        self.omni_hub = OmniChannelHub(
+            self,
+            config_path=resolved_auth.parent / "omni_channels.json",
+            http_requester=model_http_requester,
+        )
+        self.app_use = AppUseStudio(
+            self,
+            store_path=resolved_auth.parent / "app_use_workflows.json",
+        )
         self.hosting_manager = HostingManager(
             self,
             state_path=resolved_mon_state.parent / "hosting_state.json",
@@ -1628,7 +1639,11 @@ class WeChatControlEngine:
         if clean_action not in ("dial", "join", "answer", "hangup", "status"):
             return {"ok": False, "error_code": "unsupported_action", "error": f"Unsupported action: {clean_action}"}
         clean_app = str(app or "wechat").strip().lower()
-        if clean_app not in ("wechat", "wecom", "all"):
+        if clean_app == "lark":
+            clean_app = "feishu"
+        elif clean_app == "ding":
+            clean_app = "dingtalk"
+        if clean_app not in ("wechat", "wecom", "feishu", "dingtalk", "all", "omni"):
             clean_app = "wechat"
         clean_call_type = "video" if str(call_type or "audio").strip().lower() == "video" else "audio"
         clean_target = str(target or "").strip()
@@ -1711,8 +1726,12 @@ class WeChatControlEngine:
         if will_live:
             pre_scan = self._run_native(["voice-call", "--action", "status", "--app-id", clean_app or "all"], timeout=6.0)
             if pre_scan.get("callStatus") == "connected":
+                connected_app = (
+                    (pre_scan.get("calls") or [{}])[0].get("appId")
+                    or (clean_app if clean_app not in ("all", "omni") else "wechat")
+                )
                 daemon_res = self._start_voip_voice_daemon(
-                    app="wecom" if clean_app == "wecom" else "wechat",
+                    app=str(connected_app),
                     target=clean_target,
                     greeting=greeting,
                     instructions=instructions,
@@ -1723,7 +1742,7 @@ class WeChatControlEngine:
                 res = {
                     "ok": True,
                     "action": clean_action,
-                    "app": "wecom" if clean_app == "wecom" else "wechat",
+                    "app": str(connected_app),
                     "target": clean_target,
                     "alreadyInCall": True,
                     "status": "connected",
@@ -3869,6 +3888,162 @@ class WeChatControlEngine:
             return {"ok": False, "error": "EMPTY_AVATAR"}
         return {"ok": True, "target": clean, "url": f"/avatars/{clean}.png", "path": str(out_path), "crop": region}
 
+    def refresh_avatars(
+        self,
+        *,
+        targets: Optional[List[str]] = None,
+        capture_fresh: bool = True,
+    ) -> Dict[str, Any]:
+        """Batch-capture and refresh sidebar contact avatars from live WeChat/WeCom windows & reports."""
+        self._require("ocr" if capture_fresh else "status")
+        out_dir = self.inspector.snapshots_dir.parent / "avatars"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        self.inspector.snapshots_dir.mkdir(parents=True, exist_ok=True)
+
+        sources: List[Tuple[Path, List[Dict[str, Any]]]] = []
+        if capture_fresh:
+            for app_id, wtitle in (("wechat", "微信"), ("wecom", "企业微信")):
+                snap_file = self.inspector.snapshots_dir / f"avatar_refresh_{app_id}.png"
+                cmd = ["capture-ocr", "--app", app_id, "--window-title", wtitle, "--out", str(snap_file), "--no-activate"]
+                cap = self._run_native(cmd, 16.0)
+                if not cap.get("ok") and cap.get("error_code") in ("window_not_found", "no_window"):
+                    cap = self._run_native(["capture-ocr", "--app", app_id, "--out", str(snap_file), "--no-activate"], 16.0)
+                if not cap.get("ok") and cap.get("error_code") in ("window_occluded", "capture_failed"):
+                    cap = self._run_native(["capture-ocr", "--app", app_id, "--window-title", wtitle, "--out", str(snap_file)], 18.0)
+                    if not cap.get("ok") and cap.get("error_code") in ("window_not_found", "no_window"):
+                        cap = self._run_native(["capture-ocr", "--app", app_id, "--out", str(snap_file)], 18.0)
+                if cap.get("ok") and snap_file.is_file() and (cap.get("elements") or []):
+                    win_w = float(cap.get("imageWidth") or 853.0)
+                    win_h = float(cap.get("imageHeight") or 1320.0)
+                    els = cap.get("elements") or []
+                    if not self.inspector._is_popout_window(cap, els):
+                        split_x = self.inspector._infer_split_x(els, win_w)
+                        rows = self.inspector._cluster_session_rows(els, split_x, win_h, image_path=snap_file)
+                        if rows:
+                            sources.append((snap_file, rows))
+
+        # Fallback to existing overview snapshot + management report
+        for fallback_name in ("sessions_overview_p0.png", "monitor_poll_cur.png"):
+            fb_snap = self.inspector.snapshots_dir / fallback_name
+            if fb_snap.is_file():
+                fb_rows: List[Dict[str, Any]] = []
+                ocr_res = self._run_native(["ocr", "--image", str(fb_snap)], 14.0)
+                if ocr_res.get("ok") and (ocr_res.get("elements") or []):
+                    els = ocr_res.get("elements") or []
+                    win_w = float(ocr_res.get("imageWidth") or 853.0)
+                    win_h = float(ocr_res.get("imageHeight") or 1320.0)
+                    if not self.inspector._is_popout_window({"windowTitle": ""}, els):
+                        split_x = self.inspector._infer_split_x(els, win_w)
+                        fb_rows = self.inspector._cluster_session_rows(els, split_x, win_h)
+                if fb_rows:
+                    sources.append((fb_snap, fb_rows))
+
+        report_path = self.inspector.reports_dir / "wechat_management_report.json"
+        if report_path.is_file():
+            fb_snap = self.inspector.snapshots_dir / "sessions_overview_p0.png"
+            if fb_snap.is_file():
+                try:
+                    rep = json.loads(report_path.read_text(encoding="utf-8"))
+                    rep_rows: List[Dict[str, Any]] = []
+                    for s in rep.get("sessions") or []:
+                        if isinstance(s.get("avatarRel"), dict):
+                            rep_rows.append(
+                                {
+                                    "titleSnippet": str(s.get("fullTitle") or s.get("listTitleSnippet") or "").strip(),
+                                    "avatarRel": s["avatarRel"],
+                                }
+                            )
+                    if rep_rows:
+                        sources.append((fb_snap, rep_rows))
+                except Exception:
+                    pass
+
+        known_targets: List[str] = []
+        seen_t: set[str] = set()
+
+        def _add_known(raw: Any) -> None:
+            clean = normalize_chat_name(str(raw or ""))
+            if not clean or "/" in clean or "\\" in clean or clean in (".", "..") or _is_bogus_ocr_target(clean):
+                return
+            low = clean.casefold()
+            if low not in seen_t:
+                seen_t.add(low)
+                known_targets.append(clean)
+
+        for t in (targets or []):
+            _add_known(t)
+        for b in self.bindings.list_bindings():
+            _add_known(b.get("target"))
+        for th in (self._recent_threads_by_target() or {}).keys():
+            _add_known(th)
+
+        updated: List[str] = []
+        updated_set: set[str] = set()
+
+        def _crop_to(save_name: str, snap_p: Path, rel: Dict[str, Any]) -> bool:
+            clean_name = normalize_chat_name(save_name)
+            if not clean_name or "/" in clean_name or "\\" in clean_name or clean_name in (".", "..") or _is_bogus_ocr_target(clean_name):
+                return False
+            out_path = (out_dir / f"{clean_name}.png").resolve()
+            if out_path.parent != out_dir.resolve():
+                return False
+            cx = int(round(float(rel.get("x", 70))))
+            cy = int(round(float(rel.get("y", 66))))
+            cw = max(16, int(round(float(rel.get("width", 40)))))
+            ch = max(16, int(round(float(rel.get("height", 40)))))
+            crop_res = self._run_native(
+                ["ocr", "--image", str(snap_p), "--crop", f"{cx},{cy},{cw},{ch}", "--out", str(out_path)],
+                12.0,
+            )
+            if crop_res.get("ok") and out_path.is_file() and out_path.stat().st_size >= 200:
+                if clean_name not in updated_set:
+                    updated_set.add(clean_name)
+                    updated.append(clean_name)
+                return True
+            return False
+
+        # Crop matching known targets first, plus newly discovered visible rows
+        for snap_p, rows in sources:
+            for row in rows:
+                rtitle = str(row.get("titleSnippet") or "").strip()
+                rel = row.get("avatarRel")
+                if not rtitle or not isinstance(rel, dict):
+                    continue
+                matched_known = False
+                for kt in known_targets:
+                    if _matches_target(kt, rtitle) or _matches_target(rtitle, kt):
+                        _crop_to(kt, snap_p, rel)
+                        matched_known = True
+                if not matched_known:
+                    _crop_to(rtitle, snap_p, rel)
+
+        avatars: Dict[str, str] = {}
+        avatar_versions: Dict[str, int] = {}
+        for p in sorted(out_dir.glob("*.png")):
+            if p.is_file():
+                avatars[p.stem] = f"/avatars/{p.name}"
+                avatar_versions[p.stem] = int(p.stat().st_mtime * 1000)
+
+        missing = [
+            kt
+            for kt in known_targets
+            if kt not in avatars and kt.lower() not in {k.lower() for k in avatars.keys()}
+        ]
+        self.audit.log(
+            "avatar_refresh",
+            "ok",
+            {"updatedCount": len(updated), "totalAvatars": len(avatars), "scannedSources": len(sources)},
+        )
+        return {
+            "ok": True,
+            "updatedCount": len(updated),
+            "updatedTargets": updated,
+            "missingTargets": missing,
+            "scannedSources": len(sources),
+            "avatars": avatars,
+            "avatarVersions": avatar_versions,
+        }
+
     def get_web_overview(self) -> Dict[str, Any]:
         """Aggregate dashboard state for the local Web Control Console."""
         self._require("status")
@@ -3936,11 +4111,13 @@ class WeChatControlEngine:
         }
 
         avatars: Dict[str, str] = {}
+        avatar_versions: Dict[str, int] = {}
         avatar_dir = self.inspector.snapshots_dir.parent / "avatars"
         if avatar_dir.is_dir():
             for p in sorted(avatar_dir.glob("*.png")):
                 if p.is_file():
                     avatars[p.stem] = f"/avatars/{p.name}"
+                    avatar_versions[p.stem] = int(p.stat().st_mtime * 1000)
 
         return {
             "ok": True,
@@ -3951,6 +4128,7 @@ class WeChatControlEngine:
             "wechatStatus": doc.get("status"),
             "monitor": mon,
             "avatars": avatars,
+            "avatarVersions": avatar_versions,
             "latestInbound": self._latest_inbound_by_target(),
             "recentThreads": self._recent_threads_by_target(),
             "antiban": self.antiban.status(),
@@ -5363,3 +5541,468 @@ class WeChatControlEngine:
         }
         self.audit.log("workos_scheduler_round", "ok", self.multi_scheduler.last_round)
         return round_doc
+
+    # ------------------------------------------------------------------
+    # Multi-Channel App-Use RPA + Open-Source Hybrid Hub (v2.5.0)
+    # ------------------------------------------------------------------
+
+    def omni_overview(self, *, probe_live: bool = False, channel: str = "all") -> Dict[str, Any]:
+        return self.omni_hub.overview(probe_live=probe_live, channel=channel)
+
+    def omni_probe(self, channel: str, *, launch_if_needed: bool = False, include_web: bool = True) -> Dict[str, Any]:
+        return self.omni_hub.probe(channel, launch_if_needed=launch_if_needed, include_web=include_web)
+
+    def omni_list_sessions(
+        self,
+        channel: str,
+        *,
+        limit: int = 20,
+        query: str = "",
+        launch_if_needed: bool = False,
+    ) -> Dict[str, Any]:
+        self._require("read_sessions")
+        return self.omni_hub.list_sessions(channel, limit=limit, query=query, launch_if_needed=launch_if_needed)
+
+    def omni_read_messages(
+        self,
+        channel: str,
+        *,
+        target: str = "",
+        limit: int = 20,
+        launch_if_needed: bool = False,
+    ) -> Dict[str, Any]:
+        self._require("read_messages")
+        return self.omni_hub.read_messages(channel, target=target, limit=limit, launch_if_needed=launch_if_needed)
+
+    def omni_send(
+        self,
+        channel: str,
+        target: str,
+        text: str,
+        *,
+        mode: str = "auto",
+        dry_run: bool = True,
+        confirm_send: bool = False,
+    ) -> Dict[str, Any]:
+        will_live = (not dry_run) and bool(confirm_send)
+        self._require("send_text_live" if will_live else "send_text_dry_run")
+        return self.omni_hub.send_message(
+            channel,
+            target,
+            text,
+            mode=mode,
+            dry_run=dry_run,
+            confirm_send=confirm_send,
+        )
+
+    def omni_extract_leads(
+        self,
+        channel: str,
+        *,
+        target: str = "",
+        query: str = "",
+        messages: Optional[List[Dict[str, Any]]] = None,
+        sync_crm: bool = True,
+    ) -> Dict[str, Any]:
+        self._require("read_messages")
+        return self.omni_hub.extract_leads(
+            channel,
+            target=target,
+            query=query,
+            messages=messages,
+            sync_crm=sync_crm,
+        )
+
+    def omni_update_config(self, updates: Dict[str, Any]) -> Dict[str, Any]:
+        self._require("status")
+        return self.omni_hub.update_config(updates)
+
+    def omni_finish_browser_space(self) -> Dict[str, Any]:
+        return self.omni_hub.finish_browser_space()
+
+    def omni_open_auth(
+        self,
+        channel: str,
+        *,
+        action_type: str = "auto",
+        target_view: str = "home",
+        dry_run: bool = False,
+    ) -> Dict[str, Any]:
+        return self.omni_hub.open_auth_flow(
+            channel,
+            action_type=action_type,
+            target_view=target_view,
+            dry_run=dry_run,
+        )
+
+    # ------------------------------------------------------------------
+    # Universal App-Use & Any-Agent SOP / Workflow Studio (v2.6.0)
+    # ------------------------------------------------------------------
+
+    def app_use_list_apps(
+        self,
+        *,
+        include_installed: bool = True,
+        category: str = "all",
+        running_only: bool = False,
+    ) -> Dict[str, Any]:
+        self._require("status")
+        return self.app_use.list_apps(
+            include_installed=include_installed,
+            category=category,
+            running_only=running_only,
+        )
+
+    def app_use_list_agents(self, *, refresh_models: bool = False) -> Dict[str, Any]:
+        self._require("status")
+        return self.app_use.list_builder_agents(refresh_models=refresh_models)
+
+    def app_use_inspect_app(
+        self,
+        *,
+        bundle_id: str = "",
+        app_name: str = "",
+        app_path: str = "",
+        window_id: Optional[int] = None,
+        window_title: str = "",
+        launch_if_needed: bool = False,
+        allow_activate: bool = True,
+        max_nodes: int = 350,
+    ) -> Dict[str, Any]:
+        self._require("ocr")
+        return self.app_use.inspect_app(
+            bundle_id=bundle_id,
+            app_name=app_name,
+            app_path=app_path,
+            window_id=window_id,
+            window_title=window_title,
+            launch_if_needed=launch_if_needed,
+            allow_activate=allow_activate,
+            max_nodes=max_nodes,
+        )
+
+    def app_use_build_sop(
+        self,
+        goal: str,
+        *,
+        bundle_id: str = "",
+        app_name: str = "",
+        app_path: str = "",
+        agent_id: str = "",
+        provider_id: Optional[str] = None,
+        custom_agent_prompt: str = "",
+        inspect_live: bool = True,
+        launch_if_needed: bool = False,
+        attach_screenshot: bool = False,
+        save: bool = True,
+        parameters_hint: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        self._require("status")
+        res = self.app_use.build_sop_and_workflow(
+            goal=goal,
+            bundle_id=bundle_id,
+            app_name=app_name,
+            app_path=app_path,
+            agent_id=agent_id,
+            provider_id=provider_id,
+            custom_agent_prompt=custom_agent_prompt,
+            inspect_live=inspect_live,
+            launch_if_needed=launch_if_needed,
+            attach_screenshot=attach_screenshot,
+            save=save,
+            parameters_hint=parameters_hint,
+        )
+        if res.get("ok"):
+            wf = res.get("workflow") or {}
+            self.audit.log(
+                "app_use_build_sop",
+                "ok",
+                {
+                    "workflowId": wf.get("id"),
+                    "bundleID": (wf.get("targetApp") or {}).get("bundleID"),
+                    "agentId": (wf.get("builderAgent") or {}).get("agentId"),
+                },
+            )
+        return res
+
+    def app_use_list_workflows(self, *, bundle_id: Optional[str] = None) -> Dict[str, Any]:
+        self._require("status")
+        return self.app_use.list_workflows(bundle_id=bundle_id)
+
+    def app_use_save_workflow(self, workflow: Dict[str, Any], *, sop_markdown: str = "") -> Dict[str, Any]:
+        self._require("status")
+        return self.app_use.save_workflow(workflow, sop_markdown=sop_markdown)
+
+    def app_use_delete_workflow(self, workflow_id: str) -> Dict[str, Any]:
+        self._require("status")
+        return self.app_use.delete_workflow(workflow_id)
+
+    def app_use_run_workflow(
+        self,
+        *,
+        workflow_id: Optional[str] = None,
+        workflow: Optional[Dict[str, Any]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        dry_run: bool = True,
+        confirm_run: bool = False,
+        respect_human_guard: bool = True,
+        self_heal: bool = True,
+        auto_patch_workflow: bool = False,
+        heal_agent_id: str = "",
+        dispatch_mode: str = "auto",
+    ) -> Dict[str, Any]:
+        will_live = (not dry_run) and bool(confirm_run)
+        self._require("send_text_live" if will_live else "send_text_dry_run")
+        res = self.app_use.run_workflow(
+            workflow_id=workflow_id,
+            workflow=workflow,
+            params=params,
+            dry_run=dry_run,
+            confirm_run=confirm_run,
+            respect_human_guard=respect_human_guard,
+            self_heal=self_heal,
+            auto_patch_workflow=auto_patch_workflow,
+            heal_agent_id=heal_agent_id,
+            dispatch_mode=dispatch_mode,
+        )
+        self.audit.log(
+            "app_use_run_workflow",
+            "ok" if res.get("ok") else "error",
+            {
+                "workflowId": res.get("workflowId"),
+                "dryRun": bool(dry_run),
+                "stepsExecuted": res.get("stepsExecuted", 0),
+                "healingCount": len(res.get("healingEvents") or []),
+            },
+        )
+        return res
+
+    def app_use_export_sop_to_kb(self, workflow_id: str) -> Dict[str, Any]:
+        self._require("status")
+        return self.app_use.export_sop_to_kb(workflow_id)
+
+    def app_use_rollback_workflow(self, workflow_id: str, *, revision_index: int = -1) -> Dict[str, Any]:
+        self._require("status")
+        return self.app_use.rollback_workflow(workflow_id, revision_index=revision_index)
+
+    def app_use_explore(
+        self,
+        *,
+        goal: str,
+        bundle_id: str = "",
+        app_name: str = "",
+        app_path: str = "",
+        agent_id: str = "",
+        max_turns: int = 6,
+        dry_run: bool = True,
+        confirm_run: bool = False,
+        respect_human_guard: bool = True,
+        launch_if_needed: bool = True,
+        save: bool = True,
+    ) -> Dict[str, Any]:
+        will_live = (not dry_run) and bool(confirm_run)
+        self._require("send_text_live" if will_live else "send_text_dry_run")
+        return self.app_use.explore_and_build_sop(
+            goal=goal,
+            bundle_id=bundle_id,
+            app_name=app_name,
+            app_path=app_path,
+            agent_id=agent_id,
+            max_turns=max_turns,
+            dry_run=dry_run,
+            confirm_run=confirm_run,
+            respect_human_guard=respect_human_guard,
+            launch_if_needed=launch_if_needed,
+            save=save,
+        )
+
+    def app_use_list_pipelines(self) -> Dict[str, Any]:
+        self._require("status")
+        return self.app_use.list_pipelines()
+
+    def app_use_save_pipeline(self, pipeline: Dict[str, Any]) -> Dict[str, Any]:
+        self._require("status")
+        return self.app_use.save_pipeline(pipeline)
+
+    def app_use_delete_pipeline(self, pipeline_id: str) -> Dict[str, Any]:
+        self._require("status")
+        return self.app_use.delete_pipeline(pipeline_id)
+
+    def app_use_run_pipeline(
+        self,
+        *,
+        pipeline_id: Optional[str] = None,
+        pipeline: Optional[Dict[str, Any]] = None,
+        initial_params: Optional[Dict[str, Any]] = None,
+        dry_run: bool = True,
+        confirm_run: bool = False,
+        respect_human_guard: bool = True,
+        self_heal: bool = True,
+    ) -> Dict[str, Any]:
+        will_live = (not dry_run) and bool(confirm_run)
+        self._require("send_text_live" if will_live else "send_text_dry_run")
+        return self.app_use.run_pipeline(
+            pipeline_id=pipeline_id,
+            pipeline=pipeline,
+            initial_params=initial_params,
+            dry_run=dry_run,
+            confirm_run=confirm_run,
+            respect_human_guard=respect_human_guard,
+            self_heal=self_heal,
+        )
+
+    def app_use_recording_start(
+        self,
+        *,
+        max_duration_sec: float = 180.0,
+        poll_interval_sec: float = 0.45,
+        target_bundle_id: str = "",
+    ) -> Dict[str, Any]:
+        self._require("ocr")
+        return self.app_use.start_recording(
+            max_duration_sec=max_duration_sec,
+            poll_interval_sec=poll_interval_sec,
+            target_bundle_id=target_bundle_id,
+        )
+
+    def app_use_recording_status(self) -> Dict[str, Any]:
+        self._require("status")
+        return self.app_use.recording_status()
+
+    def app_use_recording_stop_and_compile(
+        self,
+        *,
+        goal_hint: str = "",
+        agent_id: str = "",
+        save: bool = True,
+    ) -> Dict[str, Any]:
+        self._require("status")
+        return self.app_use.stop_recording_and_compile(goal_hint=goal_hint, agent_id=agent_id, save=save)
+
+    def app_use_list_runs(self, *, limit: int = 30) -> Dict[str, Any]:
+        self._require("status")
+        return self.app_use.list_runs(limit=limit)
+
+    def app_use_export_skill(self, workflow_id: str, *, out_dir: Optional[str] = None) -> Dict[str, Any]:
+        self._require("status")
+        return self.app_use.export_workflow_as_skill(workflow_id, out_dir=out_dir)
+
+    def app_use_generalize_app(
+        self,
+        *,
+        goal: str,
+        bundle_id: str = "",
+        app_name: str = "",
+        app_path: str = "",
+        agent_id: str = "",
+        mode: str = "auto",
+        max_turns: int = 4,
+        launch_if_needed: bool = True,
+        dry_run_verify: bool = True,
+        export_skill: bool = True,
+        save: bool = True,
+        custom_agent_prompt: str = "",
+    ) -> Dict[str, Any]:
+        self._require("ocr")
+        return self.app_use.generalize_new_app(
+            goal=goal,
+            bundle_id=bundle_id,
+            app_name=app_name,
+            app_path=app_path,
+            agent_id=agent_id,
+            mode=mode,
+            max_turns=max_turns,
+            launch_if_needed=launch_if_needed,
+            dry_run_verify=dry_run_verify,
+            export_skill=export_skill,
+            save=save,
+            custom_agent_prompt=custom_agent_prompt,
+        )
+
+    def app_use_get_state_graph(self, *, bundle_id: Optional[str] = None) -> Dict[str, Any]:
+        self._require("status")
+        return self.app_use.get_state_graph(bundle_id=bundle_id)
+
+    def app_use_install_meta_skill(
+        self,
+        *,
+        install_global: bool = True,
+        global_skills_root: Optional[Path] = None,
+        symlink_roots: Optional[List[Path]] = None,
+    ) -> Dict[str, Any]:
+        self._require("status")
+        return self.app_use.install_meta_skill(
+            install_global=install_global,
+            global_skills_root=global_skills_root,
+            symlink_roots=symlink_roots,
+        )
+
+    def app_use_ground_preview(
+        self,
+        step: Dict[str, Any],
+        *,
+        bundle_id: str = "",
+        app_name: str = "",
+        app_path: str = "",
+    ) -> Dict[str, Any]:
+        self._require("ocr")
+        return self.app_use.preview_grounding(
+            step,
+            bundle_id=bundle_id,
+            app_name=app_name,
+            app_path=app_path,
+        )
+
+    def app_use_watch_parallel(
+        self,
+        targets: List[Dict[str, Any]],
+        *,
+        include_ocr: bool = False,
+        max_workers: int = 4,
+    ) -> Dict[str, Any]:
+        self._require("ocr")
+        return self.app_use.watch_windows_parallel(
+            targets,
+            include_ocr=include_ocr,
+            max_workers=max_workers,
+        )
+
+    def app_use_run_parallel(
+        self,
+        jobs: List[Dict[str, Any]],
+        *,
+        dry_run: bool = True,
+        confirm_run: bool = False,
+        respect_human_guard: bool = True,
+        self_heal: bool = True,
+        max_workers: int = 4,
+        dispatch_mode: str = "auto",
+    ) -> Dict[str, Any]:
+        self._require("ocr" if not dry_run else "status")
+        return self.app_use.run_workflows_parallel(
+            jobs,
+            dry_run=dry_run,
+            confirm_run=confirm_run,
+            respect_human_guard=respect_human_guard,
+            self_heal=self_heal,
+            max_workers=max_workers,
+            dispatch_mode=dispatch_mode,
+        )
+
+    def app_use_concurrency_status(self) -> Dict[str, Any]:
+        self._require("status")
+        return self.app_use.get_concurrency_status()
+
+    def app_use_risk_profile(
+        self,
+        *,
+        bundle_id: str = "",
+        app_name: str = "",
+        app_path: str = "",
+    ) -> Dict[str, Any]:
+        self._require("status")
+        return self.app_use.get_app_risk_profile(
+            bundle_id=bundle_id,
+            app_name=app_name,
+            app_path=app_path,
+        )

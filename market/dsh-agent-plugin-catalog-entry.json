@@ -114,7 +114,7 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "target": {"type": "string", "title": "客户名称", "default": "联系人A"},
+          "target": {"type": "string", "title": "客户名称", "default": "心安"},
           "incoming_text": {"type": "string", "title": "最新来信", "default": ""}
         }
       }
@@ -125,7 +125,7 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "target": {"type": "string", "title": "客户名称", "default": "联系人A"}
+          "target": {"type": "string", "title": "客户名称", "default": "心安"}
         }
       }
     }

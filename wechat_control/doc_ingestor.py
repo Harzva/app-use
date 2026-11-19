@@ -36,7 +36,7 @@ APP_BUNDLE_IDS: Dict[str, str] = {
     "wechat": "com.tencent.xinWeChat",
     "wecom": "com.tencent.WeWorkMac",
 }
-ALLOWED_TEST_CONTACTS: Tuple[str, ...] = ("语音助手", "联系人A", "openbot")
+ALLOWED_TEST_CONTACTS: Tuple[str, ...] = ("安晓心", "心安", "openbot")
 
 SUPPORTED_DOC_EXTENSIONS: Tuple[str, ...] = (".pdf", ".txt", ".md", ".markdown", ".json")
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MiB cap for base64 uploads

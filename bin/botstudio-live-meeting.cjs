@@ -41,7 +41,7 @@ function parseCliArgs(argv) {
 
 const args = parseCliArgs(process.argv);
 const meetingCode = String(args.options['meeting-code'] || '').replace(/\s+/g, '');
-const targetContact = String(args.options['contact'] || '联系人A');
+const targetContact = String(args.options['contact'] || '心安');
 const baseAgenda = String(args.options['agenda'] || '在腾讯会议中自我介绍、现场演示 Bot Studio 使用，并与主持人交流讨论').trim();
 const stateFile = args.options['state-file'] || path.join(DEFAULT_DATA_DIR, 'logs', 'meeting_copilot_state.json');
 const pidFile = path.join(DEFAULT_DATA_DIR, 'logs', 'botstudio_live_meeting.pid');

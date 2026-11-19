@@ -137,7 +137,7 @@ class WeChatAgentDispatcher:
                     if not inc:
                         continue
                     if _matches_target(contact, ev_target) or norm_target in inc.casefold() or (
-                        norm_target == "联系人A"
+                        norm_target == "心安"
                         and any(kw in inc.lower() for kw in ("母版", "线稿", "antigravity", "staffdeck", "yobot", "rpa", "作画", "风水"))
                     ):
                         collected.append({

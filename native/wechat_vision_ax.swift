@@ -65,36 +65,80 @@ func parseArgs() -> (command: String, flags: Set<String>, options: [String: Stri
 
 let wechatBundleID = "com.tencent.xinWeChat"
 let wecomBundleID = "com.tencent.WeWorkMac"
+let feishuBundleIDs = ["com.bytedance.macos.feishu", "com.electron.lark"]
+let dingtalkBundleIDs = ["com.alibaba.DingTalkMac"]
+let xiaohongshuBundleIDs = ["com.xingin.xhs"]
+let douyinBundleIDs = ["com.bytedance.douyin.desktop"]
 
 enum AppKind: String, CaseIterable {
     case wechat
     case wecom
+    case feishu
+    case dingtalk
+    case xiaohongshu
+    case douyin
 
     var appId: String { rawValue }
     var appLabel: String {
         switch self {
         case .wechat: return "微信"
         case .wecom: return "企业微信"
+        case .feishu: return "飞书"
+        case .dingtalk: return "钉钉"
+        case .xiaohongshu: return "小红书"
+        case .douyin: return "抖音"
         }
     }
-    var bundleID: String {
+    var bundleIDs: [String] {
         switch self {
-        case .wechat: return wechatBundleID
-        case .wecom: return wecomBundleID
+        case .wechat: return [wechatBundleID]
+        case .wecom: return [wecomBundleID]
+        case .feishu: return feishuBundleIDs
+        case .dingtalk: return dingtalkBundleIDs
+        case .xiaohongshu: return xiaohongshuBundleIDs
+        case .douyin: return douyinBundleIDs
+        }
+    }
+    var bundleID: String { bundleIDs[0] }
+    var isElectronLike: Bool {
+        switch self {
+        case .feishu, .dingtalk, .douyin: return true
+        case .wechat, .wecom, .xiaohongshu: return false
         }
     }
     var mainTitles: [String] {
         switch self {
         case .wechat: return ["微信", "WeChat"]
         case .wecom: return ["企业微信", "WeCom"]
+        case .feishu: return ["飞书", "Lark", "Feishu"]
+        case .dingtalk: return ["钉钉", "DingTalk"]
+        case .xiaohongshu: return ["小红书", "REDnote", "Xiaohongshu"]
+        case .douyin: return ["抖音", "Douyin"]
         }
     }
     var notRunningErrorCode: String {
-        switch self {
-        case .wechat: return "wechat_not_running"
-        case .wecom: return "wecom_not_running"
+        return "\(rawValue)_not_running"
+    }
+
+    static func fromCLI(_ raw: String) -> AppKind? {
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "wechat": return .wechat
+        case "wecom", "wework": return .wecom
+        case "feishu", "lark": return .feishu
+        case "dingtalk", "ding": return .dingtalk
+        case "xiaohongshu", "xhs", "rednote": return .xiaohongshu
+        case "douyin", "tiktok": return .douyin
+        default: return nil
         }
     }
+}
+
+func enableElectronAccessibility(pid: pid_t, kind: AppKind) {
+    guard kind.isElectronLike, AXIsProcessTrusted() else { return }
+    let app = AXUIElementCreateApplication(pid)
+    AXUIElementSetMessagingTimeout(app, 0.25)
+    _ = AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+    _ = AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
 }
 
 let inputIdentifiers: Set<String> = [
@@ -149,40 +193,55 @@ func axSize(_ element: AXUIElement, _ key: String) -> CGSize? {
 func matchesRunningApp(_ app: NSRunningApplication, kind: AppKind) -> Bool {
     guard !app.isTerminated else { return false }
     let bid = app.bundleIdentifier ?? ""
-    if bid == kind.bundleID {
+    if kind.bundleIDs.contains(bid) {
         return true
     }
     let bidLower = bid.lowercased()
+    let isHelper = bidLower.contains("helper")
+        || bidLower.contains("renderer")
+        || bidLower.contains(".gpu")
+        || bidLower.contains("crashpad")
+        || bidLower.contains("wechatappex")
+        || bidLower.contains("inputmethod")
+        || bidLower.contains("openbot")
+        || bidLower.contains("botstudio")
+        || bidLower.contains("agentassistant")
+        || bidLower.hasPrefix("com.apple.")
+    if isHelper {
+        return false
+    }
     let name = app.localizedName ?? ""
     let nameLower = name.lowercased()
     switch kind {
     case .wechat:
-        let isHelper = bidLower.contains("helper")
-            || bidLower.contains("wechatappex")
-            || bidLower.contains("inputmethod")
-            || bidLower.contains("openbot")
-            || bidLower.hasPrefix("com.apple.")
-        return !isHelper && (name == "WeChat" || name == "微信")
+        return name == "WeChat" || name == "微信"
     case .wecom:
-        let isHelper = bidLower.contains("helper")
-            || bidLower.contains("agentassistant")
-            || bidLower.hasPrefix("com.apple.")
-            || bidLower == wechatBundleID.lowercased()
-        return !isHelper && (
+        return bidLower != wechatBundleID.lowercased() && (
             bidLower == wecomBundleID.lowercased()
             || name.contains("企业微信")
             || nameLower.contains("wecom")
         )
+    case .feishu:
+        return name == "飞书" || name == "Feishu" || name == "Lark"
+            || name.hasPrefix("飞书 ") || nameLower.hasPrefix("lark ")
+    case .dingtalk:
+        return name == "钉钉" || name == "DingTalk" || nameLower == "aliwork"
+    case .xiaohongshu:
+        return name == "小红书" || nameLower == "xiaohongshu" || nameLower == "rednote"
+    case .douyin:
+        return name == "抖音" || nameLower == "douyin"
     }
 }
 
 func findRunningApps(for kind: AppKind) -> [NSRunningApplication] {
     var seenPIDs = Set<pid_t>()
     var result: [NSRunningApplication] = []
-    for app in NSRunningApplication.runningApplications(withBundleIdentifier: kind.bundleID) {
-        guard !app.isTerminated else { continue }
-        if seenPIDs.insert(app.processIdentifier).inserted {
-            result.append(app)
+    for bid in kind.bundleIDs {
+        for app in NSRunningApplication.runningApplications(withBundleIdentifier: bid) {
+            guard !app.isTerminated else { continue }
+            if seenPIDs.insert(app.processIdentifier).inserted {
+                result.append(app)
+            }
         }
     }
     if result.isEmpty {
@@ -351,8 +410,10 @@ func listAppWindows(
         var score = -1.0
         if kind.mainTitles.contains(entry.resolvedTitle) {
             score = 100_000_000.0 + entry.area
-        } else if kind == .wecom && (entry.resolvedTitle.contains("企业微信") || entry.resolvedTitle.localizedCaseInsensitiveContains("wecom")) && entry.raw.w >= 680 {
+        } else if kind.mainTitles.contains(where: { !entry.resolvedTitle.isEmpty && entry.resolvedTitle.localizedCaseInsensitiveContains($0) }) && entry.raw.w >= 640 {
             score = 60_000_000.0 + entry.area
+        } else if entry.axSubrole == "AXStandardWindow" && entry.raw.w >= 640 && entry.raw.h >= 440 {
+            score = 45_000_000.0 + entry.area
         } else if entry.resolvedTitle.isEmpty && (entry.axSubrole == "AXStandardWindow" || entry.raw.w >= 680 || resolvedEntries.count == 1) {
             score = 30_000_000.0 + (entry.axSubrole == "AXStandardWindow" ? 5_000_000.0 : 0.0) + entry.area
         }
@@ -478,32 +539,38 @@ func selectTargetWindow(in windows: [WindowCandidate], options: [String: String]
 
 func resolveAutoApp(options: [String: String] = [:]) -> AppKind {
     let rawList = copyOnScreenWindowInfo()
-    let wechatWins = listAppWindows(for: .wechat, rawWindowList: rawList)
-    let wecomWins = listAppWindows(for: .wecom, rawWindowList: rawList)
+    let winsByKind: [(AppKind, [WindowCandidate])] = AppKind.allCases.map {
+        ($0, listAppWindows(for: $0, rawWindowList: rawList))
+    }
 
     if let widStr = options["window-id"], let wid = UInt32(widStr) {
-        if wecomWins.contains(where: { $0.windowID == wid }) { return .wecom }
-        if wechatWins.contains(where: { $0.windowID == wid }) { return .wechat }
+        for (kind, wins) in winsByKind where wins.contains(where: { $0.windowID == wid }) {
+            return kind
+        }
     }
     if let titleSub = options["window-title"]?.trimmingCharacters(in: .whitespacesAndNewlines), !titleSub.isEmpty {
         let lowSub = titleSub.lowercased()
-        let frontWeCom = isAppFrontmost(.wecom).0
-        let frontWeChat = isAppFrontmost(.wechat).0
-        let ordered: [(AppKind, [WindowCandidate])] = frontWeCom
-            ? [(.wecom, wecomWins), (.wechat, wechatWins)]
-            : (frontWeChat ? [(.wechat, wechatWins), (.wecom, wecomWins)] : [(.wechat, wechatWins), (.wecom, wecomWins)])
+        let ordered = winsByKind.sorted { a, b in
+            let fa = isAppFrontmost(a.0).0
+            let fb = isAppFrontmost(b.0).0
+            if fa != fb { return fa && !fb }
+            return false
+        }
         for (kind, wins) in ordered {
             if wins.contains(where: { $0.title.lowercased() == lowSub || $0.title.lowercased().contains(lowSub) }) {
                 return kind
             }
         }
     }
-    if isAppFrontmost(.wecom).0 { return .wecom }
-    if isAppFrontmost(.wechat).0 { return .wechat }
-    if !wechatWins.isEmpty { return .wechat }
-    if !wecomWins.isEmpty { return .wecom }
-    if !findRunningApps(for: .wechat).isEmpty { return .wechat }
-    if !findRunningApps(for: .wecom).isEmpty { return .wecom }
+    for (kind, _) in winsByKind where isAppFrontmost(kind).0 {
+        return kind
+    }
+    for (kind, wins) in winsByKind where !wins.isEmpty {
+        return kind
+    }
+    for kind in AppKind.allCases where !findRunningApps(for: kind).isEmpty {
+        return kind
+    }
     return .wechat
 }
 
@@ -512,26 +579,22 @@ func resolveTargetApp(options: [String: String], allowWindowLookupWhenOmitted: B
     if raw.isEmpty {
         if allowWindowLookupWhenOmitted, let widStr = options["window-id"], let wid = UInt32(widStr) {
             let rawList = copyOnScreenWindowInfo()
-            let wechatWins = listAppWindows(for: .wechat, rawWindowList: rawList)
-            if !wechatWins.contains(where: { $0.windowID == wid }) {
-                let wecomWins = listAppWindows(for: .wecom, rawWindowList: rawList)
-                if wecomWins.contains(where: { $0.windowID == wid }) {
-                    return ("default", .wecom)
+            for kind in AppKind.allCases {
+                let wins = listAppWindows(for: kind, rawWindowList: rawList)
+                if wins.contains(where: { $0.windowID == wid }) {
+                    return ("default", kind)
                 }
             }
         }
         return ("default", .wechat)
     }
-    switch raw {
-    case "wechat":
-        return ("wechat", .wechat)
-    case "wecom", "wework":
-        return ("wecom", .wecom)
-    case "auto":
-        return ("auto", resolveAutoApp(options: options))
-    default:
-        failJSON("Unsupported --app value '\(raw)'. Expected wechat|wecom|auto.", code: "invalid_argument")
+    if let explicit = AppKind.fromCLI(raw) {
+        return (explicit.appId, explicit)
     }
+    if raw == "auto" {
+        return ("auto", resolveAutoApp(options: options))
+    }
+    failJSON("Unsupported --app value '\(raw)'. Expected wechat|wecom|feishu|dingtalk|xiaohongshu|douyin|auto.", code: "invalid_argument")
 }
 
 func axHasSessionList(_ root: AXUIElement, maxNodes: Int = 120) -> Bool {
@@ -558,6 +621,7 @@ func axHasSessionList(_ root: AXUIElement, maxNodes: Int = 120) -> Bool {
 
 func findMainAXWindow(pid: pid_t, kind: AppKind = .wechat) -> AXUIElement? {
     guard AXIsProcessTrusted() else { return nil }
+    enableElectronAccessibility(pid: pid, kind: kind)
     let app = AXUIElementCreateApplication(pid)
     AXUIElementSetMessagingTimeout(app, 0.25)
     guard let windows = axAttr(app, kAXWindowsAttribute) as? [AXUIElement], !windows.isEmpty else {
@@ -583,6 +647,7 @@ func findMainAXWindow(pid: pid_t, kind: AppKind = .wechat) -> AXUIElement? {
 func findAXWindow(pid: pid_t, kind: AppKind = .wechat, targetWin: WindowCandidate? = nil, reqTitle: String? = nil) -> AXUIElement? {
     guard AXIsProcessTrusted() else { return nil }
     let effectivePID = targetWin?.pid ?? pid
+    enableElectronAccessibility(pid: effectivePID, kind: kind)
     let app = AXUIElementCreateApplication(effectivePID)
     AXUIElementSetMessagingTimeout(app, 0.25)
     guard let windows = axAttr(app, kAXWindowsAttribute) as? [AXUIElement], !windows.isEmpty else {
@@ -1033,10 +1098,11 @@ let kKeyReturn: CGKeyCode = 36
 let kKeyDelete: CGKeyCode = 51
 let kKeyRightArrow: CGKeyCode = 124
 
-func findInputElement(in root: AXUIElement, maxNodes: Int = 900) -> AXUIElement? {
+func findInputElement(in root: AXUIElement, windowBounds: CGRect? = nil, maxNodes: Int = 2000) -> AXUIElement? {
     var queue = [root]
     var idx = 0
-    var fallbackTextArea: AXUIElement?
+    var bestFallback: AXUIElement?
+    var bestScore = -1_000_000.0
     while idx < queue.count && idx < maxNodes {
         let el = queue[idx]
         idx += 1
@@ -1045,18 +1111,39 @@ func findInputElement(in root: AXUIElement, maxNodes: Int = 900) -> AXUIElement?
         if inputIdentifiers.contains(ident) {
             return el
         }
-        if role == kAXTextAreaRole as String && fallbackTextArea == nil {
-            fallbackTextArea = el
+        if role == kAXTextAreaRole as String || role == kAXTextFieldRole as String {
+            var score = (role == kAXTextAreaRole as String) ? 100.0 : 10.0
+            if let pt = axPoint(el, kAXPositionAttribute), let sz = axSize(el, kAXSizeAttribute), sz.width >= 60, sz.height >= 16 {
+                if let wb = windowBounds {
+                    if Double(pt.y) >= Double(wb.minY) + Double(wb.height) * 0.45 {
+                        score += 500.0
+                    } else if Double(pt.y) < Double(wb.minY) + 125.0 {
+                        // Avoid top search bars such as Feishu/DingTalk Cmd+K box
+                        score -= 400.0
+                    }
+                    if Double(pt.x) >= Double(wb.minX) + Double(wb.width) * 0.28 {
+                        score += 200.0
+                    }
+                }
+                score += min(300.0, Double(sz.width) * 0.25) + min(150.0, Double(sz.height))
+            }
+            if score > bestScore {
+                bestScore = score
+                bestFallback = el
+            }
         }
         queue.append(contentsOf: axChildren(el))
     }
-    return fallbackTextArea
+    return bestFallback
 }
 
 func runOpenAppProcess(kind: AppKind) {
+    let resolvedBundleID = kind.bundleIDs.first(where: {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil
+    }) ?? kind.bundleID
     let proc = Process()
     proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-    proc.arguments = ["-b", kind.bundleID]
+    proc.arguments = ["-b", resolvedBundleID]
     proc.standardOutput = FileHandle.nullDevice
     proc.standardError = FileHandle.nullDevice
     try? proc.run()
@@ -1330,18 +1417,19 @@ private func scanAppsAndWindows(options: [String: String]) -> (
     switch rawApp {
     case "", "all":
         kinds = [.wechat, .wecom]
-    case "wechat":
-        kinds = [.wechat]
-        resolvedApp = AppKind.wechat.appId
-    case "wecom", "wework":
-        kinds = [.wecom]
-        resolvedApp = AppKind.wecom.appId
+    case "omni", "channels":
+        kinds = AppKind.allCases
     case "auto":
         let autoKind = resolveAutoApp(options: options)
         kinds = [autoKind]
         resolvedApp = autoKind.appId
     default:
-        failJSON("Unsupported --app value '\(rawApp)'. Expected wechat|wecom|all|auto.", code: "invalid_argument")
+        if let explicit = AppKind.fromCLI(rawApp) {
+            kinds = [explicit]
+            resolvedApp = explicit.appId
+        } else {
+            failJSON("Unsupported --app value '\(rawApp)'. Expected wechat|wecom|feishu|dingtalk|xiaohongshu|douyin|all|omni|auto.", code: "invalid_argument")
+        }
     }
 
     let rawList = copyOnScreenWindowInfo()
@@ -1451,6 +1539,7 @@ func cmdAXTree(options: [String: String]) {
         ? selectTargetWindow(in: windows, options: options)
         : nil
     let pid = targetWin?.pid ?? app.processIdentifier
+    enableElectronAccessibility(pid: pid, kind: targetKind)
     guard let win = findAXWindow(pid: pid, kind: targetKind, targetWin: targetWin, reqTitle: options["window-title"]) else {
         failJSON("No accessible \(targetKind.appLabel) window found.", code: "no_ax_window", extra: ["appId": targetKind.appId])
     }
@@ -1985,7 +2074,7 @@ func cmdFocusInput(options: [String: String] = [:]) {
     let targetWin = selectTargetWindow(in: windows, options: options)
     let targetPID = targetWin?.pid ?? app.processIdentifier
     if let axWin = findAXWindow(pid: targetPID, kind: targetKind, targetWin: targetWin, reqTitle: options["window-title"]),
-       let inputEl = findInputElement(in: axWin) {
+       let inputEl = findInputElement(in: axWin, windowBounds: targetWin.map { CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) }) {
         let focusErr = AXUIElementSetAttributeValue(inputEl, kAXFocusedAttribute as CFString, kCFBooleanTrue)
         let pt = axPoint(inputEl, kAXPositionAttribute)
         let sz = axSize(inputEl, kAXSizeAttribute)
@@ -2150,7 +2239,7 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
             _ = AXUIElementPerformAction(axWin, kAXRaiseAction as CFString)
             usleep(100_000)
         }
-        axInputEl = findInputElement(in: axWin)
+        axInputEl = findInputElement(in: axWin, windowBounds: targetWin.map { CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) })
         if let el = axInputEl {
             _ = AXUIElementSetAttributeValue(el, kAXFocusedAttribute as CFString, kCFBooleanTrue)
             if let pt = axPoint(el, kAXPositionAttribute), let sz = axSize(el, kAXSizeAttribute) {
@@ -3655,9 +3744,10 @@ func wakeAndActivateApp(pid: pid_t, kind: AppKind) {
         usleep(80_000)
     }
     if !isAppFrontmost(kind).0 {
+        let bidToActivate = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier ?? kind.bundleID
         let osa = Process()
         osa.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        osa.arguments = ["-e", "tell application id \"\(kind.bundleID)\" to activate"]
+        osa.arguments = ["-e", "tell application id \"\(bidToActivate)\" to activate"]
         osa.standardOutput = FileHandle.nullDevice
         osa.standardError = FileHandle.nullDevice
         try? osa.run()
@@ -3887,19 +3977,27 @@ func findColorCirclePoint(in cgImg: CGImage, winRect: CGRect, kind: String) -> (
 }
 
 func scanVoipWindows(appFilter: String, activateOwner: Bool = false) -> [String: Any] {
-    let wantWeChat = appFilter == "all" || appFilter == "wechat"
-    let wantWeCom = appFilter == "all" || appFilter == "wecom"
+    let wantWeChat = appFilter == "all" || appFilter == "omni" || appFilter == "wechat"
+    let wantWeCom = appFilter == "all" || appFilter == "omni" || appFilter == "wecom"
+    let wantFeishu = appFilter == "omni" || appFilter == "feishu" || appFilter == "lark"
+    let wantDingTalk = appFilter == "omni" || appFilter == "dingtalk" || appFilter == "ding"
 
     if activateOwner {
-        if wantWeChat && !wantWeCom, let app = findBestRunningApp(for: .wechat) {
+        if wantWeChat && !wantWeCom && !wantFeishu && !wantDingTalk, let app = findBestRunningApp(for: .wechat) {
             wakeAndActivateApp(pid: app.processIdentifier, kind: .wechat)
-        } else if wantWeCom && !wantWeChat, let app = findBestRunningApp(for: .wecom) {
+        } else if wantWeCom && !wantWeChat && !wantFeishu && !wantDingTalk, let app = findBestRunningApp(for: .wecom) {
             wakeAndActivateApp(pid: app.processIdentifier, kind: .wecom)
+        } else if wantFeishu && !wantWeChat && !wantWeCom && !wantDingTalk, let app = findBestRunningApp(for: .feishu) {
+            wakeAndActivateApp(pid: app.processIdentifier, kind: .feishu)
+        } else if wantDingTalk && !wantWeChat && !wantWeCom && !wantFeishu, let app = findBestRunningApp(for: .dingtalk) {
+            wakeAndActivateApp(pid: app.processIdentifier, kind: .dingtalk)
         }
     }
 
     let wechatPIDs = wantWeChat ? Set(findRunningApps(for: .wechat).map { $0.processIdentifier }) : Set<pid_t>()
     let wecomPIDs = wantWeCom ? Set(findRunningApps(for: .wecom).map { $0.processIdentifier }) : Set<pid_t>()
+    let feishuPIDs = wantFeishu ? Set(findRunningApps(for: .feishu).map { $0.processIdentifier }) : Set<pid_t>()
+    let dingtalkPIDs = wantDingTalk ? Set(findRunningApps(for: .dingtalk).map { $0.processIdentifier }) : Set<pid_t>()
 
     var candidates: [(appId: String, pid: pid_t, wid: UInt32, layer: Int, title: String, rect: CGRect, isOnScreen: Bool)] = []
     for entry in copyOnScreenWindowInfo() {
@@ -3916,6 +4014,10 @@ func scanVoipWindows(appFilter: String, activateOwner: Bool = false) -> [String:
             appId = "wecom"
         } else if wantWeChat && (wechatPIDs.contains(pid) || owner == "微信" || owner == "WeChat" || owner == "WeChatVoIP") {
             appId = "wechat"
+        } else if wantFeishu && (feishuPIDs.contains(pid) || owner == "飞书" || owner == "Lark" || owner == "Feishu" || owner == "飞书会议") {
+            appId = "feishu"
+        } else if wantDingTalk && (dingtalkPIDs.contains(pid) || owner == "钉钉" || owner == "DingTalk") {
+            appId = "dingtalk"
         } else {
             continue
         }
@@ -3931,9 +4033,9 @@ func scanVoipWindows(appFilter: String, activateOwner: Bool = false) -> [String:
 
         // Exclude known large main / popout chat windows unless titled for call
         if title == "openbot" || title == "消息阅读" { continue }
-        let looksCallTitle = title.contains("通话") || title.contains("语音") || title.contains("视频")
+        let looksCallTitle = title.contains("通话") || title.contains("语音") || title.contains("视频") || title.contains("飞书会议")
         guard looksCallTitle || (w >= 160 && w <= 900 && h >= 60 && h <= 860) else { continue }
-        // Skip WeCom auxiliary large panel > 900 wide unless explicitly titled as a call
+        // Skip auxiliary large panels unless explicitly titled as a call
         if !looksCallTitle && w > 900 { continue }
 
         candidates.append((appId, pid, wid, layer, title, CGRect(x: x, y: y, width: w, height: h), isOnScreen))
@@ -4124,7 +4226,7 @@ func cmdVoiceCall(flags: Set<String>, options: [String: String]) {
             writeJSON(["ok": true, "dryRun": true, "action": "answer", "targetCall": incoming])
         }
         let targetAppId = (incoming["appId"] as? String) ?? requestedApp
-        let targetKind: AppKind = targetAppId == "wecom" ? .wecom : .wechat
+        let targetKind: AppKind = AppKind.fromCLI(targetAppId) ?? .wechat
         if let pidNum = incoming["pid"] as? pid_t {
             if let bDict = incoming["bounds"] as? [String: Any],
                let bx = bDict["x"] as? Double, let by = bDict["y"] as? Double,
@@ -4168,7 +4270,7 @@ func cmdVoiceCall(flags: Set<String>, options: [String: String]) {
             for c in calls {
                 if let r = c["redButton"] as? [String: Any], let rx = r["x"] as? Double, let ry = r["y"] as? Double {
                     let cAppId = (c["appId"] as? String) ?? "wechat"
-                    let cKind: AppKind = cAppId == "wecom" ? .wecom : .wechat
+                    let cKind: AppKind = AppKind.fromCLI(cAppId) ?? .wechat
                     if let pidNum = c["pid"] as? pid_t {
                         if let bDict = c["bounds"] as? [String: Any],
                            let bx = bDict["x"] as? Double, let by = bDict["y"] as? Double,
@@ -4355,29 +4457,32 @@ func cmdVoiceCall(flags: Set<String>, options: [String: String]) {
                 "callState": callState,
             ])
         } else {
-            // WeCom dial flow
+            // WeCom / Feishu / DingTalk Electron & native dial flow
             let contactHint = (options["target"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             if dryRun {
                 writeJSON([
                     "ok": true,
                     "dryRun": true,
                     "action": "dial",
-                    "appId": "wecom",
+                    "appId": targetKind.appId,
                     "callType": callType,
                     "target": contactHint,
                     "windowID": targetWin.windowID,
                     "windowTitle": targetWin.title,
                 ])
             }
-            wakeAndActivateApp(pid: targetWin.pid, kind: .wecom)
-            dismissWeComModalSheetIfPresent(pid: targetWin.pid)
+            wakeAndActivateApp(pid: targetWin.pid, kind: targetKind)
+            if targetKind == .wecom {
+                dismissWeComModalSheetIfPresent(pid: targetWin.pid)
+            }
+            enableElectronAccessibility(pid: targetWin.pid, kind: targetKind)
 
             let targetWinRect = CGRect(x: targetWin.x, y: targetWin.y, width: targetWin.width, height: targetWin.height)
             if !contactHint.isEmpty {
                 let sideRect = CGRect(
                     x: targetWin.x + 60.0,
                     y: targetWin.y + 45.0,
-                    width: 260.0,
+                    width: 280.0,
                     height: min(680.0, max(120.0, targetWin.height - 65.0))
                 )
                 if let (sElems, ssx, ssy, _, actRect) = ocrWindowSubRect(targetWin.windowID, winRect: targetWinRect, subRect: sideRect),
@@ -4391,37 +4496,37 @@ func cmdVoiceCall(flags: Set<String>, options: [String: String]) {
                 }
             }
 
-            // Look for WeCom voice/video call AXButton
+            // Look for voice/video call AXButton
             let axApp = AXUIElementCreateApplication(targetWin.pid)
             AXUIElementSetMessagingTimeout(axApp, 0.35)
             var callBtnCenter: (Double, Double)? = nil
             var q: [AXUIElement] = [axApp]
             var qi = 0
-            let axKeywords = callType == "video" ? ["视频通话", "视频"] : ["语音通话", "语音", "打电话"]
-            while qi < q.count && qi < 180 && callBtnCenter == nil {
+            let axKeywords = callType == "video" ? ["视频通话", "视频会议", "Video", "视频"] : ["语音通话", "发起语音", "Voice", "语音", "打电话"]
+            while qi < q.count && qi < 420 && callBtnCenter == nil {
                 let el = q[qi]; qi += 1
                 AXUIElementSetMessagingTimeout(el, 0.25)
                 if axString(el, kAXRoleAttribute) == kAXButtonRole as String {
                     let meta = [axString(el, kAXTitleAttribute) ?? "", axString(el, kAXDescriptionAttribute) ?? "", axString(el, kAXHelpAttribute) ?? ""].joined(separator: " ")
-                    if axKeywords.contains(where: { meta.contains($0) }),
+                    if axKeywords.contains(where: { meta.localizedCaseInsensitiveContains($0) }),
                        let pt = axPoint(el, kAXPositionAttribute),
                        let sz = axSize(el, kAXSizeAttribute),
-                       Double(pt.x) > targetWin.x + 300.0 {
+                       Double(pt.x) > targetWin.x + 280.0 {
                         callBtnCenter = (Double(pt.x) + Double(sz.width) * 0.5, Double(pt.y) + Double(sz.height) * 0.5)
                         break
                     }
                 }
                 q.append(contentsOf: axChildren(el))
             }
-            if callBtnCenter == nil {
+            if callBtnCenter == nil && targetKind == .wecom {
                 // Fallback: top-right phone/call icon position on WeCom chat pane
                 callBtnCenter = (targetWin.x + targetWin.width - 78.0, targetWin.y + 46.0)
             }
-            let existingWeComWids = pidWindowIDs(pid: targetWin.pid)
+            let existingCallWids = pidWindowIDs(pid: targetWin.pid)
             if let cpt = callBtnCenter {
                 preciseClick(x: cpt.0, y: cpt.1)
                 usleep(550_000)
-                if let popup = findNewPopupWindow(pid: targetWin.pid, existing: existingWeComWids),
+                if let popup = findNewPopupWindow(pid: targetWin.pid, existing: existingCallWids),
                    popup.rect.width <= 320 && popup.rect.height <= 220,
                    let (pElems, psx, psy, _) = ocrWindowByID(popup.wid, winRect: popup.rect),
                    let hit = findTMOCRPoint(pElems, sx: psx, sy: psy, winX: Double(popup.rect.minX), winY: Double(popup.rect.minY), matching: axKeywords) {
@@ -4430,12 +4535,14 @@ func cmdVoiceCall(flags: Set<String>, options: [String: String]) {
                 } else {
                     usleep(650_000)
                 }
+            } else {
+                failJSON("No voice/video call AX button found in \(targetKind.appLabel) chat header.", code: "call_button_not_found", extra: ["appId": targetKind.appId, "windowID": targetWin.windowID])
             }
-            let callState = scanVoipWindows(appFilter: "wecom", activateOwner: false)
+            let callState = scanVoipWindows(appFilter: targetKind.appId, activateOwner: false)
             writeJSON([
                 "ok": true,
                 "initiated": true,
-                "appId": "wecom",
+                "appId": targetKind.appId,
                 "callType": callType,
                 "windowID": targetWin.windowID,
                 "callButtonPoint": callBtnCenter.map { ["x": $0.0, "y": $0.1] } as Any,
@@ -4447,12 +4554,1434 @@ func cmdVoiceCall(flags: Set<String>, options: [String: String]) {
     failJSON("Unsupported --action '\(action)'. Expected status|dial|answer|hangup.", code: "unsupported_action")
 }
 
+// MARK: - Universal macOS App-Use Primitives (v2.6.0)
+
+let universalMacKeyMap: [String: (CGKeyCode, Bool)] = [
+    // Letters (US QWERTY)
+    "a": (0, false), "s": (1, false), "d": (2, false), "f": (3, false),
+    "h": (4, false), "g": (5, false), "z": (6, false), "x": (7, false),
+    "c": (8, false), "v": (9, false), "b": (11, false), "q": (12, false),
+    "w": (13, false), "e": (14, false), "r": (15, false), "y": (16, false),
+    "t": (17, false), "o": (31, false), "u": (32, false), "i": (34, false),
+    "p": (35, false), "l": (37, false), "j": (38, false), "k": (40, false),
+    "n": (45, false), "m": (46, false),
+    // Digits
+    "1": (18, false), "2": (19, false), "3": (20, false), "4": (21, false),
+    "6": (22, false), "5": (23, false), "9": (25, false), "7": (26, false),
+    "8": (28, false), "0": (29, false),
+    // Punctuation & symbols
+    "=": (24, false), "equals": (24, false),
+    "-": (27, false), "minus": (27, false),
+    "]": (30, false), "[": (33, false), "'": (39, false), ";": (41, false),
+    "\\": (42, false), ",": (43, false), "/": (44, false), "slash": (44, false),
+    ".": (47, false), "period": (47, false), "`": (50, false),
+    "+": (24, true), "plus": (69, false),
+    "*": (28, true), "multiply": (67, false),
+    "%": (23, true), "(": (25, true), ")": (29, true),
+    // Keypad keys
+    "kp_decimal": (65, false), "kp_multiply": (67, false), "kp_plus": (69, false),
+    "kp_clear": (71, false), "clear": (71, false), "kp_divide": (75, false),
+    "divide": (75, false), "kp_enter": (76, false), "kp_minus": (78, false),
+    "kp_equals": (81, false),
+    "kp0": (82, false), "kp1": (83, false), "kp2": (84, false), "kp3": (85, false),
+    "kp4": (86, false), "kp5": (87, false), "kp6": (88, false), "kp7": (89, false),
+    "kp8": (91, false), "kp9": (92, false),
+    // Control & navigation
+    "return": (36, false), "enter": (36, false),
+    "tab": (48, false),
+    "space": (49, false),
+    "delete": (51, false), "backspace": (51, false),
+    "escape": (53, false), "esc": (53, false),
+    "home": (115, false), "pageup": (116, false), "forwarddelete": (117, false),
+    "end": (119, false), "pagedown": (121, false),
+    "left": (123, false), "leftarrow": (123, false),
+    "right": (124, false), "rightarrow": (124, false),
+    "down": (125, false), "downarrow": (125, false),
+    "up": (126, false), "uparrow": (126, false),
+    // Function keys
+    "f1": (122, false), "f2": (120, false), "f3": (99, false), "f4": (118, false),
+    "f5": (96, false), "f6": (97, false), "f7": (98, false), "f8": (100, false),
+    "f9": (101, false), "f10": (109, false), "f11": (103, false), "f12": (111, false),
+]
+
+func parseKeyCombo(_ raw: String) -> (keyCode: CGKeyCode, flags: CGEventFlags, label: String)? {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    if trimmed == "+" {
+        return (24, .maskShift, "+")
+    }
+    var working = trimmed
+    var forcePlusKey = false
+    if working.hasSuffix("++") {
+        forcePlusKey = true
+        working = String(working.dropLast(2))
+    }
+    var parts = working.split(separator: "+", omittingEmptySubsequences: false).map {
+        String($0).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+    if forcePlusKey {
+        parts.append("+")
+    }
+    guard let keyPart = parts.last, !keyPart.isEmpty, let mapped = universalMacKeyMap[keyPart] else {
+        return nil
+    }
+    var eventFlags: CGEventFlags = mapped.1 ? .maskShift : []
+    for mod in parts.dropLast() {
+        switch mod {
+        case "cmd", "command", "super", "meta":
+            eventFlags.insert(.maskCommand)
+        case "shift":
+            eventFlags.insert(.maskShift)
+        case "ctrl", "control":
+            eventFlags.insert(.maskControl)
+        case "opt", "option", "alt":
+            eventFlags.insert(.maskAlternate)
+        default:
+            return nil
+        }
+    }
+    return (mapped.0, eventFlags, trimmed)
+}
+
+func isUniversalHelperBundle(_ bid: String) -> Bool {
+    let low = bid.lowercased()
+    return low.contains("helper")
+        || low.contains("renderer")
+        || low.contains(".gpu")
+        || low.contains("crashpad")
+        || low.contains("webcontent")
+        || low.contains("xpcservice")
+}
+
+func findRunningAppsGeneric(bundleID: String? = nil, appName: String? = nil, appPath: String? = nil) -> [NSRunningApplication] {
+    let reqBID = (bundleID ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let reqName = (appName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let reqPath = (appPath ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+    var matched: [NSRunningApplication] = []
+    for app in NSWorkspace.shared.runningApplications where !app.isTerminated {
+        let bid = (app.bundleIdentifier ?? "").lowercased()
+        let name = (app.localizedName ?? "").lowercased()
+        let path = app.bundleURL?.path ?? ""
+        var ok = false
+        if !reqBID.isEmpty && bid == reqBID {
+            ok = true
+        } else if !reqPath.isEmpty && !path.isEmpty && path == reqPath && !isUniversalHelperBundle(bid) {
+            ok = true
+        } else if reqBID.isEmpty && !reqName.isEmpty && !isUniversalHelperBundle(bid) {
+            if name == reqName || bid == reqName || name.contains(reqName) {
+                ok = true
+            }
+        }
+        if ok {
+            matched.append(app)
+        }
+    }
+    matched.sort { lhs, rhs in
+        let lr = lhs.activationPolicy == .regular
+        let rr = rhs.activationPolicy == .regular
+        if lr != rr { return lr && !rr }
+        let lf = lhs.processIdentifier == frontPID
+        let rf = rhs.processIdentifier == frontPID
+        if lf != rf { return lf && !rf }
+        let lnExact = !reqName.isEmpty && (lhs.localizedName ?? "").lowercased() == reqName
+        let rnExact = !reqName.isEmpty && (rhs.localizedName ?? "").lowercased() == reqName
+        if lnExact != rnExact { return lnExact && !rnExact }
+        return lhs.processIdentifier < rhs.processIdentifier
+    }
+    return matched
+}
+
+func enableUniversalAccessibility(pid: pid_t) {
+    guard AXIsProcessTrusted() else { return }
+    let app = AXUIElementCreateApplication(pid)
+    AXUIElementSetMessagingTimeout(app, 0.25)
+    _ = AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+    _ = AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
+}
+
+func listWindowsGeneric(for apps: [NSRunningApplication], rawWindowList: [[String: Any]]? = nil) -> [WindowCandidate] {
+    guard !apps.isEmpty else { return [] }
+    var appByPID: [pid_t: NSRunningApplication] = [:]
+    for app in apps { appByPID[app.processIdentifier] = app }
+    let rawList = rawWindowList ?? copyOnScreenWindowInfo()
+    var seen = Set<CGWindowID>()
+    var entries: [(wid: CGWindowID, pid: pid_t, bid: String, label: String, cgTitle: String, x: Double, y: Double, w: Double, h: Double)] = []
+    for entry in rawList {
+        guard let ownerPID = entry[kCGWindowOwnerPID as String] as? pid_t,
+              let ownerApp = appByPID[ownerPID],
+              (entry[kCGWindowLayer as String] as? Int) == 0,
+              let num = entry[kCGWindowNumber as String] as? NSNumber,
+              let bounds = entry[kCGWindowBounds as String] as? [String: Any],
+              let w = (bounds["Width"] as? NSNumber)?.doubleValue,
+              let h = (bounds["Height"] as? NSNumber)?.doubleValue,
+              w >= 80, h >= 60 else { continue }
+        let wid = num.uint32Value
+        guard seen.insert(wid).inserted else { continue }
+        let x = (bounds["X"] as? NSNumber)?.doubleValue ?? 0
+        let y = (bounds["Y"] as? NSNumber)?.doubleValue ?? 0
+        let cgTitle = ((entry[kCGWindowName as String] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        entries.append((wid, ownerPID, ownerApp.bundleIdentifier ?? "", ownerApp.localizedName ?? "", cgTitle, x, y, w, h))
+    }
+    guard !entries.isEmpty else { return [] }
+    var axMetaByPID: [pid_t: [AXWindowMeta]] = [:]
+    if AXIsProcessTrusted() && entries.contains(where: { $0.cgTitle.isEmpty }) {
+        for pid in Set(entries.map { $0.pid }) {
+            axMetaByPID[pid] = collectAXWindowMeta(pid: pid)
+        }
+    }
+    var maxArea = 0.0
+    var mainIdx = 0
+    for (idx, item) in entries.enumerated() {
+        let area = item.w * item.h
+        if area > maxArea {
+            maxArea = area
+            mainIdx = idx
+        }
+    }
+    var out: [WindowCandidate] = []
+    for (idx, item) in entries.enumerated() {
+        var resolvedTitle = item.cgTitle
+        if resolvedTitle.isEmpty, let metas = axMetaByPID[item.pid] {
+            let targetRect = CGRect(x: item.x, y: item.y, width: item.w, height: item.h)
+            if let m = metas.min(by: {
+                abs($0.frame.origin.x - targetRect.origin.x) + abs($0.frame.origin.y - targetRect.origin.y)
+                    < abs($1.frame.origin.x - targetRect.origin.x) + abs($1.frame.origin.y - targetRect.origin.y)
+            }), !m.title.isEmpty {
+                resolvedTitle = m.title
+            }
+        }
+        if resolvedTitle.isEmpty && idx == mainIdx {
+            resolvedTitle = item.label
+        }
+        out.append(WindowCandidate(
+            windowID: item.wid,
+            appId: item.bid,
+            appLabel: item.label,
+            bundleID: item.bid,
+            pid: item.pid,
+            title: resolvedTitle,
+            isMainWindow: idx == mainIdx,
+            x: item.x, y: item.y, width: item.w, height: item.h
+        ))
+    }
+    out.sort { lhs, rhs in
+        if lhs.isMainWindow != rhs.isMainWindow { return lhs.isMainWindow && !rhs.isMainWindow }
+        if lhs.area != rhs.area { return lhs.area > rhs.area }
+        return lhs.windowID < rhs.windowID
+    }
+    return out
+}
+
+func launchGenericApp(bundleID: String?, appPath: String?, appName: String?) -> NSRunningApplication? {
+    let proc = Process()
+    proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+    if let p = appPath?.trimmingCharacters(in: .whitespacesAndNewlines), !p.isEmpty,
+       FileManager.default.fileExists(atPath: p) {
+        proc.arguments = [p]
+    } else if let b = bundleID?.trimmingCharacters(in: .whitespacesAndNewlines), !b.isEmpty {
+        proc.arguments = ["-b", b]
+    } else if let n = appName?.trimmingCharacters(in: .whitespacesAndNewlines), !n.isEmpty {
+        proc.arguments = ["-a", n]
+    } else {
+        return nil
+    }
+    proc.standardOutput = FileHandle.nullDevice
+    proc.standardError = FileHandle.nullDevice
+    do {
+        try proc.run()
+        proc.waitUntilExit()
+    } catch {
+        return nil
+    }
+    for _ in 0..<18 {
+        usleep(220_000)
+        let running = findRunningAppsGeneric(bundleID: bundleID, appName: appName, appPath: appPath)
+        if let app = running.first {
+            return app
+        }
+    }
+    return findRunningAppsGeneric(bundleID: bundleID, appName: appName, appPath: appPath).first
+}
+
+func resolveGenericAppAndWindows(options: [String: String], allowLaunch: Bool, allowActivate: Bool) -> (app: NSRunningApplication?, windows: [WindowCandidate], recovery: String?) {
+    let bid = options["bundle-id"]
+    let appName = options["app-name"]
+    let appPath = options["app-path"]
+    var recovery: String? = nil
+
+    var apps = findRunningAppsGeneric(bundleID: bid, appName: appName, appPath: appPath)
+    if apps.isEmpty && allowLaunch {
+        if launchGenericApp(bundleID: bid, appPath: appPath, appName: appName) != nil {
+            recovery = "launched"
+            apps = findRunningAppsGeneric(bundleID: bid, appName: appName, appPath: appPath)
+        }
+    }
+    guard let primaryApp = apps.first else {
+        return (nil, [], recovery)
+    }
+
+    var windows = listWindowsGeneric(for: apps)
+    if windows.isEmpty && allowActivate {
+        _ = primaryApp.unhide()
+        _ = primaryApp.activate(options: [.activateIgnoringOtherApps])
+        usleep(220_000)
+        if AXIsProcessTrusted() {
+            let axApp = AXUIElementCreateApplication(primaryApp.processIdentifier)
+            if let axWins = axAttr(axApp, kAXWindowsAttribute) as? [AXUIElement] {
+                for w in axWins {
+                    if axBool(w, kAXMinimizedAttribute) == true {
+                        _ = AXUIElementSetAttributeValue(w, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+                        recovery = recovery ?? "ax_unminimize"
+                    }
+                    _ = AXUIElementPerformAction(w, kAXRaiseAction as CFString)
+                }
+                usleep(250_000)
+            }
+        }
+        windows = listWindowsGeneric(for: apps)
+        if windows.isEmpty {
+            _ = launchGenericApp(bundleID: primaryApp.bundleIdentifier ?? bid, appPath: primaryApp.bundleURL?.path ?? appPath, appName: primaryApp.localizedName ?? appName)
+            usleep(300_000)
+            apps = findRunningAppsGeneric(bundleID: bid, appName: appName, appPath: appPath)
+            windows = listWindowsGeneric(for: apps)
+            if !windows.isEmpty { recovery = recovery ?? "reopen" }
+        }
+    }
+    return (apps.first ?? primaryApp, windows, recovery)
+}
+
+func findGenericAXWindow(pid: pid_t, targetWin: WindowCandidate?, reqTitle: String?) -> AXUIElement? {
+    guard AXIsProcessTrusted() else { return nil }
+    let effectivePID = targetWin?.pid ?? pid
+    enableUniversalAccessibility(pid: effectivePID)
+    let app = AXUIElementCreateApplication(effectivePID)
+    AXUIElementSetMessagingTimeout(app, 0.30)
+    guard let windows = axAttr(app, kAXWindowsAttribute) as? [AXUIElement], !windows.isEmpty else {
+        return nil
+    }
+    if let tw = targetWin {
+        var best: AXUIElement?
+        var bestDist = Double.greatestFiniteMagnitude
+        for win in windows {
+            if let pt = axPoint(win, kAXPositionAttribute), let sz = axSize(win, kAXSizeAttribute) {
+                let d = abs(Double(pt.x) - tw.x) + abs(Double(pt.y) - tw.y)
+                    + abs(Double(sz.width) - tw.width) + abs(Double(sz.height) - tw.height)
+                if d < bestDist {
+                    bestDist = d
+                    best = win
+                }
+            }
+        }
+        if best != nil && bestDist <= 36.0 {
+            return best
+        }
+        let twTitle = tw.title.lowercased()
+        if !twTitle.isEmpty,
+           let byTitle = windows.first(where: { (axString($0, kAXTitleAttribute) ?? "").lowercased() == twTitle }) {
+            return byTitle
+        }
+    }
+    if let t = reqTitle?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
+        let low = t.lowercased()
+        if let m = windows.first(where: { (axString($0, kAXTitleAttribute) ?? "").lowercased().contains(low) }) {
+            return m
+        }
+    }
+    return windows.max(by: { lhs, rhs in
+        let lsz = axSize(lhs, kAXSizeAttribute) ?? .zero
+        let rsz = axSize(rhs, kAXSizeAttribute) ?? .zero
+        return (lsz.width * lsz.height) < (rsz.width * rsz.height)
+    })
+}
+
+func installSourceTag(for path: String) -> String {
+    if path.hasPrefix("/Volumes/SanDisk/Applications") { return "sandisk" }
+    if path.hasPrefix("/System/Applications") { return "system" }
+    if path.hasPrefix("/Users/mac/Applications") { return "user_applications" }
+    if path.hasPrefix("/Applications") { return "applications" }
+    return "other"
+}
+
+func cmdListMacApps(flags: Set<String>, options: [String: String]) {
+    let rawList = copyOnScreenWindowInfo()
+    let frontApp = NSWorkspace.shared.frontmostApplication
+    let runningOnly = flags.contains("running-only")
+
+    var winCountByPID: [pid_t: Int] = [:]
+    var sampleWinByPID: [pid_t: WindowCandidate] = [:]
+    for entry in rawList {
+        guard let pid = entry[kCGWindowOwnerPID as String] as? pid_t,
+              (entry[kCGWindowLayer as String] as? Int) == 0,
+              let num = entry[kCGWindowNumber as String] as? NSNumber,
+              let bounds = entry[kCGWindowBounds as String] as? [String: Any],
+              let w = (bounds["Width"] as? NSNumber)?.doubleValue,
+              let h = (bounds["Height"] as? NSNumber)?.doubleValue,
+              w >= 80, h >= 60 else { continue }
+        winCountByPID[pid, default: 0] += 1
+        let x = (bounds["X"] as? NSNumber)?.doubleValue ?? 0
+        let y = (bounds["Y"] as? NSNumber)?.doubleValue ?? 0
+        let title = ((entry[kCGWindowName as String] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let cand = WindowCandidate(
+            windowID: num.uint32Value, appId: "", appLabel: "", bundleID: "", pid: pid,
+            title: title, isMainWindow: false, x: x, y: y, width: w, height: h
+        )
+        if let cur = sampleWinByPID[pid] {
+            if cand.area > cur.area { sampleWinByPID[pid] = cand }
+        } else {
+            sampleWinByPID[pid] = cand
+        }
+    }
+
+    var byKey: [String: [String: Any]] = [:]
+    var seenKeys: [String] = []
+    var runningCount = 0
+
+    for app in NSWorkspace.shared.runningApplications where !app.isTerminated && app.activationPolicy == .regular {
+        let bid = app.bundleIdentifier ?? ""
+        let path = app.bundleURL?.path ?? ""
+        let key = (!bid.isEmpty ? bid : path).lowercased()
+        guard !key.isEmpty else { continue }
+        let name = app.localizedName ?? (URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent)
+        let pid = app.processIdentifier
+        let isFront = (frontApp?.processIdentifier == pid)
+        let wCount = winCountByPID[pid] ?? 0
+        runningCount += 1
+        var item: [String: Any] = [
+            "bundleID": bid,
+            "name": name,
+            "pid": Int(pid),
+            "running": true,
+            "isFrontmost": isFront,
+            "appPath": path,
+            "windowCount": wCount,
+            "installSource": installSourceTag(for: path),
+        ]
+        if let sw = sampleWinByPID[pid] {
+            let mainWinDict: [String: Any] = [
+                "windowID": sw.windowID,
+                "title": sw.title.isEmpty ? name : sw.title,
+                "bounds": ["x": sw.x, "y": sw.y, "width": sw.width, "height": sw.height],
+            ]
+            item["mainWindow"] = mainWinDict
+        }
+        if byKey[key] == nil { seenKeys.append(key) }
+        if let existing = byKey[key], (existing["windowCount"] as? Int ?? 0) > wCount && !isFront {
+            continue
+        }
+        byKey[key] = item
+    }
+
+    if !runningOnly {
+        var scanDirs = [
+            "/Applications",
+            "/System/Applications",
+            "/System/Applications/Utilities",
+            "/Users/mac/Applications",
+            "/Volumes/SanDisk/Applications",
+        ]
+        let homeApps = (NSHomeDirectory() as NSString).appendingPathComponent("Applications")
+        if !scanDirs.contains(homeApps) { scanDirs.append(homeApps) }
+
+        let fm = FileManager.default
+        for dir in scanDirs {
+            guard let items = try? fm.contentsOfDirectory(atPath: dir) else { continue }
+            for entry in items where entry.hasSuffix(".app") {
+                let fullPath = (dir as NSString).appendingPathComponent(entry)
+                let url = URL(fileURLWithPath: fullPath)
+                let bundle = Bundle(url: url)
+                let bid = bundle?.bundleIdentifier ?? ""
+                let info = bundle?.infoDictionary
+                let dispName = (info?["CFBundleDisplayName"] as? String)
+                    ?? (info?["CFBundleName"] as? String)
+                    ?? url.deletingPathExtension().lastPathComponent
+                let key = (!bid.isEmpty ? bid : fullPath).lowercased()
+                guard !key.isEmpty else { continue }
+                if byKey[key] == nil {
+                    seenKeys.append(key)
+                    byKey[key] = [
+                        "bundleID": bid,
+                        "name": dispName,
+                        "pid": NSNull(),
+                        "running": false,
+                        "isFrontmost": false,
+                        "appPath": fullPath,
+                        "windowCount": 0,
+                        "installSource": installSourceTag(for: fullPath),
+                    ]
+                }
+            }
+        }
+    }
+
+    let merged = seenKeys.compactMap { byKey[$0] }.sorted { a, b in
+        let ar = (a["running"] as? Bool) ?? false
+        let br = (b["running"] as? Bool) ?? false
+        if ar != br { return ar && !br }
+        let af = (a["isFrontmost"] as? Bool) ?? false
+        let bf = (b["isFrontmost"] as? Bool) ?? false
+        if af != bf { return af && !bf }
+        let aw = (a["windowCount"] as? Int) ?? 0
+        let bw = (b["windowCount"] as? Int) ?? 0
+        if (aw > 0) != (bw > 0) { return aw > 0 }
+        return ((a["name"] as? String) ?? "").lowercased() < ((b["name"] as? String) ?? "").lowercased()
+    }
+
+    writeJSON([
+        "ok": true,
+        "frontmostBundleID": frontApp?.bundleIdentifier ?? "",
+        "frontmostName": frontApp?.localizedName ?? "",
+        "runningCount": runningCount,
+        "totalCount": merged.count,
+        "apps": merged,
+    ])
+}
+
+func queryLiveFrontmostApp() -> (pid: pid_t, bundleID: String, name: String) {
+    RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.015))
+    let sysWide = AXUIElementCreateSystemWide()
+    AXUIElementSetMessagingTimeout(sysWide, 0.2)
+    if let raw = axAttr(sysWide, kAXFocusedApplicationAttribute), CFGetTypeID(raw) == AXUIElementGetTypeID() {
+        let focusedAX = raw as! AXUIElement
+        var axPid: pid_t = 0
+        if AXUIElementGetPid(focusedAX, &axPid) == .success, axPid > 0 {
+            if let r = NSRunningApplication(processIdentifier: axPid) {
+                return (axPid, r.bundleIdentifier ?? "", r.localizedName ?? "")
+            }
+            return (axPid, "", "")
+        }
+    }
+    if let ws = NSWorkspace.shared.frontmostApplication {
+        return (ws.processIdentifier, ws.bundleIdentifier ?? "", ws.localizedName ?? "")
+    }
+    return (0, "", "")
+}
+
+@discardableResult
+func activateTargetAppReliably(_ app: NSRunningApplication, targetWin: WindowCandidate?, reqTitle: String? = nil) -> Bool {
+    let targetPid = targetWin?.pid ?? app.processIdentifier
+    let targetBID = (app.bundleIdentifier ?? "").lowercased()
+    func matchesFront() -> Bool {
+        let f = queryLiveFrontmostApp()
+        return f.pid == app.processIdentifier
+            || f.pid == targetPid
+            || (!targetBID.isEmpty && f.bundleID.lowercased() == targetBID)
+    }
+
+    let axApp = AXUIElementCreateApplication(targetPid)
+    AXUIElementSetMessagingTimeout(axApp, 0.3)
+    _ = app.unhide()
+    _ = app.activate(options: [.activateIgnoringOtherApps])
+    _ = AXUIElementSetAttributeValue(axApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+    if let axWin = findGenericAXWindow(pid: targetPid, targetWin: targetWin, reqTitle: reqTitle) {
+        _ = AXUIElementSetAttributeValue(axWin, kAXMainAttribute as CFString, kCFBooleanTrue)
+        _ = AXUIElementPerformAction(axWin, kAXRaiseAction as CFString)
+    }
+    for _ in 0..<10 {
+        if matchesFront() { return true }
+        usleep(50_000)
+    }
+    if let bid = app.bundleIdentifier, !bid.isEmpty {
+        let openProc = Process()
+        openProc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        openProc.arguments = ["-b", bid]
+        openProc.standardOutput = FileHandle.nullDevice
+        openProc.standardError = FileHandle.nullDevice
+        try? openProc.run()
+        openProc.waitUntilExit()
+        _ = AXUIElementSetAttributeValue(axApp, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        if let axWin = findGenericAXWindow(pid: targetPid, targetWin: targetWin, reqTitle: reqTitle) {
+            _ = AXUIElementSetAttributeValue(axWin, kAXMainAttribute as CFString, kCFBooleanTrue)
+            _ = AXUIElementPerformAction(axWin, kAXRaiseAction as CFString)
+        }
+        for _ in 0..<8 {
+            if matchesFront() { return true }
+            usleep(50_000)
+        }
+    }
+    return matchesFront()
+}
+
+func cmdAppUseActivate(flags: Set<String>, options: [String: String]) {
+    let allowLaunch = flags.contains("launch") || options["launch"] == "1"
+    let (resolvedApp, windows, recovery) = resolveGenericAppAndWindows(options: options, allowLaunch: allowLaunch, allowActivate: true)
+    guard let app = resolvedApp else {
+        failJSON("Target app is not running (pass --launch to open it).", code: "app_not_running")
+    }
+    let targetWin = selectTargetWindow(in: windows, options: options)
+    let isFront = activateTargetAppReliably(app, targetWin: targetWin, reqTitle: options["window-title"])
+    var resp: [String: Any] = [
+        "ok": true,
+        "bundleID": app.bundleIdentifier ?? (options["bundle-id"] ?? ""),
+        "name": app.localizedName ?? (options["app-name"] ?? ""),
+        "pid": Int(app.processIdentifier),
+        "appPath": app.bundleURL?.path ?? "",
+        "isFrontmost": isFront,
+        "windowCount": windows.count,
+        "windows": windows.map { $0.toDict() },
+    ]
+    if let r = recovery { resp["recovery"] = r }
+    writeJSON(resp)
+}
+
+func cmdAppUseInspect(flags: Set<String>, options: [String: String]) {
+    let allowLaunch = flags.contains("launch") || options["launch"] == "1"
+    let allowActivate = !flags.contains("no-activate")
+    let skipOCR = flags.contains("skip-ocr")
+    let maxNodes = max(40, min(800, Int(options["max-nodes"] ?? "350") ?? 350))
+    let maxDepth = max(3, min(18, Int(options["max-depth"] ?? "10") ?? 10))
+
+    var (resolvedApp, windows, recovery) = resolveGenericAppAndWindows(options: options, allowLaunch: allowLaunch, allowActivate: allowActivate)
+    guard let app = resolvedApp else {
+        failJSON("Target app is not running (pass --launch to start it).", code: "app_not_running")
+    }
+
+    let pid = app.processIdentifier
+    enableUniversalAccessibility(pid: pid)
+    if allowActivate {
+        _ = app.unhide()
+        _ = app.activate(options: [.activateIgnoringOtherApps])
+        usleep(220_000)
+        if windows.isEmpty {
+            windows = listWindowsGeneric(for: findRunningAppsGeneric(
+                bundleID: app.bundleIdentifier ?? options["bundle-id"],
+                appName: app.localizedName ?? options["app-name"],
+                appPath: app.bundleURL?.path ?? options["app-path"]
+            ))
+        }
+    }
+
+    let targetWin = selectTargetWindow(in: windows, options: options)
+    var axControls: [[String: Any]] = []
+    var inputElements: [[String: Any]] = []
+    var buttonElements: [[String: Any]] = []
+    var axTexts: [String] = []
+    var seenTexts = Set<String>()
+
+    let interestingRoles: Set<String> = [
+        kAXButtonRole as String,
+        kAXTextFieldRole as String,
+        kAXTextAreaRole as String,
+        "AXSearchField",
+        kAXComboBoxRole as String,
+        kAXPopUpButtonRole as String,
+        kAXCheckBoxRole as String,
+        kAXRadioButtonRole as String,
+        "AXTab",
+        kAXMenuButtonRole as String,
+        "AXLink",
+        kAXStaticTextRole as String,
+        "AXWebArea",
+    ]
+    let inputRoles: Set<String> = [kAXTextAreaRole as String, kAXTextFieldRole as String, "AXSearchField", kAXComboBoxRole as String]
+    let buttonRoles: Set<String> = [kAXButtonRole as String, kAXRadioButtonRole as String, kAXCheckBoxRole as String, kAXMenuButtonRole as String, kAXPopUpButtonRole as String, "AXTab"]
+
+    let effPID = targetWin?.pid ?? pid
+    if AXIsProcessTrusted(), let axRoot = findGenericAXWindow(pid: effPID, targetWin: targetWin, reqTitle: options["window-title"]) {
+        var queue: [(AXUIElement, Int)] = [(axRoot, 0)]
+        var qi = 0
+        let deadline = CFAbsoluteTimeGetCurrent() + 2.2
+        while qi < queue.count && axControls.count < maxNodes && qi < 1800 && CFAbsoluteTimeGetCurrent() < deadline {
+            let (el, depth) = queue[qi]; qi += 1
+            let role = axString(el, kAXRoleAttribute) ?? ""
+            let subrole = axString(el, kAXSubroleAttribute) ?? ""
+            let ident = axString(el, kAXIdentifierAttribute) ?? ""
+            let title = axString(el, kAXTitleAttribute) ?? ""
+            let desc = axString(el, kAXDescriptionAttribute) ?? ""
+            let rawVal = axString(el, kAXValueAttribute) ?? ""
+            let val = rawVal.count > 240 ? String(rawVal.prefix(240)) : rawVal
+            let focused = axBool(el, kAXFocusedAttribute) ?? false
+            let enabled = axBool(el, kAXEnabledAttribute) ?? true
+            let pt = axPoint(el, kAXPositionAttribute)
+            let sz = axSize(el, kAXSizeAttribute)
+
+            let hasLabel = !ident.isEmpty || !title.isEmpty || !desc.isEmpty || !val.isEmpty
+            if interestingRoles.contains(role) || (depth > 0 && hasLabel && sz != nil) {
+                var ctrl: [String: Any] = [
+                    "depth": depth,
+                    "role": role,
+                    "focused": focused,
+                    "enabled": enabled,
+                ]
+                if !subrole.isEmpty { ctrl["subrole"] = subrole }
+                if !ident.isEmpty { ctrl["identifier"] = ident }
+                if !title.isEmpty { ctrl["title"] = title }
+                if !desc.isEmpty { ctrl["description"] = desc }
+                if !val.isEmpty { ctrl["value"] = val }
+                if let pt = pt, let sz = sz, sz.width > 1, sz.height > 1 {
+                    let cx = Double(pt.x) + Double(sz.width) / 2.0
+                    let cy = Double(pt.y) + Double(sz.height) / 2.0
+                    ctrl["bounds"] = ["x": Double(pt.x), "y": Double(pt.y), "width": Double(sz.width), "height": Double(sz.height)]
+                    ctrl["center"] = ["x": (cx * 10.0).rounded() / 10.0, "y": (cy * 10.0).rounded() / 10.0]
+                    if let tw = targetWin, tw.width > 1, tw.height > 1 {
+                        let rx = (cx - tw.x) / tw.width
+                        let ry = (cy - tw.y) / tw.height
+                        ctrl["relCenter"] = ["x": (rx * 1000.0).rounded() / 1000.0, "y": (ry * 1000.0).rounded() / 1000.0]
+                    }
+                }
+                if interestingRoles.contains(role) || inputRoles.contains(role) || buttonRoles.contains(role) || !ident.isEmpty {
+                    axControls.append(ctrl)
+                    if inputRoles.contains(role) || inputIdentifiers.contains(ident) {
+                        inputElements.append(ctrl)
+                    } else if buttonRoles.contains(role) {
+                        buttonElements.append(ctrl)
+                    }
+                }
+                if role == (kAXStaticTextRole as String) || inputRoles.contains(role) {
+                    let txt = !val.isEmpty ? val : title
+                    if !txt.isEmpty && seenTexts.insert(txt).inserted && axTexts.count < 50 {
+                        axTexts.append(txt)
+                    }
+                }
+            }
+            if depth < maxDepth {
+                for child in axChildren(el) {
+                    queue.append((child, depth + 1))
+                }
+            }
+        }
+    }
+
+    var ocrElements: [[String: Any]] = []
+    var ocrPreview = ""
+    var savedPath: String? = nil
+    var imageWidth = 0
+    var imageHeight = 0
+    var windowOccluded = false
+
+    if !skipOCR, CGPreflightScreenCaptureAccess(), let win = targetWin {
+        var cgImage = captureWindowImage(win)
+        if let img = cgImage, isImageFullyTransparent(img), allowActivate {
+            _ = app.activate(options: [.activateIgnoringOtherApps])
+            usleep(260_000)
+            cgImage = captureWindowImage(win)
+        }
+        if let img = cgImage {
+            if isImageFullyTransparent(img) {
+                windowOccluded = true
+            } else {
+                imageWidth = img.width
+                imageHeight = img.height
+                if let outPath = options["out"], !outPath.isEmpty {
+                    let parent = URL(fileURLWithPath: outPath).deletingLastPathComponent()
+                    try? FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+                    if saveCGImageAsPNG(img, to: outPath) {
+                        savedPath = outPath
+                    }
+                }
+                if let rawOCR = try? runVisionOCR(cgImage: img) {
+                    let sx = max(0.1, Double(img.width) / max(win.width, 1.0))
+                    let sy = max(0.1, Double(img.height) / max(win.height, 1.0))
+                    ocrElements = rawOCR.map { item in
+                        var copy = item
+                        if let c = item["center"] as? [String: Int], let px = c["x"], let py = c["y"] {
+                            let scrX = win.x + Double(px) / sx
+                            let scrY = win.y + Double(py) / sy
+                            copy["screenCenter"] = ["x": (scrX * 10.0).rounded() / 10.0, "y": (scrY * 10.0).rounded() / 10.0]
+                            copy["relCenter"] = [
+                                "x": ((scrX - win.x) / max(win.width, 1.0) * 1000.0).rounded() / 1000.0,
+                                "y": ((scrY - win.y) / max(win.height, 1.0) * 1000.0).rounded() / 1000.0,
+                            ]
+                        }
+                        return copy
+                    }
+                    ocrPreview = ocrElements.compactMap { $0["text"] as? String }.prefix(80).joined(separator: "\n")
+                }
+            }
+        }
+    }
+
+    var resp: [String: Any] = [
+        "ok": true,
+        "bundleID": app.bundleIdentifier ?? (options["bundle-id"] ?? ""),
+        "name": app.localizedName ?? (options["app-name"] ?? ""),
+        "pid": Int(pid),
+        "appPath": app.bundleURL?.path ?? "",
+        "axTrusted": AXIsProcessTrusted(),
+        "scTrusted": CGPreflightScreenCaptureAccess(),
+        "postEventTrusted": CGPreflightPostEventAccess(),
+        "windowCount": windows.count,
+        "windows": windows.map { $0.toDict() },
+        "window": targetWin?.toDict() as Any,
+        "windowOccluded": windowOccluded,
+        "imageWidth": imageWidth,
+        "imageHeight": imageHeight,
+        "axControlCount": axControls.count,
+        "axControls": axControls,
+        "inputElements": inputElements,
+        "buttonElements": buttonElements,
+        "axTexts": axTexts,
+        "ocrCount": ocrElements.count,
+        "ocrElements": ocrElements,
+        "ocrPreview": ocrPreview,
+    ]
+    if let s = savedPath { resp["savedPath"] = s }
+    if let r = recovery { resp["recovery"] = r }
+    writeJSON(resp)
+}
+
+func cmdPressKey(flags: Set<String>, options: [String: String]) {
+    guard CGPreflightPostEventAccess() else {
+        failJSON("macOS Accessibility/PostEvent permission (CGPreflightPostEventAccess) is not granted.", code: "post_event_permission_denied")
+    }
+    let hasAppTarget = !(options["bundle-id"] ?? "").isEmpty || !(options["app-name"] ?? "").isEmpty || !(options["app-path"] ?? "").isEmpty
+    var targetApp: NSRunningApplication? = nil
+    if hasAppTarget {
+        let allowLaunch = flags.contains("launch") || options["launch"] == "1"
+        let allowActivate = !flags.contains("no-activate")
+        let (app, windows, _) = resolveGenericAppAndWindows(options: options, allowLaunch: allowLaunch, allowActivate: allowActivate)
+        guard let app = app else {
+            failJSON("Target app not running.", code: "app_not_running")
+        }
+        targetApp = app
+        if allowActivate {
+            let targetWin = selectTargetWindow(in: windows, options: options)
+            _ = activateTargetAppReliably(app, targetWin: targetWin, reqTitle: options["window-title"])
+        }
+    }
+
+    var rawList: [String] = []
+    if let seq = options["sequence"], !seq.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        rawList = seq.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+    } else if let combo = options["combo"], !combo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let repeatCount = max(1, min(20, Int(options["repeat"] ?? "1") ?? 1))
+        rawList = Array(repeating: combo, count: repeatCount)
+    } else {
+        failJSON("Missing --combo or --sequence argument.", code: "missing_argument")
+    }
+
+    var parsedCombos: [(keyCode: CGKeyCode, flags: CGEventFlags, label: String)] = []
+    for item in rawList {
+        guard let pc = parseKeyCombo(item) else {
+            failJSON("Unsupported key or combo: '\(item)'", code: "invalid_key_combo")
+        }
+        parsedCombos.append(pc)
+    }
+
+    let delayMs = max(20, min(1500, Int(options["delay-ms"] ?? "85") ?? 85))
+    var postedLabels: [String] = []
+    for (idx, item) in parsedCombos.enumerated() {
+        postKey(keyCode: item.keyCode, flags: item.flags)
+        postedLabels.append(item.label)
+        if idx < parsedCombos.count - 1 {
+            usleep(useconds_t(delayMs * 1000))
+        }
+    }
+    let front = queryLiveFrontmostApp()
+    writeJSON([
+        "ok": true,
+        "posted": postedLabels,
+        "count": postedLabels.count,
+        "targetBundleID": targetApp?.bundleIdentifier ?? "",
+        "frontmostBundleID": front.bundleID,
+        "frontmostName": front.name,
+    ])
+}
+
+func cmdAppUsePaste(flags: Set<String>, options: [String: String]) {
+    guard AXIsProcessTrusted(), CGPreflightPostEventAccess() else {
+        failJSON("Accessibility/PostEvent permissions are required.", code: "ax_permission_denied")
+    }
+    guard let text = options["text"] else {
+        failJSON("Missing --text argument", code: "missing_argument")
+    }
+    let allowLaunch = flags.contains("launch") || options["launch"] == "1"
+    let (resolvedApp, windows, _) = resolveGenericAppAndWindows(options: options, allowLaunch: allowLaunch, allowActivate: true)
+    guard let app = resolvedApp else {
+        failJSON("Target app is not running.", code: "app_not_running")
+    }
+    let targetWin = selectTargetWindow(in: windows, options: options)
+    let targetBID = (app.bundleIdentifier ?? "").lowercased()
+    let isFront = activateTargetAppReliably(app, targetWin: targetWin, reqTitle: options["window-title"])
+    if !isFront {
+        let front = queryLiveFrontmostApp()
+        failJSON("Aborted: frontmost app is '\(front.name) (\(front.bundleID.lowercased()))', expected \(app.localizedName ?? targetBID).", code: "not_frontmost")
+    }
+
+    if !flags.contains("skip-human-check") && hardwareKeyboardIdleSeconds() < 1.8 {
+        failJSON("Human keyboard activity detected; paused safely.", code: "human_keyboard_active", extra: ["retryable": true])
+    }
+
+    var clickX = options["x"].flatMap { Double($0) }
+    var clickY = options["y"].flatMap { Double($0) }
+    if (clickX == nil || clickY == nil), let win = targetWin,
+       let rx = options["rel-x"].flatMap({ Double($0) }),
+       let ry = options["rel-y"].flatMap({ Double($0) }) {
+        clickX = win.x + rx * win.width
+        clickY = win.y + ry * win.height
+    }
+
+    var axInputEl: AXUIElement? = nil
+    if let axWin = findGenericAXWindow(pid: targetWin?.pid ?? app.processIdentifier, targetWin: targetWin, reqTitle: options["window-title"]) {
+        _ = AXUIElementSetAttributeValue(axWin, kAXMainAttribute as CFString, kCFBooleanTrue)
+        _ = AXUIElementPerformAction(axWin, kAXRaiseAction as CFString)
+        axInputEl = findInputElement(in: axWin, windowBounds: targetWin.map { CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) })
+        if clickX == nil || clickY == nil, let el = axInputEl,
+           let pt = axPoint(el, kAXPositionAttribute), let sz = axSize(el, kAXSizeAttribute),
+           sz.width > 10, sz.height > 10 {
+            clickX = Double(pt.x) + Double(sz.width) / 2.0
+            clickY = Double(pt.y) + Double(sz.height) / 2.0
+        }
+    }
+
+    if !flags.contains("no-click"), let cx = clickX, let cy = clickY {
+        moveAndClick(x: cx, y: cy)
+        usleep(160_000)
+    } else if let el = axInputEl {
+        _ = AXUIElementSetAttributeValue(el, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        usleep(120_000)
+    }
+
+    let pb = NSPasteboard.general
+    let originalClipboard = pb.string(forType: .string)
+    func restoreClipboard() {
+        pb.clearContents()
+        if let orig = originalClipboard { pb.setString(orig, forType: .string) }
+    }
+
+    if flags.contains("clear") || options["clear"] == "1" {
+        postKey(keyCode: kKeyA, flags: .maskCommand)
+        usleep(60_000)
+        postKey(keyCode: kKeyDelete, flags: [])
+        usleep(80_000)
+    }
+
+    pb.clearContents()
+    pb.setString(text, forType: .string)
+    postKey(keyCode: kKeyV, flags: .maskCommand)
+    usleep(240_000)
+
+    var readback = ""
+    var readbackSource = "ax"
+    let axApp = AXUIElementCreateApplication(targetWin?.pid ?? app.processIdentifier)
+    if let focusedRaw = axAttr(axApp, kAXFocusedUIElementAttribute) {
+        let focusedEl = focusedRaw as! AXUIElement
+        if let v = axString(focusedEl, kAXValueAttribute), !v.isEmpty {
+            readback = v
+        }
+    }
+    if readback.isEmpty, let el = axInputEl, let v = axString(el, kAXValueAttribute), !v.isEmpty {
+        readback = v
+    }
+    if readback.isEmpty, CGPreflightScreenCaptureAccess(), let win = targetWin, let img = captureWindowImage(win),
+       let items = try? runVisionOCR(cgImage: img) {
+        readback = items.compactMap { $0["text"] as? String }.joined(separator: " ")
+        readbackSource = "vision_ocr"
+    }
+
+    let stripWS: (String) -> String = { s in
+        String(s.unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) })
+    }
+    let expectedStripped = stripWS(text)
+    let verified = expectedStripped.isEmpty ? true : stripWS(readback).contains(expectedStripped)
+
+    var submitted = false
+    let wantSubmit = (flags.contains("submit") || options["submit"] == "1") && !flags.contains("silent")
+    if wantSubmit {
+        let submitKeyName = options["submit-key"] ?? "return"
+        if let sk = parseKeyCombo(submitKeyName) {
+            postKey(keyCode: sk.keyCode, flags: sk.flags)
+            usleep(220_000)
+            submitted = true
+        }
+    }
+
+    restoreClipboard()
+    var resp: [String: Any] = [
+        "ok": verified || !text.isEmpty,
+        "verified": verified,
+        "submitted": submitted,
+        "bundleID": app.bundleIdentifier ?? (options["bundle-id"] ?? ""),
+        "name": app.localizedName ?? (options["app-name"] ?? ""),
+        "readbackSource": readbackSource,
+        "readbackPreview": readback.count > 260 ? String(readback.prefix(260)) : readback,
+    ]
+    if let w = targetWin {
+        resp["windowID"] = w.windowID
+        resp["windowTitle"] = w.title
+    }
+    if let cx = clickX, let cy = clickY {
+        resp["clickPoint"] = ["x": cx, "y": cy]
+    }
+    writeJSON(resp)
+}
+
+func serializeAXElementBrief(_ el: AXUIElement, windowBounds: CGRect?) -> [String: Any] {
+    var out: [String: Any] = [:]
+    let role = axString(el, kAXRoleAttribute) ?? ""
+    let subrole = axString(el, kAXSubroleAttribute) ?? ""
+    let ident = axString(el, kAXIdentifierAttribute) ?? ""
+    let title = axString(el, kAXTitleAttribute) ?? ""
+    let desc = axString(el, kAXDescriptionAttribute) ?? ""
+    let rawVal = axString(el, kAXValueAttribute) ?? ""
+    let val = rawVal.count > 240 ? String(rawVal.prefix(240)) : rawVal
+    if !role.isEmpty { out["role"] = role }
+    if !subrole.isEmpty { out["subrole"] = subrole }
+    if !ident.isEmpty { out["identifier"] = ident }
+    if !title.isEmpty { out["title"] = title }
+    if !desc.isEmpty { out["description"] = desc }
+    if !val.isEmpty { out["value"] = val }
+    if let pt = axPoint(el, kAXPositionAttribute), let sz = axSize(el, kAXSizeAttribute), sz.width > 1, sz.height > 1 {
+        let cx = Double(pt.x) + Double(sz.width) / 2.0
+        let cy = Double(pt.y) + Double(sz.height) / 2.0
+        out["bounds"] = ["x": Double(pt.x), "y": Double(pt.y), "width": Double(sz.width), "height": Double(sz.height)]
+        out["center"] = ["x": (cx * 10.0).rounded() / 10.0, "y": (cy * 10.0).rounded() / 10.0]
+        if let wb = windowBounds, wb.width > 1, wb.height > 1 {
+            out["relCenter"] = [
+                "x": ((cx - Double(wb.minX)) / Double(wb.width) * 1000.0).rounded() / 1000.0,
+                "y": ((cy - Double(wb.minY)) / Double(wb.height) * 1000.0).rounded() / 1000.0,
+            ]
+        }
+    }
+    return out
+}
+
+func findBestMatchingAXElement(
+    in root: AXUIElement,
+    windowBounds: CGRect?,
+    options: [String: String],
+    preferEditable: Bool
+) -> (element: AXUIElement, score: Double, brief: [String: Any])? {
+    let maxNodes = max(40, min(600, Int(options["max-nodes"] ?? "350") ?? 350))
+    let reqIdent = (options["identifier"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    let reqTitle = (options["title"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let reqRole = (options["role"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+
+    var targetX = options["x"].flatMap { Double($0) }
+    var targetY = options["y"].flatMap { Double($0) }
+    if (targetX == nil || targetY == nil), let wb = windowBounds,
+       let rx = options["rel-x"].flatMap({ Double($0) }),
+       let ry = options["rel-y"].flatMap({ Double($0) }) {
+        targetX = Double(wb.minX) + rx * Double(wb.width)
+        targetY = Double(wb.minY) + ry * Double(wb.height)
+    }
+
+    let editableRoles: Set<String> = [
+        kAXTextAreaRole as String,
+        kAXTextFieldRole as String,
+        "AXSearchField",
+        kAXComboBoxRole as String,
+    ]
+    let hasSelector = !reqIdent.isEmpty || !reqTitle.isEmpty || !reqRole.isEmpty || (targetX != nil && targetY != nil)
+
+    var queue: [(AXUIElement, Int)] = [(root, 0)]
+    var qi = 0
+    var visited = 0
+    let deadline = CFAbsoluteTimeGetCurrent() + 1.8
+    var bestEl: AXUIElement?
+    var bestScore = -1.0
+    var bestBrief: [String: Any] = [:]
+
+    while qi < queue.count && visited < maxNodes && qi < 1800 && CFAbsoluteTimeGetCurrent() < deadline {
+        let (el, depth) = queue[qi]; qi += 1
+        visited += 1
+
+        let role = axString(el, kAXRoleAttribute) ?? ""
+        let ident = axString(el, kAXIdentifierAttribute) ?? ""
+        let title = axString(el, kAXTitleAttribute) ?? ""
+        let desc = axString(el, kAXDescriptionAttribute) ?? ""
+        let rawVal = axString(el, kAXValueAttribute) ?? ""
+        let enabled = axBool(el, kAXEnabledAttribute) ?? true
+
+        if enabled && depth > 0 {
+            var score = 0.0
+            if !reqIdent.isEmpty {
+                if ident == reqIdent {
+                    score += 100.0
+                } else if !ident.isEmpty && ident.lowercased() == reqIdent.lowercased() {
+                    score += 90.0
+                }
+            }
+            if !reqTitle.isEmpty {
+                let candidates = [title.lowercased(), desc.lowercased()]
+                    + (!preferEditable && !rawVal.isEmpty && rawVal.count <= 60 ? [rawVal.lowercased()] : [])
+                if candidates.contains(where: { !$0.isEmpty && $0 == reqTitle }) {
+                    score += 70.0
+                } else if candidates.contains(where: { !$0.isEmpty && $0.contains(reqTitle) }) {
+                    score += 35.0
+                }
+            }
+            if !reqRole.isEmpty && role == reqRole {
+                score += 25.0
+            }
+            if preferEditable && editableRoles.contains(role) {
+                score += 30.0
+            }
+            if let tx = targetX, let ty = targetY,
+               let pt = axPoint(el, kAXPositionAttribute),
+               let sz = axSize(el, kAXSizeAttribute),
+               sz.width > 1, sz.height > 1 {
+                let inBounds = tx >= Double(pt.x) - 4.0 && tx <= Double(pt.x + sz.width) + 4.0
+                    && ty >= Double(pt.y) - 4.0 && ty <= Double(pt.y + sz.height) + 4.0
+                if inBounds {
+                    score += 45.0
+                } else {
+                    let cx = Double(pt.x) + Double(sz.width) / 2.0
+                    let cy = Double(pt.y) + Double(sz.height) / 2.0
+                    let dist = hypot(cx - tx, cy - ty)
+                    if dist <= 40.0 {
+                        score += 40.0
+                    } else if dist <= 120.0 {
+                        score += 18.0
+                    }
+                }
+            }
+
+            if score >= 25.0 && score > bestScore {
+                bestScore = score
+                bestEl = el
+                bestBrief = serializeAXElementBrief(el, windowBounds: windowBounds)
+            }
+        }
+
+        if depth < 12 {
+            for child in axChildren(el) {
+                queue.append((child, depth + 1))
+            }
+        }
+    }
+
+    if let found = bestEl, bestScore >= 25.0 {
+        return (found, bestScore, bestBrief)
+    }
+    if preferEditable && !hasSelector, let fallback = findInputElement(in: root, windowBounds: windowBounds) {
+        return (fallback, 25.0, serializeAXElementBrief(fallback, windowBounds: windowBounds))
+    }
+    if preferEditable, let fallback = findInputElement(in: root, windowBounds: windowBounds), reqRole.isEmpty {
+        return (fallback, 25.0, serializeAXElementBrief(fallback, windowBounds: windowBounds))
+    }
+    return nil
+}
+
+func cmdAppUseAxAction(flags: Set<String>, options: [String: String]) {
+    guard AXIsProcessTrusted() else {
+        writeJSON([
+            "ok": false,
+            "code": "ax_permission_denied",
+            "error": "Accessibility permission is required.",
+            "channel": "headless_ax",
+            "stoleFocus": false,
+            "touchedClipboard": false,
+        ])
+    }
+    let (resolvedApp, windows, _) = resolveGenericAppAndWindows(options: options, allowLaunch: false, allowActivate: false)
+    guard let app = resolvedApp else {
+        writeJSON([
+            "ok": false,
+            "code": "app_not_running",
+            "error": "Target app is not running.",
+            "channel": "headless_ax",
+            "stoleFocus": false,
+            "touchedClipboard": false,
+        ])
+    }
+    let targetWin = selectTargetWindow(in: windows, options: options)
+    let effPID = targetWin?.pid ?? app.processIdentifier
+    enableUniversalAccessibility(pid: effPID)
+    let wb = targetWin.map { CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) }
+
+    guard let axWin = findGenericAXWindow(pid: effPID, targetWin: targetWin, reqTitle: options["window-title"]) else {
+        writeJSON([
+            "ok": false,
+            "code": "ax_window_not_found",
+            "error": "Target AX window not found without activation.",
+            "channel": "headless_ax",
+            "stoleFocus": false,
+            "touchedClipboard": false,
+        ])
+    }
+    guard let match = findBestMatchingAXElement(in: axWin, windowBounds: wb, options: options, preferEditable: false) else {
+        writeJSON([
+            "ok": false,
+            "code": "ax_element_not_found",
+            "error": "No matching AX control found.",
+            "channel": "headless_ax",
+            "stoleFocus": false,
+            "touchedClipboard": false,
+        ])
+    }
+
+    let reqAction = (options["ax-action"] ?? (kAXPressAction as String)).trimmingCharacters(in: .whitespacesAndNewlines)
+    let actionName = reqAction.isEmpty ? (kAXPressAction as String) : reqAction
+
+    var actionsCF: CFArray?
+    let copyErr = AXUIElementCopyActionNames(match.element, &actionsCF)
+    let supportedActions = (copyErr == .success ? (actionsCF as? [String]) : nil) ?? []
+    if !supportedActions.isEmpty && !supportedActions.contains(actionName) {
+        writeJSON([
+            "ok": false,
+            "code": "ax_action_unsupported",
+            "error": "Matched control does not support \(actionName).",
+            "supportedActions": supportedActions,
+            "channel": "headless_ax",
+            "stoleFocus": false,
+            "touchedClipboard": false,
+            "matchedElement": match.brief,
+            "bundleID": app.bundleIdentifier ?? (options["bundle-id"] ?? ""),
+            "name": app.localizedName ?? (options["app-name"] ?? ""),
+        ])
+    }
+
+    let performErr = AXUIElementPerformAction(match.element, actionName as CFString)
+    var resp: [String: Any] = [
+        "ok": performErr == .success,
+        "channel": "headless_ax",
+        "action": actionName,
+        "axError": Int(performErr.rawValue),
+        "stoleFocus": false,
+        "touchedClipboard": false,
+        "matchedElement": match.brief,
+        "matchScore": match.score,
+        "bundleID": app.bundleIdentifier ?? (options["bundle-id"] ?? ""),
+        "name": app.localizedName ?? (options["app-name"] ?? ""),
+    ]
+    if performErr != .success {
+        resp["code"] = "ax_perform_failed"
+        resp["error"] = "AXUIElementPerformAction(\(actionName)) failed with AXError \(performErr.rawValue)"
+    }
+    if let w = targetWin {
+        resp["windowID"] = w.windowID
+        resp["windowTitle"] = w.title
+    }
+    writeJSON(resp)
+}
+
+func cmdAppUseAxSetValue(flags: Set<String>, options: [String: String]) {
+    guard AXIsProcessTrusted() else {
+        writeJSON([
+            "ok": false,
+            "code": "ax_permission_denied",
+            "error": "Accessibility permission is required.",
+            "channel": "headless_ax",
+            "stoleFocus": false,
+            "touchedClipboard": false,
+        ])
+    }
+    guard let text = options["text"] else {
+        writeJSON([
+            "ok": false,
+            "code": "missing_argument",
+            "error": "Missing --text argument.",
+            "channel": "headless_ax",
+            "stoleFocus": false,
+            "touchedClipboard": false,
+        ])
+    }
+    let (resolvedApp, windows, _) = resolveGenericAppAndWindows(options: options, allowLaunch: false, allowActivate: false)
+    guard let app = resolvedApp else {
+        writeJSON([
+            "ok": false,
+            "code": "app_not_running",
+            "error": "Target app is not running.",
+            "channel": "headless_ax",
+            "stoleFocus": false,
+            "touchedClipboard": false,
+        ])
+    }
+    let targetWin = selectTargetWindow(in: windows, options: options)
+    let effPID = targetWin?.pid ?? app.processIdentifier
+    enableUniversalAccessibility(pid: effPID)
+    let wb = targetWin.map { CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) }
+
+    guard let axWin = findGenericAXWindow(pid: effPID, targetWin: targetWin, reqTitle: options["window-title"]) else {
+        writeJSON([
+            "ok": false,
+            "code": "ax_window_not_found",
+            "error": "Target AX window not found without activation.",
+            "channel": "headless_ax",
+            "stoleFocus": false,
+            "touchedClipboard": false,
+        ])
+    }
+    guard let match = findBestMatchingAXElement(in: axWin, windowBounds: wb, options: options, preferEditable: true) else {
+        writeJSON([
+            "ok": false,
+            "code": "ax_element_not_found",
+            "error": "No editable AX element found.",
+            "channel": "headless_ax",
+            "stoleFocus": false,
+            "touchedClipboard": false,
+        ])
+    }
+
+    let wantSubmit = flags.contains("submit") || options["submit"] == "1"
+    var actionsCF: CFArray?
+    let copyErr = AXUIElementCopyActionNames(match.element, &actionsCF)
+    let supportedActions = (copyErr == .success ? (actionsCF as? [String]) : nil) ?? []
+    let supportsConfirm = supportedActions.contains(kAXConfirmAction as String)
+    if wantSubmit && !supportsConfirm {
+        writeJSON([
+            "ok": false,
+            "code": "submit_requires_hid",
+            "error": "Matched editable control does not support AXConfirm for headless submit.",
+            "supportedActions": supportedActions,
+            "channel": "headless_ax",
+            "stoleFocus": false,
+            "touchedClipboard": false,
+            "matchedElement": match.brief,
+        ])
+    }
+
+    var isSettable: DarwinBoolean = false
+    let settableErr = AXUIElementIsAttributeSettable(match.element, kAXValueAttribute as CFString, &isSettable)
+    if settableErr != .success || !isSettable.boolValue {
+        writeJSON([
+            "ok": false,
+            "code": "ax_value_not_settable",
+            "error": "AXValue attribute is not settable on matched control.",
+            "axError": Int(settableErr.rawValue),
+            "channel": "headless_ax",
+            "stoleFocus": false,
+            "touchedClipboard": false,
+            "matchedElement": match.brief,
+        ])
+    }
+
+    let finalText: String
+    if flags.contains("append") {
+        let cur = axString(match.element, kAXValueAttribute) ?? ""
+        finalText = cur + text
+    } else {
+        finalText = text
+    }
+
+    let writeErr = AXUIElementSetAttributeValue(match.element, kAXValueAttribute as CFString, finalText as CFTypeRef)
+    usleep(80_000)
+    let readback = axString(match.element, kAXValueAttribute) ?? ""
+    let stripWS: (String) -> String = { s in
+        String(s.unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) })
+    }
+    let expectedStripped = stripWS(text)
+    let verified = expectedStripped.isEmpty ? (writeErr == .success) : stripWS(readback).contains(expectedStripped)
+
+    var submitted = false
+    if wantSubmit && verified && supportsConfirm {
+        submitted = (AXUIElementPerformAction(match.element, kAXConfirmAction as CFString) == .success)
+    }
+
+    let ok = (writeErr == .success && verified)
+    var resp: [String: Any] = [
+        "ok": ok,
+        "verified": verified,
+        "submitted": submitted,
+        "channel": "headless_ax",
+        "axError": Int(writeErr.rawValue),
+        "stoleFocus": false,
+        "touchedClipboard": false,
+        "readbackSource": "ax_headless",
+        "readbackPreview": readback.count > 260 ? String(readback.prefix(260)) : readback,
+        "matchedElement": match.brief,
+        "matchScore": match.score,
+        "bundleID": app.bundleIdentifier ?? (options["bundle-id"] ?? ""),
+        "name": app.localizedName ?? (options["app-name"] ?? ""),
+    ]
+    if !ok {
+        resp["code"] = writeErr != .success ? "ax_set_value_failed" : "ax_readback_mismatch"
+        resp["error"] = writeErr != .success ? "AXUIElementSetAttributeValue(kAXValue) failed with AXError \(writeErr.rawValue)" : "Headless AX readback did not match written text."
+    }
+    if let w = targetWin {
+        resp["windowID"] = w.windowID
+        resp["windowTitle"] = w.title
+    }
+    writeJSON(resp)
+}
+
+func cmdAppUseFocusSnapshot() {
+    let front = NSWorkspace.shared.frontmostApplication
+    let hid = queryHIDIdleState()
+    let tsMs = Int64((Date().timeIntervalSince1970 * 1000.0).rounded())
+
+    guard let app = front else {
+        writeJSON([
+            "ok": true,
+            "tsMs": tsMs,
+            "bundleID": "",
+            "name": "",
+            "pid": 0,
+            "hid": hid,
+        ])
+    }
+
+    let pid = app.processIdentifier
+    let wins = listWindowsGeneric(for: [app])
+    let mainWin = wins.first
+    let winRect = mainWin.map { CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) }
+
+    var cursorRelPoint: [String: Double]? = nil
+    if let cur = hid["cursorPosition"] as? [String: Any],
+       let cx = cur["x"] as? Double,
+       let cy = cur["y"] as? Double,
+       let wr = winRect,
+       wr.width > 1, wr.height > 1,
+       wr.contains(CGPoint(x: cx, y: cy)) {
+        cursorRelPoint = [
+            "x": ((cx - Double(wr.minX)) / Double(wr.width) * 1000.0).rounded() / 1000.0,
+            "y": ((cy - Double(wr.minY)) / Double(wr.height) * 1000.0).rounded() / 1000.0,
+        ]
+    }
+
+    var focusedDict: [String: Any]? = nil
+    var cursorElDict: [String: Any]? = nil
+    if AXIsProcessTrusted() {
+        enableUniversalAccessibility(pid: pid)
+        let axApp = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(axApp, 0.2)
+        if let fRaw = axAttr(axApp, kAXFocusedUIElementAttribute) {
+            let fEl = fRaw as! AXUIElement
+            let serialized = serializeAXElementBrief(fEl, windowBounds: winRect)
+            if !serialized.isEmpty { focusedDict = serialized }
+        }
+        if let cur = hid["cursorPosition"] as? [String: Any],
+           let cx = cur["x"] as? Double,
+           let cy = cur["y"] as? Double {
+            var hitEl: AXUIElement?
+            let err = AXUIElementCopyElementAtPosition(axApp, Float(cx), Float(cy), &hitEl)
+            if err == .success, let el = hitEl {
+                let serialized = serializeAXElementBrief(el, windowBounds: winRect)
+                if !serialized.isEmpty { cursorElDict = serialized }
+            }
+        }
+    }
+
+    var resp: [String: Any] = [
+        "ok": true,
+        "tsMs": tsMs,
+        "bundleID": app.bundleIdentifier ?? "",
+        "name": app.localizedName ?? "",
+        "pid": Int(pid),
+        "appPath": app.bundleURL?.path ?? "",
+        "windowCount": wins.count,
+        "hid": hid,
+    ]
+    if let mw = mainWin { resp["window"] = mw.toDict() }
+    if let crp = cursorRelPoint { resp["cursorRelPoint"] = crp }
+    if let fd = focusedDict { resp["focusedElement"] = fd }
+    if let ced = cursorElDict { resp["elementUnderCursor"] = ced }
+    writeJSON(resp)
+}
+
 // MARK: - Main Dispatch
 
 let parsed = parseArgs()
 switch parsed.command {
 case "status":
     cmdStatus(flags: parsed.flags, options: parsed.options)
+case "list-mac-apps":
+    cmdListMacApps(flags: parsed.flags, options: parsed.options)
+case "app-use-activate":
+    cmdAppUseActivate(flags: parsed.flags, options: parsed.options)
+case "app-use-inspect":
+    cmdAppUseInspect(flags: parsed.flags, options: parsed.options)
+case "app-use-paste":
+    cmdAppUsePaste(flags: parsed.flags, options: parsed.options)
+case "app-use-ax-action":
+    cmdAppUseAxAction(flags: parsed.flags, options: parsed.options)
+case "app-use-ax-set-value":
+    cmdAppUseAxSetValue(flags: parsed.flags, options: parsed.options)
+case "app-use-focus-snapshot":
+    cmdAppUseFocusSnapshot()
+case "press-key":
+    cmdPressKey(flags: parsed.flags, options: parsed.options)
 case "list-app-windows":
     cmdListAppWindows(flags: parsed.flags, options: parsed.options)
 case "dhash-windows":
@@ -4509,6 +6038,6 @@ case "voice-call":
 default:
     writeJSON([
         "ok": true,
-        "usage": "wechat-vision-ax <status|list-app-windows|dhash-windows|hid-idle|ax-tree|ocr|capture-ocr|set-window-frame|extract-pdf-text|extract-video-frames|render-test-image|click|right-click|scroll|activate|request-permissions|focus-input|paste-and-verify|send-sticker|paste-image|annotate-image|join-tencent-meeting|setup-tencent-meeting|audio-devices|set-input-device|voice-call> [options]",
+        "usage": "wechat-vision-ax <status|list-mac-apps|app-use-activate|app-use-inspect|app-use-paste|app-use-ax-action|app-use-ax-set-value|app-use-focus-snapshot|press-key|list-app-windows|dhash-windows|hid-idle|ax-tree|ocr|capture-ocr|set-window-frame|extract-pdf-text|extract-video-frames|render-test-image|click|right-click|scroll|activate|request-permissions|focus-input|paste-and-verify|send-sticker|paste-image|annotate-image|join-tencent-meeting|setup-tencent-meeting|audio-devices|set-input-device|voice-call> [options]",
     ])
 }

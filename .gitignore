@@ -1,5 +1,10 @@
 __pycache__/
 *.py[cod]
+dist/
+bin/wechat-studio-app
+bin/wechat-vision-ax
+config/
+config.bak-*/
 logs/
 exports/
 config/*.json

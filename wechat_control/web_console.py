@@ -234,7 +234,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       border-radius: 8px;
     }
 
-    input[type="text"], input[type="search"], input[type="password"], input[type="url"], select, textarea {
+    input[type="text"], input[type="search"], input[type="password"], input[type="url"], input[type="number"], select, textarea, .input {
       font-family: var(--font);
       font-size: 13px;
       background: var(--surface-soft);
@@ -245,6 +245,110 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       width: 100%;
     }
     textarea { resize: vertical; min-height: 76px; }
+
+    /* Omni Multi-Channel Checklist & Auth Cards */
+    .omni-sys-strip {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    @media (max-width: 780px) { .omni-sys-strip { grid-template-columns: 1fr; } }
+    .omni-sys-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 13px;
+      border-radius: 12px;
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      font-size: 12.5px;
+    }
+    .omni-sys-item.is-ready { border-color: rgba(7, 193, 96, 0.35); background: var(--primary-soft); }
+    .omni-sys-item.is-todo { border-color: rgba(217, 119, 6, 0.38); background: var(--vip-soft); }
+
+    .omni-channel-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+    @media (max-width: 1080px) { .omni-channel-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 680px) { .omni-channel-grid { grid-template-columns: 1fr; } }
+    .omni-ch-card {
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-top-width: 3px;
+      border-radius: 14px;
+      padding: 13px 14px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 10px;
+      cursor: pointer;
+      transition: box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+    .omni-ch-card.status-ready { border-top-color: var(--primary); }
+    .omni-ch-card.status-scan_qr, .omni-ch-card.status-need_launch { border-top-color: var(--vip); }
+    .omni-ch-card.status-need_install { border-top-color: var(--accent); }
+    .omni-ch-card.is-selected { box-shadow: 0 0 0 2px var(--accent-soft), var(--shadow-md); }
+    .omni-ch-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+    .omni-ch-summary { font-size: 12px; color:var(--text-secondary); line-height: 1.5; }
+    .omni-ch-actions { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
+
+    /* Universal App-Use & Any-Agent SOP Studio (#tab-appuse) */
+    .appuse-app-strip {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 10px;
+      max-height: 220px;
+      overflow-y: auto;
+      padding: 2px;
+    }
+    .appuse-app-card {
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px 11px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      text-align: left;
+    }
+    .appuse-app-card:hover { border-color: var(--primary); }
+    .appuse-app-card.is-selected {
+      border-color: var(--primary);
+      background: var(--primary-soft);
+    }
+    .appuse-step-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 360px;
+      overflow-y: auto;
+    }
+    .appuse-step-card {
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px 11px;
+      font-size: 12.5px;
+    }
+    .appuse-sop-pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+      font-size: 12.5px;
+      line-height: 1.6;
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      max-height: 360px;
+      overflow-y: auto;
+      margin: 0;
+    }
 
     /* Magpie Multi-Provider & Model Grid */
     .provider-grid {
@@ -1835,6 +1939,11 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       font-size: 11.5px;
       line-height: 1.3;
     }
+    .watch-chip.is-paused {
+      border-color: var(--border);
+      background: var(--surface-soft);
+      color: var(--text-muted);
+    }
     .watch-chip-name {
       background: transparent !important;
       border: 0 !important;
@@ -2687,6 +2796,8 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       <button type="button" class="tab-btn" data-tab="care" onclick="switchTab('care')">联系人</button>
       <button type="button" class="tab-btn" data-tab="knowledge" onclick="switchTab('knowledge')">知识库</button>
       <button type="button" class="tab-btn" data-tab="salescrm" onclick="switchTab('salescrm')">客户跟进</button>
+      <button type="button" class="tab-btn" data-tab="omni" onclick="switchTab('omni')">全渠道矩阵</button>
+      <button type="button" class="tab-btn" data-tab="appuse" onclick="switchTab('appuse')">App-Use 流程工厂</button>
       <details class="nav-more" id="navMore">
         <summary>更多 ▾</summary>
         <div class="nav-more-list">
@@ -3039,7 +3150,10 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
           <details class="chat-thread-list" id="conversationThreads" open>
             <summary class="thread-summary-row">
               <span>最近会话 <span id="conversationCount" class="conversation-count"></span></span>
-              <button type="button" id="threadListPlusBtn" class="thread-plus-btn" onclick="event.preventDefault(); event.stopPropagation(); toggleSidebarWatchDrawer(true)" title="添加关注/监视好友（对方发消息时自动回复）" aria-label="添加关注或监视好友">＋</button>
+              <span style="display:inline-flex; align-items:center; gap:5px;">
+                <button type="button" id="refreshAvatarsBtn" class="btn-outline sm" style="padding:1px 7px; font-size:11px; line-height:1.4; min-height:22px;" onclick="event.preventDefault(); event.stopPropagation(); refreshSidebarAvatars()" title="实时扫描微信/企微窗口并批量更新左侧联系人头像">🖼️ 更新头像</button>
+                <button type="button" id="threadListPlusBtn" class="thread-plus-btn" onclick="event.preventDefault(); event.stopPropagation(); toggleSidebarWatchDrawer(true)" title="添加关注/监视好友（对方发消息时自动回复）" aria-label="添加关注或监视好友">＋</button>
+              </span>
             </summary>
             <div id="monitorEventsList"><p class="home-empty">正在读取最近会话…</p></div>
           </details>
@@ -4071,12 +4185,333 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         </div>
       </div>
     </section>
+
+    <section id="tab-omni" class="tab-panel">
+      <div class="panel-card">
+        <div class="section-header">
+          <div>
+            <div class="section-title">全渠道扫码与授权总览（挨个点击按钮授权 / 扫码 · 飞书 → 钉钉 / 小红书 → 抖音 · 微信 / 企微）</div>
+            <div class="section-desc" id="omniStatusBadge">正在检查各渠道登录状态与系统权限，标橙卡片点击即可在最前端弹出对应扫码窗口…</div>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" class="btn-solid sm" onclick="loadOmniChannels(true)">🔍 一键检测全部登录态</button>
+            <button type="button" class="btn-outline sm" onclick="loadOmniChannels(false)">🔄 刷新状态</button>
+            <button type="button" class="btn-outline sm" onclick="omniFinishBrowser()">🧹 关闭网页扫码页</button>
+          </div>
+        </div>
+        <div id="omniSysAuthStrip" class="omni-sys-strip"></div>
+        <div id="omniCardsGrid" class="omni-channel-grid"></div>
+      </div>
+
+      <div class="grid-2">
+        <div class="panel-card">
+          <div class="section-header">
+            <div>
+              <div class="section-title">🎯 渠道工作台（按优先级：飞书 → 钉钉 → 小红书 → 抖音）</div>
+              <div class="section-desc">桌面端使用 AX+OCR；Web/社交渠道经 ego-browser + xhs-publisher 防封审计</div>
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+            <div>
+              <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:4px;">目标渠道</label>
+              <select id="omniChannelSelect" class="input" onchange="omniSelectChannel(this.value)">
+                <option value="feishu" selected>1 · 飞书 (Feishu / Lark)</option>
+                <option value="dingtalk">2 · 钉钉 (DingTalk)</option>
+                <option value="xiaohongshu">3 · 小红书 (Xiaohongshu)</option>
+                <option value="douyin">4 · 抖音 (Douyin)</option>
+                <option value="wechat">5 · 微信 (WeChat)</option>
+                <option value="wecom">6 · 企业微信 (WeCom)</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:4px;">发送通道模式</label>
+              <select id="omniModeSelect" class="input">
+                <option value="auto" selected>智能选路 (Auto)</option>
+                <option value="rpa">桌面 RPA (AX + Vision)</option>
+                <option value="web">网页 RPA (ego-browser)</option>
+                <option value="webhook">开源加签机器人 Webhook</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:4px;">目标会话 / 用户 / 帖子</label>
+              <input id="omniTargetInput" type="text" class="input" placeholder="会话名 / 群名 / 评论用户（可选）" />
+            </div>
+            <div>
+              <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:4px;">检索关键词（小红书 / 抖音获客）</label>
+              <input id="omniQueryInput" type="text" class="input" placeholder="如：AI工作流 / 私有化部署" />
+            </div>
+          </div>
+          <div style="margin-bottom:10px;">
+            <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:4px;">拟发送 / 回复内容（默认 Dry-Run 防封合规演练，XHS/抖音自动去 AI 味与导流词）</label>
+            <textarea id="omniReplyInput" class="input" rows="2" placeholder="输入回复文案；点击演练会验证输入框贴入与防封改写结果，不会直接发送..."></textarea>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+            <button type="button" class="btn-solid sm" onclick="omniProbeChannel(true)">🚀 探测 / 核验登录态</button>
+            <button type="button" class="btn-outline sm" onclick="omniInspectSessions('sessions')">📋 读取会话 / 互动</button>
+            <button type="button" class="btn-outline sm" onclick="omniInspectSessions('messages')">💬 读取当前消息</button>
+            <button type="button" class="btn-outline sm" onclick="omniExtractLeads(true)">🧲 识别高意向线索入 CRM</button>
+            <button type="button" class="btn-outline sm" onclick="omniSendReply(true)">🧪 Dry-Run 合规演练</button>
+            <button type="button" class="btn-outline sm" style="color:var(--danger); border-color:rgba(220,38,38,0.35);" onclick="omniSendReply(false)">📤 确认实发</button>
+          </div>
+          <div id="omniActionResultBox" style="font-size:12.5px; color:var(--text-secondary); background:var(--surface-soft); border:1px solid var(--border); border-radius:12px; padding:12px; max-height:290px; overflow:auto;">选择上方任意渠道并点击授权/扫码按钮，或在此直接探测会话与演练回复。</div>
+        </div>
+
+        <div class="panel-card">
+          <div class="section-header">
+            <div>
+              <div class="section-title">🧩 开源方案连接器与 Webhook / Stream 配置</div>
+              <div class="section-desc">对应 lark-oapi / lark-mcp / dingtalk-stream / xiaohongshu-mcp / ChatGPT-On-CS</div>
+            </div>
+          </div>
+          <div id="omniOpenSourceList" style="margin-bottom:12px; font-size:12.5px; color:var(--text-secondary);"></div>
+          <details id="omniCredDetails" style="border:1px solid var(--border); border-radius:10px; padding:10px; background:var(--surface-soft);">
+            <summary style="cursor:pointer; font-weight:600; font-size:13px;">⚙️ 配置飞书 / 钉钉开源机器人凭据（本机 0600 加密权限落盘）</summary>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px;">
+              <div>
+                <label style="font-size:11.5px; color:var(--text-muted); display:block; margin-bottom:3px;">飞书自定义机器人 Webhook URL</label>
+                <input id="omniFeishuWebhook" type="url" class="input" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..." />
+              </div>
+              <div>
+                <label style="font-size:11.5px; color:var(--text-muted); display:block; margin-bottom:3px;">飞书签名 Secret（可选）</label>
+                <input id="omniFeishuSecret" type="password" class="input" placeholder="SEC..." />
+              </div>
+              <div>
+                <label style="font-size:11.5px; color:var(--text-muted); display:block; margin-bottom:3px;">飞书应用 App ID</label>
+                <input id="omniFeishuAppId" type="text" class="input" placeholder="cli_..." />
+              </div>
+              <div>
+                <label style="font-size:11.5px; color:var(--text-muted); display:block; margin-bottom:3px;">飞书应用 App Secret</label>
+                <input id="omniFeishuAppSecret" type="password" class="input" placeholder="留空表示不修改" />
+              </div>
+              <div>
+                <label style="font-size:11.5px; color:var(--text-muted); display:block; margin-bottom:3px;">钉钉机器人 Webhook URL</label>
+                <input id="omniDingWebhook" type="url" class="input" placeholder="https://oapi.dingtalk.com/robot/send?access_token=..." />
+              </div>
+              <div>
+                <label style="font-size:11.5px; color:var(--text-muted); display:block; margin-bottom:3px;">钉钉加签 Secret（可选）</label>
+                <input id="omniDingSecret" type="password" class="input" placeholder="SEC..." />
+              </div>
+            </div>
+            <div style="margin-top:10px;">
+              <button type="button" class="btn-solid sm" onclick="omniSaveConfig()">💾 保存连接器配置</button>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-appuse" class="tab-panel">
+      <div class="panel-card">
+        <div class="section-header">
+          <div>
+            <div class="section-title">🤖 通用 App-Use · 任意 Agent 自动建立操作流程与 SOP</div>
+            <div class="section-desc" id="appuseStatusDesc">选择任意本机 App（含普通应用与 ChatGPT / 豆包 / Gemini / Bot Studio 等 Agent 应用），探测界面 AX+OCR 并由任意 Agent 自动生成 SOP 与可执行 RPA 工作流。</div>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" class="filter-pill active" id="appuseFilterAll" onclick="setAppUseCategory('all', this)">全部应用</button>
+            <button type="button" class="filter-pill" id="appuseFilterAgent" onclick="setAppUseCategory('agent_app', this)">🤖 仅 Agent 应用</button>
+            <button type="button" class="filter-pill" id="appuseFilterProd" onclick="setAppUseCategory('productivity', this)">🧰 系统/办公应用</button>
+            <button type="button" class="filter-pill" id="appuseFilterRun" onclick="toggleAppUseRunningOnly(this)">🟢 仅运行中</button>
+            <button type="button" class="btn-outline sm" onclick="loadAppUseStudio(true)">🔄 刷新应用与 Agent</button>
+          </div>
+        </div>
+        <div id="appuseAppGrid" class="appuse-app-strip"></div>
+      </div>
+
+      <div class="grid-2">
+        <div class="panel-card">
+          <div class="section-header">
+            <div>
+              <div class="section-title">1 · 选择目标 App 与任意构建 Agent</div>
+              <div class="section-desc">支持普通应用自动化与对 Agent App 建模（提问 → 等流式输出稳定 → 提取结果）</div>
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+            <div>
+              <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:4px;">目标 macOS 应用</label>
+              <select id="appuseAppSelect" class="input" onchange="onAppUseSelectChange()"></select>
+            </div>
+            <div>
+              <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:4px;">构建 SOP 的 Agent / 模型</label>
+              <select id="appuseAgentSelect" class="input"></select>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:10px; font-size:12.5px;">
+            <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer;">
+              <input id="appuseLaunchChk" type="checkbox" checked />
+              <span>目标应用未运行时自动拉起</span>
+            </label>
+            <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer;">
+              <input id="appuseAttachShotChk" type="checkbox" />
+              <span>附带窗口截屏传给视觉 Agent</span>
+            </label>
+            <button type="button" class="btn-outline sm" onclick="appuseInspectSelected()">🔍 扫描界面结构 (AX + Vision OCR)</button>
+          </div>
+          <div id="appuseInspectSummary" style="font-size:12px; color:var(--text-secondary); background:var(--surface-soft); border:1px solid var(--border); border-radius:10px; padding:8px 10px; margin-bottom:10px;">
+            尚未扫描目标界面；生成 SOP 时也会按需自动扫描。
+          </div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
+            <span id="appuseArchetypeBadge" class="pill">Archetype：待探测</span>
+            <span id="appuseReadinessBadge" class="pill">就绪度：待评估</span>
+            <span id="appuseRiskBadge" class="pill">风控策略：待识别</span>
+          </div>
+          <div style="margin-bottom:8px;">
+            <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:4px;">希望自动建立的操作流程与 SOP 目标</label>
+            <textarea id="appuseGoalInput" class="input" rows="2" placeholder="例如：打开计算器清空后输入 125*8 并回车回读结果；或对豆包/ChatGPT 建立提问并等待流式回答稳定的 SOP..."></textarea>
+          </div>
+          <div class="kb-chip-row" style="margin-bottom:10px;">
+            <button type="button" class="kb-chip" onclick="fillAppUseExample('calc')">🧮 Calculator 计算并回读结果</button>
+            <button type="button" class="kb-chip" onclick="fillAppUseExample('textedit')">📝 TextEdit 新建文档写纪要</button>
+            <button type="button" class="kb-chip" onclick="fillAppUseExample('agent_app')">🤖 Agent App 提问→等回复→提取 SOP</button>
+          </div>
+          <details style="margin-bottom:10px;">
+            <summary style="cursor:pointer; font-size:12px; color:var(--text-muted);">可选：自定义构建 Agent 额外提示词 / 约束</summary>
+            <textarea id="appuseCustomPromptInput" class="input" rows="2" style="margin-top:6px;" placeholder="例如：每步操作之间必须验证回读，涉及外部发送必须加 pause_for_human 门禁..."></textarea>
+          </details>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" class="btn-solid sm" id="appuseGeneralizeBtn" onclick="appuseGeneralizeNewApp()">🚀 一键泛化未知新 App → 生成 Skill</button>
+            <button type="button" class="btn-outline sm" id="appuseBuildBtn" onclick="appuseBuildSOP()">✨ 选定 Agent 自动生成 SOP 与可执行 RPA 流程</button>
+            <button type="button" class="btn-outline sm" id="appuseWatchParallelBtn" onclick="appuseWatchRunningParallel()">🔀 多窗口并行监控快照</button>
+            <button type="button" class="btn-outline sm" id="appuseInstallMetaSkillBtn" onclick="appuseInstallMetaSkill()">🧩 安装全局 Meta Skill (app-use-meta-builder)</button>
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <div class="section-header">
+            <div>
+              <div class="section-title">2 · 生成结果：可执行步骤、SOP 文档与安全执行</div>
+              <div class="section-desc" id="appuseCurrentWfMeta">生成或加载一条流程后，可在此演练、实机运行或沉淀入库</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+            <button type="button" class="btn-outline sm" onclick="appuseRunCurrent(true)">🧪 Dry-Run 安全演练</button>
+            <button type="button" class="btn-outline sm" id="appuseLiveRunBtn" style="color:var(--danger); border-color:rgba(220,38,38,0.35);" onclick="appuseLiveRunStepClick()">▶️ 实机执行流程</button>
+            <button type="button" class="btn-outline sm" onclick="appuseExportToKB()">📚 沉淀 SOP 到知识库</button>
+            <button type="button" class="btn-outline sm" onclick="appuseExportSkill()">📦 导出为 Agent Skill</button>
+            <button type="button" class="btn-outline sm" onclick="appuseRollbackCurrent()">↩️ 回滚版本</button>
+          </div>
+          <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:10px; font-size:12px; color:var(--text-secondary);">
+            <label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer;">
+              <input id="appuseSelfHealChk" type="checkbox" checked />
+              <span>🔧 运行时自愈重试</span>
+            </label>
+            <label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer;">
+              <input id="appuseAutoPatchChk" type="checkbox" />
+              <span>自愈成功后自动升级流程版本</span>
+            </label>
+            <label style="display:inline-flex; align-items:center; gap:6px;">
+              <span>执行通道：</span>
+              <select id="appuseDispatchModeSelect" class="input" style="width:auto; min-width:210px; font-size:12px; padding:4px 8px;">
+                <option value="auto">auto（智能风控双通道 · 推荐）</option>
+                <option value="headless_ax_first">headless_ax_first（无焦点 AX 直调优先）</option>
+                <option value="foreground_hid_only">foreground_hid_only（强制前台真实键鼠）</option>
+              </select>
+            </label>
+          </div>
+          <div style="margin-bottom:10px;">
+            <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:4px;">运行时参数覆盖 JSON（如 <code>{"prompt":"..."}</code> / <code>{"expression":"1,2,5,*,8,return"}</code>）</label>
+            <input id="appuseRunParamsInput" type="text" class="input" value="{}" placeholder='{"prompt":"总结今天的工作重点"}' />
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <div>
+              <div style="font-size:12px; font-weight:600; margin-bottom:6px;">可执行 RPA 步骤列表</div>
+              <div id="appuseStepsBox" class="appuse-step-list">
+                <div style="font-size:12px; color:var(--text-muted);">等待生成流程…</div>
+              </div>
+            </div>
+            <div>
+              <div style="font-size:12px; font-weight:600; margin-bottom:6px;">生成的标准 SOP 文档 (Markdown)</div>
+              <pre id="appuseSopPreview" class="appuse-sop-pre">等待 Agent 生成 SOP…</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="panel-card">
+          <div class="section-header">
+            <div>
+              <div class="section-title">3 · 运行回执与界面实时回读日志</div>
+              <div class="section-desc">每步坐标解析方式、耗时、AX/OCR 回读内容与截图存证路径</div>
+            </div>
+          </div>
+          <pre id="appuseRunReceiptBox" class="appuse-sop-pre" style="max-height:260px;">尚未执行或演练流程。</pre>
+        </div>
+
+        <div class="panel-card">
+          <div class="section-header">
+            <div>
+              <div class="section-title">4 · 已保存的 App-Use SOP 与流程库</div>
+              <div class="section-desc">支持跨普通应用与 Agent 应用一键复用、演练与删除</div>
+            </div>
+          </div>
+          <div id="appuseSavedList" style="display:flex; flex-direction:column; gap:8px; max-height:260px; overflow-y:auto;"></div>
+        </div>
+      </div>
+
+      <div class="grid-2" style="margin-top:14px;">
+        <div class="panel-card">
+          <div class="section-header">
+            <div>
+              <div class="section-title">5 · 🧭 自主探索 (Observe→Think→Act) &amp; 🎬 示范录制转 SOP</div>
+              <div class="section-desc">多轮动态试探并编译流程，或录制真人鼠标/键盘示范自动提炼参数化 SOP</div>
+            </div>
+          </div>
+          <div style="padding:10px; border:1px solid var(--border); border-radius:10px; background:var(--surface-soft); margin-bottom:10px;">
+            <div style="font-size:12px; font-weight:600; margin-bottom:6px;">🧭 自主探索模式（结合上方目标应用、需求描述与构建 Agent）</div>
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <label style="font-size:12px; color:var(--text-muted); display:inline-flex; align-items:center; gap:5px;">
+                最大探索轮次
+                <input id="appuseExploreTurns" type="number" min="1" max="10" value="4" class="input" style="width:68px; padding:4px 8px;" />
+              </label>
+              <button type="button" class="btn-outline sm" id="appuseExploreDryBtn" onclick="appuseExplore(true)">🧪 Dry-Run 探索</button>
+              <button type="button" class="btn-outline sm" id="appuseExploreLiveBtn" style="color:var(--danger); border-color:rgba(220,38,38,0.35);" onclick="appuseExploreLiveClick()">🚀 实机自主探索</button>
+            </div>
+          </div>
+          <div style="padding:10px; border:1px solid var(--border); border-radius:10px; background:var(--surface-soft);">
+            <div style="font-size:12px; font-weight:600; margin-bottom:6px;">🎬 人类示范录制 → 自动编译 SOP（只读采集前台切换/AX焦点）</div>
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
+              <button type="button" class="btn-outline sm" id="appuseRecStartBtn" onclick="appuseStartRecording()">🔴 开始示范录制</button>
+              <button type="button" class="btn-solid sm" id="appuseRecStopBtn" onclick="appuseStopRecording()">⏹ 停止并编译 SOP</button>
+            </div>
+            <div id="appuseRecStatus" style="font-size:12px; color:var(--text-secondary);">录制器空闲 · 点击「开始示范录制」后去目标 App 操作，再回来点停止编译。</div>
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <div class="section-header">
+            <div>
+              <div class="section-title">6 · 🔗 跨应用流水线 (Cross-App Pipelines) &amp; 📸 运行历史存证</div>
+              <div class="section-desc">把前一个 App 采集到的 <code>captureAs</code> 变量自动注入后续 App，附截图缩略图审计</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
+            <button type="button" class="kb-chip" onclick="appuseLoadCalcTextEditPreset()">🧮 计算器算值 → 📝 文本编辑出报告</button>
+            <button type="button" class="btn-outline sm" onclick="appuseSavePipeline()">💾 保存流水线</button>
+            <button type="button" class="btn-outline sm" onclick="appuseRunPipeline(true)">🧪 演练流水线</button>
+            <button type="button" class="btn-outline sm" id="appusePipelineLiveBtn" style="color:var(--danger); border-color:rgba(220,38,38,0.35);" onclick="appuseRunPipelineLiveClick()">▶️ 实机联跑流水线</button>
+          </div>
+          <textarea id="appusePipelineJson" class="input" rows="4" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11.5px; margin-bottom:8px;" placeholder='点上方预设或粘贴 {"name":"...", "stages":[...]} 流水线 JSON'></textarea>
+          <div id="appusePipelinesList" style="display:flex; flex-direction:column; gap:6px; max-height:110px; overflow-y:auto; margin-bottom:10px;"></div>
+          <div style="font-size:12px; font-weight:600; margin-bottom:5px;">📸 最近运行历史与截图存证</div>
+          <div id="appuseRunsList" style="display:flex; flex-direction:column; gap:6px; max-height:140px; overflow-y:auto; margin-bottom:10px;"></div>
+          <div style="font-size:12px; font-weight:600; margin-bottom:5px;">🗺️ App UI 状态图谱 (跨运行沉淀)</div>
+          <div id="appuseStateGraphBox" style="display:flex; flex-direction:column; gap:5px; max-height:120px; overflow-y:auto; margin-bottom:10px;"></div>
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:5px;">
+            <span style="font-size:12px; font-weight:600;">🧵 多窗口并发泳道 &amp; 风控调度监控</span>
+            <button type="button" class="btn-outline sm" onclick="appuseRefreshConcurrencyStatus()">🔄 刷新泳道</button>
+          </div>
+          <div id="appuseConcurrencyBox" style="display:flex; flex-direction:column; gap:6px; max-height:170px; overflow-y:auto;"></div>
+        </div>
+      </div>
+    </section>
   </div>
 
   <div id="toast" class="toast"></div>
 
   <script>
     let STATE = null;
+    let AVATAR_CACHE_BUST = 0;
     let ACTIVE_TAB = "monitor";
     let CONTACT_FILTER = "all";
     let CONTACT_DETAIL = null;
@@ -4141,6 +4576,8 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       const more = document.querySelector(".nav-more");
       if (more) more.open = false;
       if (tab === "stats") loadBackgroundObservation();
+      if (tab === "omni") loadOmniChannels(false);
+      if (tab === "appuse") loadAppUseStudio(false);
     }
 
     function contactKey(profile) {
@@ -4349,6 +4786,15 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       }
     }
 
+    function isHostingActive() {
+      const hh = HOSTING_STATE?.hosting;
+      const sh = STATE?.hosting;
+      const h = (hh && (hh.running !== undefined || hh.enabled !== undefined))
+        ? hh
+        : (sh && (sh.running !== undefined || sh.enabled !== undefined) ? sh : (hh || sh || {}));
+      return Boolean(h.running || h.enabled);
+    }
+
     function renderSidebarWatchPanel() {
       const chipsBox = document.getElementById("sidebarWatchedChips");
       const badge = document.getElementById("watchedCountBadge");
@@ -4361,9 +4807,13 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       if (!watched.length) {
         chipsBox.innerHTML = `<span class="home-empty" style="padding:2px 0; font-size:11.5px;">暂无关注好友，点右上角「＋ 关注」添加</span>`;
       } else {
+        const active = isHostingActive();
+        const chipClass = active ? "watch-chip" : "watch-chip is-paused";
+        const dot = active ? "🟢" : "⚪";
+        const chipStatusHint = active ? "对方发消息将自动回复" : "已关注（托管已停止，开启后自动回复）";
         chipsBox.innerHTML = watched.map((t) => {
           const enc = encArg(t);
-          return `<span class="watch-chip" title="${escapeHtml(t)} · 对方发消息将自动回复"><button type="button" class="watch-chip-name" onclick="selectChatThread('${enc}', '')">🟢 ${escapeHtml(t)}</button><button type="button" class="watch-chip-remove" onclick="event.stopPropagation(); openWatchedPopoutWindows(['${enc}'])" title="弹出 ${escapeHtml(t)} 独立聊天小窗" aria-label="弹出 ${escapeHtml(t)} 独立小窗">🪟</button><button type="button" class="watch-chip-remove" onclick="event.stopPropagation(); unwatchContact('${enc}')" title="取消关注 ${escapeHtml(t)}" aria-label="取消关注 ${escapeHtml(t)}">×</button></span>`;
+          return `<span class="${chipClass}" title="${escapeHtml(t)} · ${chipStatusHint}"><button type="button" class="watch-chip-name" onclick="selectChatThread('${enc}', '')">${dot} ${escapeHtml(t)}</button><button type="button" class="watch-chip-remove" onclick="event.stopPropagation(); openWatchedPopoutWindows(['${enc}'])" title="弹出 ${escapeHtml(t)} 独立聊天小窗" aria-label="弹出 ${escapeHtml(t)} 独立小窗">🪟</button><button type="button" class="watch-chip-remove" onclick="event.stopPropagation(); unwatchContact('${enc}')" title="取消关注 ${escapeHtml(t)}" aria-label="取消关注 ${escapeHtml(t)}">×</button></span>`;
         }).join("");
       }
 
@@ -4734,9 +5184,16 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
           body: JSON.stringify({ action: enable ? "enable" : "disable", targets, disable_replies: !enable }),
         });
         if (status !== 200 || !data.ok) throw new Error(data.error || "操作失败");
-        if (data.hosting) HOSTING_STATE.hosting = data.hosting;
+        if (data.hosting) {
+          HOSTING_STATE.hosting = data.hosting;
+        } else if (!enable) {
+          HOSTING_STATE.hosting = { ...(HOSTING_STATE.hosting || {}), running: false, enabled: false };
+        }
         HOSTING_STATE.dirty = false;
         HOSTING_STATE.checked = enable ? new Set(targets) : new Set();
+        renderHosting();
+        renderSidebarWatchPanel();
+        renderMonitorEvents();
         showToast(enable
           ? "已开启托管：" + targets.length + " 位好友 · 机器人真发送回复"
           : "已停止托管" + (targets.length ? "，并关闭所选好友的自动回复" : ""));
@@ -5737,15 +6194,75 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
 
     function avatarUrlFor(target) {
       const avatars = STATE?.avatars || {};
+      const versions = STATE?.avatarVersions || {};
       const key = String(target || "").trim();
       if (!key) return "";
-      if (avatars[key]) return avatars[key];
-      const lower = key.toLowerCase();
-      if (avatars[lower]) return avatars[lower];
-      for (const [k, v] of Object.entries(avatars)) {
-        if (k.toLowerCase() === lower) return v;
+      let url = "";
+      let matchedKey = "";
+      if (avatars[key]) {
+        url = avatars[key];
+        matchedKey = key;
+      } else {
+        const lower = key.toLowerCase();
+        if (avatars[lower]) {
+          url = avatars[lower];
+          matchedKey = lower;
+        } else {
+          for (const [k, v] of Object.entries(avatars)) {
+            if (k.toLowerCase() === lower) {
+              url = v;
+              matchedKey = k;
+              break;
+            }
+          }
+        }
       }
-      return "";
+      if (!url) return "";
+      const ver = Number(versions[matchedKey] || versions[key] || versions[key.toLowerCase()] || AVATAR_CACHE_BUST || 0);
+      if (ver > 0) {
+        return url + (url.includes("?") ? "&" : "?") + "v=" + encodeURIComponent(String(ver));
+      }
+      return url;
+    }
+
+    async function refreshSidebarAvatars() {
+      const btn = document.getElementById("refreshAvatarsBtn");
+      const prevText = btn ? btn.textContent : "🖼️ 更新头像";
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "⏳ 更新中…";
+      }
+      try {
+        const { status, data } = await apiJson("/api/avatars/refresh", {
+          method: "POST",
+          body: JSON.stringify({ capture_fresh: true }),
+        });
+        if (status !== 200 || !data?.ok) {
+          throw new Error(data?.error || "刷新头像失败");
+        }
+        AVATAR_CACHE_BUST = Date.now();
+        if (!STATE) STATE = {};
+        if (data.avatars) STATE.avatars = data.avatars;
+        if (data.avatarVersions) STATE.avatarVersions = data.avatarVersions;
+        renderMonitorEvents();
+        if (typeof currentTarget !== "undefined" && currentTarget) renderChatStream(currentTarget);
+        if (typeof renderContacts === "function") renderContacts();
+        await loadOverview();
+        const upd = Number(data.updatedCount || 0);
+        const miss = Array.isArray(data.missingTargets) ? data.missingTargets.length : 0;
+        if (upd > 0) {
+          showToast(`已更新 ${upd} 位联系人头像${miss ? "（" + miss + " 位未在当前会话列表截图中）" : ""}`);
+        } else {
+          showToast(`已完成扫描（本地共 ${Object.keys(data.avatars || {}).length} 枚头像；如需采集新头像请将微信/企微主窗口保持可见）`);
+        }
+      } catch (err) {
+        showToast("更新头像失败: " + (err?.message || err));
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = prevText;
+        }
+      }
     }
 
     // 微信式气泡流：渲染当前会话的往来记录（peer 左 / self 右 / 时间居中 / OCR 低置信标注）
@@ -5911,12 +6428,13 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         }
         conversations.get(target).title = profile.matchedTitle || target;
       }
+      const hostingActive = isHostingActive();
       for (const wt of getWatchedTargets()) {
         const target = String(wt || "").trim();
         if (!target) continue;
         const exists = [...conversations.keys()].some((k) => k.toLowerCase() === target.toLowerCase());
         if (!exists) {
-          conversations.set(target, {title: target, incoming: "", time: "关注中", sortTs: 0, isWatchedOnly: true});
+          conversations.set(target, {title: target, incoming: "", time: hostingActive ? "关注中" : "已停止", sortTs: 0, isWatchedOnly: true});
         }
       }
       // 历史来信兜底：事件流里没有 incomingText 的会话，从联系人历史（含导入+实时回写）取最近一条客户来信
@@ -5975,8 +6493,14 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
           ? `<img class="chat-avatar" src="${escapeHtml(avatarUrl)}" alt="" onerror="this.style.display='none'">`
           : "";
         const isWatched = watchedSet.has(target.toLowerCase());
-        const watchBadge = isWatched ? `<span class="pill ok" style="font-size:10.5px; padding:1px 6px;">🟢 监视中</span>` : "";
-        const fallbackSnippet = isWatched ? "已关注监视 · 对方发消息将自动回复" : "暂无来信 · 对方发消息后会自动记录";
+        const watchBadge = isWatched
+          ? (hostingActive
+              ? `<span class="pill ok" style="font-size:10.5px; padding:1px 6px;">🟢 监视中</span>`
+              : `<span class="pill" style="font-size:10.5px; padding:1px 6px; color:var(--text-muted); background:var(--surface-soft); border-color:var(--border);">⏸ 已停止</span>`)
+          : "";
+        const fallbackSnippet = isWatched
+          ? (hostingActive ? "已关注监视 · 对方发消息将自动回复" : "已关注（托管已停止 · 点击顶部「一键托管」恢复）")
+          : "暂无来信 · 对方发消息后会自动记录";
         return `
           <button type="button" class="chat-thread-row ${selected ? "active" : ""}" aria-pressed="${selected}" data-target="${escapeHtml(target)}" onclick="selectChatThread('${encArg(target)}', '${encArg(entry.incoming)}')">
             <span class="chat-row-top"><span class="chat-row-title">${avatarImg}<span>${escapeHtml(entry.title)}</span></span>${watchBadge}${takenOver ? `<span class="pill danger">🤚 人工接管中</span>` : ""}${limitedPill}<span class="chat-row-meta">${escapeHtml(entry.time)}</span></span>
@@ -8189,7 +8713,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       if (typeof win?.isAllowlistedTarget === "boolean") return win.isAllowlistedTarget;
       const rawTitle = String(win?.title || "").trim().toLowerCase();
       if (!rawTitle) return false;
-      const allowed = WORKOS_STATE?.harness?.governance?.allowedTargets || ["语音助手", "联系人A", "openbot"];
+      const allowed = WORKOS_STATE?.harness?.governance?.allowedTargets || ["安晓心", "心安", "openbot"];
       return allowed.some((t) => {
         const clean = String(t || "").trim().toLowerCase();
         return clean && (rawTitle === clean || rawTitle.includes(clean));
@@ -9549,8 +10073,1256 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
     window.addEventListener("hashchange", resumeSavedDraft);
     resumeSavedDraft();
     const linkedTab = location.hash.slice(1);
-    if (["care", "monitor", "stats", "articles", "uiprotocol", "knowledge", "soul", "salescrm", "models", "open"].includes(linkedTab)) {
+    if (["care", "monitor", "stats", "articles", "uiprotocol", "knowledge", "soul", "salescrm", "omni", "models", "open"].includes(linkedTab)) {
       switchTab(linkedTab);
+    }
+
+    let OMNI_STATE = null;
+
+    function omniRenderCards(data) {
+      const grid = document.getElementById("omniCardsGrid");
+      const sysStrip = document.getElementById("omniSysAuthStrip");
+      const stackList = document.getElementById("omniOpenSourceList");
+      const badgeEl = document.getElementById("omniStatusBadge");
+      if (!grid) return;
+      const channels = data?.channels || [];
+      const selected = document.getElementById("omniChannelSelect")?.value || "feishu";
+
+      if (badgeEl) {
+        const ready = Number(data?.readyCount ?? 0);
+        const todo = Number(data?.actionNeededCount ?? 0);
+        const tools = data?.tools || {};
+        badgeEl.innerHTML = `已就绪 <strong>${ready}/${channels.length || 6}</strong> 渠道 · 待扫码/安装 <strong>${todo}</strong> 项（依次点击标橙按钮即可完成授权） · 原生RPA:${tools.nativeBinaryExists ? "✓" : "✗"} · ego网页:${tools.egoBrowserAvailable ? "✓" : "✗"} · xhs防封:${tools.xhsPublisherAvailable ? "✓" : "✗"}`;
+      }
+
+      if (sysStrip) {
+        const sysAuth = data?.systemAuth || {};
+        const mac = sysAuth.macosPermissions || {};
+        const studio = sysAuth.studioAuth || {};
+        sysStrip.innerHTML = `
+          <div class="omni-sys-item ${mac.ready ? "is-ready" : "is-todo"}">
+            <div>
+              <div style="font-weight:700;">1 · 系统辅助功能与录屏权限</div>
+              <div style="color:var(--text-secondary); margin-top:2px;">${escapeHtml(mac.label || "检测中")}</div>
+            </div>
+            ${mac.ready
+              ? `<span class="pill ok">✅ 已授权</span>`
+              : `<button type="button" class="btn-solid sm" onclick="window.PERM_MODAL_DISMISSED=false; loadPermissions(true)">⚙️ 点击去系统设置勾选</button>`}
+          </div>
+          <div class="omni-sys-item ${studio.ready ? "is-ready" : "is-todo"}">
+            <div>
+              <div style="font-weight:700;">2 · 全渠道工作台操控授权</div>
+              <div style="color:var(--text-secondary); margin-top:2px;">${escapeHtml(studio.label || "检测中")}</div>
+            </div>
+            ${studio.ready
+              ? `<span class="pill ok">✅ 已授权</span>`
+              : `<button type="button" class="btn-solid sm" onclick="grantAllAuth().then(() => loadOmniChannels(false))">🔑 一键点击授权</button>`}
+          </div>
+        `;
+      }
+
+      grid.innerHTML = channels.map((c) => {
+        const guide = c.authGuide || {};
+        const status = guide.status || (c.desktopRunning ? "ready" : "need_launch");
+        const pillCls = status === "ready" ? "ok" : (status === "need_install" ? "accent" : "warn");
+        const isSel = c.channelId === selected;
+        const metaParts = [];
+        if (c.desktopRunning) metaParts.push(`PID ${escapeHtml(c.pid || "-")} · 窗口 ${c.desktopWindowCount || 0}`);
+        else if (c.installed) metaParts.push("客户端已安装（待启动）");
+        else if (c.egoBrowserAvailable) metaParts.push("支持 ego 网页扫码");
+        if (c.supportsVoiceCall) metaParts.push("语音对话");
+
+        const actionBtns = (guide.actions || []).map((act) => {
+          const cls = act.style === "solid" ? "btn-solid sm" : "btn-outline sm";
+          return `<button type="button" class="${cls}" onclick="event.stopPropagation(); omniRunAuthAction('${escapeHtml(c.channelId)}', '${escapeHtml(act.actionType)}', '${escapeHtml(act.targetView || "home")}')">${escapeHtml(act.label)}</button>`;
+        }).join("");
+
+        return `
+          <div class="omni-ch-card status-${escapeHtml(status)} ${isSel ? "is-selected" : ""}" onclick="omniSelectChannel('${escapeHtml(c.channelId)}')">
+            <div>
+              <div class="omni-ch-head">
+                <div>
+                  <div style="font-size:11.5px; color:var(--text-muted); font-weight:600;">优先级 #${c.priority}</div>
+                  <div style="font-size:14px; font-weight:700; margin-top:2px;">${escapeHtml(c.label)}</div>
+                </div>
+                <span class="pill ${pillCls}">${escapeHtml(guide.badgeText || "待核验")}</span>
+              </div>
+              <div class="omni-ch-summary" style="margin-top:8px;">${escapeHtml(guide.summary || "")}</div>
+              <div style="font-size:11.5px; color:var(--text-muted); margin-top:6px;">${metaParts.join(" · ") || "点击检测状态"}</div>
+            </div>
+            <div class="omni-ch-actions">${actionBtns}</div>
+          </div>
+        `;
+      }).join("");
+
+      if (stackList) {
+        const activeCh = channels.find((c) => c.channelId === selected);
+        const items = [
+          ...((activeCh && activeCh.openSourceStacks) || []),
+          ...((data && data.globalOpenSourceFrameworks) || []),
+        ];
+        stackList.innerHTML = items.map((s) => `
+          <div style="padding:7px 9px; border:1px solid var(--border); border-radius:8px; margin-bottom:6px; background:var(--surface-soft);">
+            <strong>${escapeHtml(s.repo)}</strong> <span style="color:var(--accent); font-size:11.5px;">[${escapeHtml(s.role)}]</span>
+            <div style="color:var(--text-muted); font-size:12px; margin-top:2px;">${escapeHtml(s.note)}</div>
+          </div>
+        `).join("");
+      }
+    }
+
+    function omniSelectChannel(cid) {
+      const sel = document.getElementById("omniChannelSelect");
+      if (sel && cid) sel.value = cid;
+      if (OMNI_STATE) omniRenderCards(OMNI_STATE);
+    }
+
+    function omniShowResult(obj) {
+      const box = document.getElementById("omniActionResultBox");
+      if (!box) return;
+      const guide = obj?.authGuide || {};
+      const ok = obj?.ok !== false;
+      const headline = obj?.message
+        || guide.summary
+        || (obj?.enrolledCount != null ? `已识别高意向线索 ${obj.hotOrWarmCount ?? 0} 条，成功纳入 CRM ${obj.enrolledCount} 条。` : "")
+        || (obj?.dryRun ? `Dry-Run 合规演练完成（未实发）${obj?.text ? "：" + obj.text : ""}` : "")
+        || (ok ? "操作完成" : (obj?.error || "操作未完成"));
+
+      const bullets = [];
+      if (guide.badgeText) bullets.push(`<div>当前状态：<strong>${escapeHtml(guide.badgeText)}</strong></div>`);
+      if (obj?.web?.url) bullets.push(`<div>网页地址：<code>${escapeHtml(obj.web.url)}</code>（${obj.web.loggedIn ? "已登录" : "待扫码登录"}）</div>`);
+      if (obj?.browser?.url) bullets.push(`<div>已弹出登录页：<code>${escapeHtml(obj.browser.url)}</code></div>`);
+      if (obj?.downloadUrl) bullets.push(`<div>官方下载页：<code>${escapeHtml(obj.downloadUrl)}</code></div>`);
+      if (Array.isArray(obj?.sessions) && obj.sessions.length) {
+        bullets.push(`<div>检测到 <strong>${obj.sessions.length}</strong> 条会话/互动：${obj.sessions.slice(0, 5).map((s) => escapeHtml(s.title || s.text || "")).join("、")}</div>`);
+      }
+      if (Array.isArray(obj?.messages) && obj.messages.length) {
+        bullets.push(`<div>读取到 <strong>${obj.messages.length}</strong> 条最新消息（当前对话：${escapeHtml(obj.currentChatTitle || "-")}）</div>`);
+      }
+      if (obj?.error && headline !== obj.error) {
+        bullets.push(`<div style="color:var(--danger);">提示：${escapeHtml(obj.error)}</div>`);
+      }
+
+      box.innerHTML = `
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:6px;">
+          <span class="pill ${ok ? "ok" : "warn"}">${ok ? "✅ 执行结果" : "⚠️ 需处理"}</span>
+          ${obj?.channel ? `<span style="font-size:11.5px; color:var(--text-muted);">渠道：${escapeHtml(obj.channel)}</span>` : ""}
+        </div>
+        <div style="font-weight:600; color:var(--text); line-height:1.5;">${escapeHtml(headline)}</div>
+        ${bullets.length ? `<div style="margin-top:6px; font-size:12px; display:flex; flex-direction:column; gap:3px;">${bullets.join("")}</div>` : ""}
+        <details style="margin-top:8px;">
+          <summary style="cursor:pointer; font-size:11.5px; color:var(--text-muted);">查看底层调试 JSON</summary>
+          <pre style="margin:6px 0 0; white-space:pre-wrap; word-break:break-word; font-family:ui-monospace,Menlo,monospace; font-size:11px;">${escapeHtml(JSON.stringify(obj, null, 2))}</pre>
+        </details>
+      `;
+    }
+
+    async function omniRunAuthAction(channelId, actionType, targetView) {
+      omniSelectChannel(channelId);
+      if (actionType === "verify") {
+        await omniProbeChannel(false);
+        return;
+      }
+      if (actionType === "open_config") {
+        const det = document.getElementById("omniCredDetails");
+        if (det) {
+          det.open = true;
+          det.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+      }
+      showToast(`正在为 ${channelId} 准备授权/扫码页面...`);
+      try {
+        const { data } = await apiJson("/api/omni/open-auth", {
+          method: "POST",
+          body: JSON.stringify({
+            channel: channelId,
+            action_type: actionType || "auto",
+            target_view: targetView || "home",
+            dry_run: false,
+          }),
+        });
+        omniShowResult(data);
+        showToast(data?.message || (data?.ok ? "已弹出授权/扫码窗口" : "请检查提示"));
+        await loadOmniChannels(false);
+      } catch (err) {
+        showToast("打开授权窗口失败：" + (err?.message || err));
+      }
+    }
+
+    async function loadOmniChannels(probeLive) {
+      try {
+        if (probeLive) showToast("正在逐一核验 6 端登录与扫码状态，请稍候...");
+        const { data } = await apiJson(`/api/omni/channels?probe=${probeLive ? "1" : "0"}`);
+        OMNI_STATE = data;
+        omniRenderCards(data);
+      } catch (err) {
+        showToast("加载全渠道矩阵失败：" + (err?.message || err));
+      }
+    }
+
+    async function omniProbeChannel(launchIfNeeded) {
+      const channel = document.getElementById("omniChannelSelect")?.value || "feishu";
+      showToast(`正在核验 ${channel} 登录状态...`);
+      const { data } = await apiJson("/api/omni/probe", {
+        method: "POST",
+        body: JSON.stringify({ channel, launch_if_needed: Boolean(launchIfNeeded), include_web: true }),
+      });
+      omniShowResult(data);
+      await loadOmniChannels(false);
+    }
+
+    async function omniInspectSessions(kind) {
+      const channel = document.getElementById("omniChannelSelect")?.value || "feishu";
+      const target = encodeURIComponent(document.getElementById("omniTargetInput")?.value || "");
+      const query = encodeURIComponent(document.getElementById("omniQueryInput")?.value || "");
+      const url = kind === "messages"
+        ? `/api/omni/messages?channel=${encodeURIComponent(channel)}&target=${target}&limit=20`
+        : `/api/omni/sessions?channel=${encodeURIComponent(channel)}&query=${query}&limit=20`;
+      const { data } = await apiJson(url);
+      omniShowResult(data);
+    }
+
+    async function omniExtractLeads(syncCrm) {
+      const channel = document.getElementById("omniChannelSelect")?.value || "feishu";
+      const target = document.getElementById("omniTargetInput")?.value || "";
+      const query = document.getElementById("omniQueryInput")?.value || "";
+      const { data } = await apiJson("/api/omni/leads", {
+        method: "POST",
+        body: JSON.stringify({ channel, target, query, sync_crm: Boolean(syncCrm) }),
+      });
+      omniShowResult(data);
+      if (data?.enrolledCount > 0) {
+        showToast(`已将 ${data.enrolledCount} 条高意向线索纳入 SalesCRM`);
+        loadOverview(false);
+      }
+    }
+
+    async function omniSendReply(dryRun) {
+      const channel = document.getElementById("omniChannelSelect")?.value || "feishu";
+      const mode = document.getElementById("omniModeSelect")?.value || "auto";
+      const target = document.getElementById("omniTargetInput")?.value || "";
+      const text = (document.getElementById("omniReplyInput")?.value || "").trim();
+      if (!text) {
+        showToast("请输入要演练或发送的内容");
+        return;
+      }
+      const { data } = await apiJson("/api/omni/send", {
+        method: "POST",
+        body: JSON.stringify({ channel, target, text, mode, dry_run: Boolean(dryRun), confirm_send: !dryRun }),
+      });
+      omniShowResult(data);
+      showToast(dryRun ? "Dry-Run 合规演练完成" : (data?.sent ? "已发送" : "发送未执行"));
+    }
+
+    async function omniSaveConfig() {
+      const updates = {
+        feishu: {},
+        dingtalk: {},
+      };
+      const fw = document.getElementById("omniFeishuWebhook")?.value?.trim();
+      const fs = document.getElementById("omniFeishuSecret")?.value?.trim();
+      const fa = document.getElementById("omniFeishuAppId")?.value?.trim();
+      const fk = document.getElementById("omniFeishuAppSecret")?.value?.trim();
+      const dw = document.getElementById("omniDingWebhook")?.value?.trim();
+      const ds = document.getElementById("omniDingSecret")?.value?.trim();
+      if (fw) updates.feishu.webhook_url = fw;
+      if (fs) updates.feishu.webhook_secret = fs;
+      if (fa) updates.feishu.app_id = fa;
+      if (fk) updates.feishu.app_secret = fk;
+      if (dw) updates.dingtalk.webhook_url = dw;
+      if (ds) updates.dingtalk.webhook_secret = ds;
+      const { data } = await apiJson("/api/omni/config", {
+        method: "POST",
+        body: JSON.stringify({ updates }),
+      });
+      omniShowResult(data);
+      showToast("已保存开源连接器配置");
+      await loadOmniChannels(false);
+    }
+
+    async function omniFinishBrowser() {
+      const { data } = await apiJson("/api/omni/finish-browser", { method: "POST", body: JSON.stringify({}) });
+      omniShowResult(data);
+      showToast("已释放 ego-browser 代理受控标签页");
+    }
+
+    // ------------------------------------------------------------------
+    // Universal App-Use & Any-Agent SOP Studio (#tab-appuse)
+    // ------------------------------------------------------------------
+    let APPUSE_APPS = [];
+    let APPUSE_AGENTS = [];
+    let APPUSE_WORKFLOWS = [];
+    let APPUSE_PIPELINES = [];
+    let APPUSE_RUNS = [];
+    let APPUSE_STATE_GRAPH = {};
+    let APPUSE_CONCURRENCY = {};
+    let APPUSE_CURRENT_WF = null;
+    let APPUSE_CATEGORY = "all";
+    let APPUSE_RUNNING_ONLY = false;
+    let APPUSE_LIVE_ARMED = false;
+    let APPUSE_LIVE_TIMER = null;
+    let APPUSE_EXPLORE_ARMED = false;
+    let APPUSE_EXPLORE_TIMER = null;
+    let APPUSE_PIPE_ARMED = false;
+    let APPUSE_PIPE_TIMER = null;
+    let APPUSE_REC_POLL = null;
+
+    function appuseResetLiveArm() {
+      APPUSE_LIVE_ARMED = false;
+      clearTimeout(APPUSE_LIVE_TIMER);
+      const btn = document.getElementById("appuseLiveRunBtn");
+      if (btn) btn.textContent = "▶️ 实机执行流程";
+      APPUSE_EXPLORE_ARMED = false;
+      clearTimeout(APPUSE_EXPLORE_TIMER);
+      const ebtn = document.getElementById("appuseExploreLiveBtn");
+      if (ebtn) ebtn.textContent = "🚀 实机自主探索";
+      APPUSE_PIPE_ARMED = false;
+      clearTimeout(APPUSE_PIPE_TIMER);
+      const pbtn = document.getElementById("appusePipelineLiveBtn");
+      if (pbtn) pbtn.textContent = "▶️ 实机联跑流水线";
+    }
+
+    function setAppUseCategory(cat, btnEl) {
+      APPUSE_CATEGORY = cat || "all";
+      ["appuseFilterAll", "appuseFilterAgent", "appuseFilterProd"].forEach((id) => {
+        document.getElementById(id)?.classList.remove("active");
+      });
+      if (btnEl) btnEl.classList.add("active");
+      renderAppUseApps();
+    }
+
+    function toggleAppUseRunningOnly(btnEl) {
+      APPUSE_RUNNING_ONLY = !APPUSE_RUNNING_ONLY;
+      btnEl?.classList.toggle("active", APPUSE_RUNNING_ONLY);
+      renderAppUseApps();
+    }
+
+    function renderAppUseApps() {
+      const filtered = APPUSE_APPS.filter((a) => {
+        if (APPUSE_RUNNING_ONLY && !a.running) return false;
+        if (APPUSE_CATEGORY !== "all" && a.category !== APPUSE_CATEGORY) return false;
+        return true;
+      });
+      const sel = document.getElementById("appuseAppSelect");
+      const prevVal = sel ? sel.value : "";
+      if (sel) {
+        sel.innerHTML = filtered.length
+          ? filtered.map((a) => {
+              const badge = a.isAgentApp ? "[🤖 Agent] " : "";
+              const run = a.running ? "🟢 " : "";
+              const val = encodeURIComponent(a.bundleID || a.appPath || a.name || "");
+              return `<option value="${val}">${escapeHtml(run + badge + a.name + " (" + (a.bundleID || a.installSource || "app") + ")")}</option>`;
+            }).join("")
+          : `<option value="">未匹配到应用</option>`;
+        if (prevVal && Array.from(sel.options).some((o) => o.value === prevVal)) {
+          sel.value = prevVal;
+        }
+      }
+      const grid = document.getElementById("appuseAppGrid");
+      if (!grid) return;
+      if (!filtered.length) {
+        grid.innerHTML = `<div style="font-size:12.5px; color:var(--text-muted);">当前筛选下暂无应用。</div>`;
+        return;
+      }
+      const curSel = sel ? decodeURIComponent(sel.value || "") : "";
+      grid.innerHTML = filtered.slice(0, 36).map((a) => {
+        const key = a.bundleID || a.appPath || a.name || "";
+        const isSel = curSel && key === curSel;
+        return `
+          <button type="button" class="appuse-app-card ${isSel ? "is-selected" : ""}" onclick="selectAppUseCard('${encArg(key)}')">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+              <strong style="font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(a.name)}</strong>
+              <span class="pill ${a.running ? "ok" : ""}">${a.isAgentApp ? "🤖 Agent" : (a.running ? "运行中" : "已安装")}</span>
+            </div>
+            <div style="font-size:11px; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(a.bundleID || a.appPath)}</div>
+          </button>
+        `;
+      }).join("");
+    }
+
+    function selectAppUseCard(encodedKey) {
+      const sel = document.getElementById("appuseAppSelect");
+      if (sel) sel.value = encodedKey;
+      renderAppUseApps();
+      renderAppUseRiskBadge();
+    }
+
+    function onAppUseSelectChange() {
+      renderAppUseApps();
+      renderAppUseRiskBadge();
+    }
+
+    function getSelectedAppUseTarget() {
+      const sel = document.getElementById("appuseAppSelect");
+      const key = sel ? decodeURIComponent(sel.value || "") : "";
+      const found = APPUSE_APPS.find((a) => (a.bundleID || a.appPath || a.name || "") === key);
+      return found || { bundleID: key, name: key, appPath: "" };
+    }
+
+    function renderAppUseAgents() {
+      const sel = document.getElementById("appuseAgentSelect");
+      if (!sel) return;
+      const prev = sel.value;
+      sel.innerHTML = APPUSE_AGENTS.map((ag) => {
+        const tag = ag.kind === "cli_agent" ? "[CLI Agent] " : (ag.kind === "local_heuristic" ? "[离线引擎] " : "[模型/路由] ");
+        const avail = ag.available ? "" : " (未就绪)";
+        return `<option value="${escapeHtml(ag.id)}">${escapeHtml(tag + ag.label + avail)}</option>`;
+      }).join("");
+      if (prev && Array.from(sel.options).some((o) => o.value === prev)) {
+        sel.value = prev;
+      } else {
+        const def = APPUSE_AGENTS.find((a) => a.available && a.recommended) || APPUSE_AGENTS.find((a) => a.available);
+        if (def) sel.value = def.id;
+      }
+    }
+
+    function renderAppUseWorkflow(wf) {
+      APPUSE_CURRENT_WF = wf || null;
+      appuseResetLiveArm();
+      const metaEl = document.getElementById("appuseCurrentWfMeta");
+      const stepsEl = document.getElementById("appuseStepsBox");
+      const sopEl = document.getElementById("appuseSopPreview");
+      const paramsEl = document.getElementById("appuseRunParamsInput");
+      if (!wf) {
+        if (metaEl) metaEl.textContent = "等待生成或选择流程";
+        if (stepsEl) stepsEl.innerHTML = `<div style="font-size:12px; color:var(--text-muted);">暂无步骤</div>`;
+        if (sopEl) sopEl.textContent = "等待 Agent 生成 SOP…";
+        return;
+      }
+      const tapp = wf.targetApp || {};
+      const bag = wf.builderAgent || {};
+      if (metaEl) {
+        metaEl.textContent = `${wf.name || ""} (v${wf.version || 1}) · 目标 ${tapp.name || ""} · Agent ${bag.label || bag.agentId || ""}${bag.usedFallback ? "（已触发本地回退）" : ""}`;
+      }
+      const archBadge = document.getElementById("appuseArchetypeBadge");
+      if (archBadge) {
+        const ar = wf.archetype || {};
+        archBadge.textContent = ar.id ? `Archetype：${ar.label || ar.id}` : "Archetype：通用桌面应用";
+        archBadge.className = "pill " + (ar.id ? "ok" : "");
+      }
+      const readyBadge = document.getElementById("appuseReadinessBadge");
+      if (readyBadge) {
+        const rd = wf.readiness || {};
+        readyBadge.textContent = rd.score !== undefined ? `就绪度：${rd.grade || "-"} (${rd.score}分)` : "就绪度：已加载";
+        readyBadge.className = "pill " + (Number(rd.score || 0) >= 70 ? "ok" : "");
+      }
+      if (sopEl) sopEl.textContent = wf.sopMarkdown || "";
+      if (paramsEl) {
+        const defParams = {};
+        (wf.parameters || []).forEach((p) => { if (p && p.name) defParams[p.name] = p.defaultValue ?? ""; });
+        paramsEl.value = JSON.stringify(defParams);
+      }
+      if (stepsEl) {
+        const steps = wf.steps || [];
+        stepsEl.innerHTML = steps.map((s) => `
+          <div class="appuse-step-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:3px; flex-wrap:wrap;">
+              <strong>Step ${s.step} · ${escapeHtml(s.title)}</strong>
+              <span style="display:inline-flex; gap:4px; align-items:center;">
+                ${s.captureAs ? `<span class="pill ok">var: ${escapeHtml(s.captureAs)}</span>` : ""}
+                <span class="pill">${escapeHtml(s.action)}</span>
+              </span>
+            </div>
+            <div style="font-size:12px; color:var(--text-secondary);">${escapeHtml(s.description || "")}</div>
+          </div>
+        `).join("");
+      }
+    }
+
+    function renderSavedAppUseWorkflows() {
+      const box = document.getElementById("appuseSavedList");
+      if (!box) return;
+      if (!APPUSE_WORKFLOWS.length) {
+        box.innerHTML = `<div style="font-size:12.5px; color:var(--text-muted);">暂未保存 App-Use 流程，请在上方选择一个应用与 Agent 自动生成。</div>`;
+        return;
+      }
+      box.innerHTML = APPUSE_WORKFLOWS.map((wf) => {
+        const rd = wf.readiness || {};
+        const st = wf.stats || {};
+        const gradeTag = rd.grade ? `<span class="pill ${Number(rd.score || 0) >= 70 ? "ok" : ""}" style="font-size:10.5px;">${escapeHtml(rd.grade)} (${rd.score ?? "-"})</span>` : "";
+        const rateTag = st.runs ? ` · 成功率 ${Math.round(Number(st.successRate || 0) * 100)}% (${st.runs}次)` : "";
+        return `
+        <div class="appuse-step-card" style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+          <div style="min-width:0;">
+            <div style="font-weight:600; font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:flex; align-items:center; gap:5px;">
+              <span>${escapeHtml(wf.name)}</span>
+              <span style="font-weight:400; color:var(--text-muted);">v${wf.version || 1}</span>
+              ${gradeTag}
+            </div>
+            <div style="font-size:11px; color:var(--text-muted);">${escapeHtml((wf.targetApp || {}).name || "")} · ${(wf.steps || []).length} 步 · ${escapeHtml((wf.builderAgent || {}).modelId || "")}${escapeHtml(rateTag)}</div>
+          </div>
+          <div style="display:flex; gap:6px; flex-shrink:0;">
+            <button type="button" class="btn-outline sm" onclick="loadSavedAppUseWorkflow('${encArg(wf.id)}')">载入</button>
+            <button type="button" class="btn-outline sm" onclick="deleteSavedAppUseWorkflow('${encArg(wf.id)}')">删除</button>
+          </div>
+        </div>
+      `;
+      }).join("");
+    }
+
+    async function loadAppUseStudio(refreshModels) {
+      const [appsRes, agentsRes, wfRes, pipeRes, runsRes, recRes, graphRes, concRes] = await Promise.all([
+        apiJson("/api/app-use/apps"),
+        apiJson("/api/app-use/agents?refresh=" + (refreshModels ? "1" : "0")),
+        apiJson("/api/app-use/workflows"),
+        apiJson("/api/app-use/pipelines").catch(() => ({ data: { pipelines: [] } })),
+        apiJson("/api/app-use/runs?limit=15").catch(() => ({ data: { runs: [] } })),
+        apiJson("/api/app-use/recording").catch(() => ({ data: { active: false } })),
+        apiJson("/api/app-use/state-graph").catch(() => ({ data: { apps: [] } })),
+        apiJson("/api/app-use/concurrency-status").catch(() => ({ data: {} })),
+      ]);
+      APPUSE_APPS = appsRes.data?.apps || [];
+      APPUSE_AGENTS = agentsRes.data?.agents || [];
+      APPUSE_WORKFLOWS = wfRes.data?.workflows || [];
+      APPUSE_PIPELINES = pipeRes.data?.pipelines || [];
+      APPUSE_RUNS = runsRes.data?.runs || [];
+      APPUSE_STATE_GRAPH = graphRes.data || {};
+      APPUSE_CONCURRENCY = concRes.data || {};
+      const counts = appsRes.data?.counts || {};
+      const desc = document.getElementById("appuseStatusDesc");
+      if (desc) {
+        desc.textContent = `已发现 ${counts.total || APPUSE_APPS.length} 款本机应用（其中 ${counts.agent_app || 0} 款 AI Agent 应用，${counts.running || 0} 款运行中）· 可选 ${APPUSE_AGENTS.length} 个构建 Agent。`;
+      }
+      renderAppUseApps();
+      renderAppUseRiskBadge();
+      renderAppUseAgents();
+      renderSavedAppUseWorkflows();
+      renderAppUsePipelines();
+      renderAppUseRuns();
+      renderAppUseStateGraph();
+      renderAppUseConcurrency();
+      renderAppUseRecording(recRes.data || {});
+      if (!APPUSE_CURRENT_WF && APPUSE_WORKFLOWS.length) {
+        renderAppUseWorkflow(APPUSE_WORKFLOWS[0]);
+      }
+    }
+
+    function fillAppUseExample(kind) {
+      const goalEl = document.getElementById("appuseGoalInput");
+      let targetMatch = "";
+      if (kind === "calc") {
+        targetMatch = "com.apple.calculator";
+        if (goalEl) goalEl.value = "打开计算器，清零后计算 125*8 并回车回读最终显示数值，截图存证。";
+      } else if (kind === "textedit") {
+        targetMatch = "com.apple.TextEdit";
+        if (goalEl) goalEl.value = "在文本编辑中新建空白文档，粘贴结构化会议纪要内容并通过 AX 与 OCR 验证写入完整。";
+      } else {
+        const firstAgentApp = APPUSE_APPS.find((a) => a.isAgentApp && a.running) || APPUSE_APPS.find((a) => a.isAgentApp);
+        targetMatch = firstAgentApp ? (firstAgentApp.bundleID || firstAgentApp.name) : "com.openai.codex";
+        if (goalEl) goalEl.value = "唤醒该 Agent 应用，定位输入框填入任务提示词并发送，持续等待流式输出稳定后回读完整回答。";
+      }
+      const sel = document.getElementById("appuseAppSelect");
+      if (sel && targetMatch) {
+        const opt = Array.from(sel.options).find((o) => decodeURIComponent(o.value).toLowerCase() === targetMatch.toLowerCase());
+        if (opt) sel.value = opt.value;
+        renderAppUseApps();
+      }
+    }
+
+    async function appuseInspectSelected() {
+      const target = getSelectedAppUseTarget();
+      const launch = Boolean(document.getElementById("appuseLaunchChk")?.checked);
+      const sumEl = document.getElementById("appuseInspectSummary");
+      if (sumEl) sumEl.textContent = `正在扫描 ${target.name || target.bundleID} 的 AXUIElement 与 Vision OCR…`;
+      const { data } = await apiJson("/api/app-use/inspect", {
+        method: "POST",
+        body: JSON.stringify({
+          bundle_id: target.bundleID || "",
+          app_name: target.name || "",
+          app_path: target.appPath || "",
+          launch_if_needed: launch,
+          allow_activate: true,
+        }),
+      });
+      if (data?.ok) {
+        const u = data.uiSummary || {};
+        const arch = data.archetype || u.archetype || {};
+        const ab = document.getElementById("appuseArchetypeBadge");
+        if (ab && arch.id) {
+          ab.textContent = `Archetype：${arch.label || arch.id}`;
+          ab.className = "pill ok";
+        }
+        const m = data.modalStatus || u.modalStatus || {};
+        const modalTxt = (m.kind && m.kind !== "none") ? ` · ⚠️ 阻断弹窗: ${m.kind}` : "";
+        if (sumEl) {
+          sumEl.textContent = `扫描成功 · 窗口「${u.windowTitle || "-"}」 · AX控件 ${u.axControlCount || 0}（输入 ${u.inputCount || 0} / 按钮 ${u.buttonCount || 0}）· OCR文本块 ${u.ocrCount || 0}${modalTxt} · 截图: ${data.savedPath || "-"}`;
+        }
+        showToast("已完成目标 App 界面扫描");
+      } else {
+        if (sumEl) sumEl.textContent = `扫描失败: ${data?.error || "unknown"}`;
+        showToast("界面扫描未成功");
+      }
+    }
+
+    async function appuseBuildSOP() {
+      const target = getSelectedAppUseTarget();
+      const agentId = document.getElementById("appuseAgentSelect")?.value || "";
+      const goal = document.getElementById("appuseGoalInput")?.value?.trim() || "";
+      const customPrompt = document.getElementById("appuseCustomPromptInput")?.value?.trim() || "";
+      const launch = Boolean(document.getElementById("appuseLaunchChk")?.checked);
+      const attachShot = Boolean(document.getElementById("appuseAttachShotChk")?.checked);
+      if (!goal) { showToast("请先填写 SOP 目标需求"); return; }
+
+      const btn = document.getElementById("appuseBuildBtn");
+      if (btn) { btn.disabled = true; btn.textContent = "⏳ Agent 正在分析界面并构建 SOP…"; }
+      try {
+        const { data } = await apiJson("/api/app-use/build-sop", {
+          method: "POST",
+          body: JSON.stringify({
+            goal,
+            bundle_id: target.bundleID || "",
+            app_name: target.name || "",
+            app_path: target.appPath || "",
+            agent_id: agentId,
+            custom_agent_prompt: customPrompt,
+            inspect_live: true,
+            launch_if_needed: launch,
+            attach_screenshot: attachShot,
+            save: true,
+          }),
+        });
+        if (data?.ok && data.workflow) {
+          renderAppUseWorkflow(data.workflow);
+          document.getElementById("appuseRunReceiptBox").textContent = JSON.stringify(data.inspection || data.workflow.builderAgent, null, 2);
+          showToast("已由选定 Agent 自动生成 SOP 与 RPA 流程");
+          const wfRes = await apiJson("/api/app-use/workflows");
+          APPUSE_WORKFLOWS = wfRes.data?.workflows || [];
+          renderSavedAppUseWorkflows();
+        } else {
+          showToast(data?.error || "生成失败");
+        }
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "✨ 选定 Agent 自动生成 SOP 与可执行 RPA 流程"; }
+      }
+    }
+
+    function appuseLiveRunStepClick() {
+      if (!APPUSE_CURRENT_WF) { showToast("请先生成或载入一条流程"); return; }
+      if (!APPUSE_LIVE_ARMED) {
+        APPUSE_LIVE_ARMED = true;
+        const btn = document.getElementById("appuseLiveRunBtn");
+        if (btn) btn.textContent = "⚠️ 再次点击确认实机执行";
+        clearTimeout(APPUSE_LIVE_TIMER);
+        APPUSE_LIVE_TIMER = setTimeout(appuseResetLiveArm, 5000);
+        return;
+      }
+      appuseResetLiveArm();
+      appuseRunCurrent(false);
+    }
+
+    async function appuseRefreshRuns() {
+      try {
+        const res = await apiJson("/api/app-use/runs?limit=15");
+        APPUSE_RUNS = res.data?.runs || [];
+        renderAppUseRuns();
+      } catch (e) { /* ignore */ }
+    }
+
+    async function appuseRefreshWorkflowsList() {
+      try {
+        const wfRes = await apiJson("/api/app-use/workflows");
+        APPUSE_WORKFLOWS = wfRes.data?.workflows || [];
+        renderSavedAppUseWorkflows();
+      } catch (e) { /* ignore */ }
+    }
+
+    async function appuseRunCurrent(dryRun) {
+      if (!APPUSE_CURRENT_WF) { showToast("请先生成或载入一条流程"); return; }
+      let params = {};
+      try {
+        const raw = document.getElementById("appuseRunParamsInput")?.value?.trim() || "{}";
+        params = JSON.parse(raw);
+      } catch (e) {
+        showToast("参数 JSON 格式有误");
+        return;
+      }
+      const selfHeal = Boolean(document.getElementById("appuseSelfHealChk")?.checked ?? true);
+      const autoPatch = Boolean(document.getElementById("appuseAutoPatchChk")?.checked ?? false);
+      const dispatchMode = document.getElementById("appuseDispatchModeSelect")?.value || "auto";
+      const { data } = await apiJson("/api/app-use/run", {
+        method: "POST",
+        body: JSON.stringify({
+          workflow_id: APPUSE_CURRENT_WF.id,
+          workflow: APPUSE_CURRENT_WF,
+          params,
+          dry_run: Boolean(dryRun),
+          confirm_run: !dryRun,
+          respect_human_guard: true,
+          self_heal: selfHeal,
+          auto_patch_workflow: autoPatch,
+          dispatch_mode: dispatchMode,
+        }),
+      });
+      document.getElementById("appuseRunReceiptBox").textContent = JSON.stringify(data, null, 2);
+      if (data?.workflowPatched) {
+        await appuseRefreshWorkflowsList();
+        const updated = APPUSE_WORKFLOWS.find((w) => w.id === APPUSE_CURRENT_WF?.id);
+        if (updated) renderAppUseWorkflow(updated);
+      }
+      await appuseRefreshRuns();
+      await appuseRefreshConcurrencyStatus();
+      showToast(dryRun ? "Dry-Run 演练完成" : (data?.ok ? "实机流程执行完成" : "实机执行中止"));
+    }
+
+    async function appuseExportToKB() {
+      if (!APPUSE_CURRENT_WF?.id) { showToast("请先生成或载入一条已保存流程"); return; }
+      const { data } = await apiJson("/api/app-use/export-kb", {
+        method: "POST",
+        body: JSON.stringify({ workflow_id: APPUSE_CURRENT_WF.id }),
+      });
+      if (data?.ok) {
+        showToast("已将当前 App-Use SOP 存入知识库");
+      } else {
+        showToast(data?.error || "存入失败");
+      }
+    }
+
+    async function appuseExportSkill() {
+      if (!APPUSE_CURRENT_WF?.id) { showToast("请先生成或载入一条已保存流程"); return; }
+      const { data } = await apiJson("/api/app-use/export-skill", {
+        method: "POST",
+        body: JSON.stringify({ workflow_id: APPUSE_CURRENT_WF.id }),
+      });
+      document.getElementById("appuseRunReceiptBox").textContent = JSON.stringify(data, null, 2);
+      if (data?.ok) {
+        showToast("已导出便携 Agent Skill：" + (data.skillName || data.skillMdPath || ""));
+      } else {
+        showToast(data?.error || "导出 Skill 失败");
+      }
+    }
+
+    async function appuseRollbackCurrent() {
+      if (!APPUSE_CURRENT_WF?.id) { showToast("请先载入一条已保存流程"); return; }
+      const { data } = await apiJson("/api/app-use/rollback", {
+        method: "POST",
+        body: JSON.stringify({ workflow_id: APPUSE_CURRENT_WF.id, revision_index: -1 }),
+      });
+      document.getElementById("appuseRunReceiptBox").textContent = JSON.stringify(data, null, 2);
+      if (data?.ok && data.workflow) {
+        renderAppUseWorkflow(data.workflow);
+        await appuseRefreshWorkflowsList();
+        showToast(`已回滚至版本 v${data.workflow.version || 1}`);
+      } else {
+        showToast(data?.error || "暂无历史版本可回滚");
+      }
+    }
+
+    function appuseExploreLiveClick() {
+      if (!APPUSE_EXPLORE_ARMED) {
+        APPUSE_EXPLORE_ARMED = true;
+        const btn = document.getElementById("appuseExploreLiveBtn");
+        if (btn) btn.textContent = "⚠️ 再次点击确认实机探索";
+        clearTimeout(APPUSE_EXPLORE_TIMER);
+        APPUSE_EXPLORE_TIMER = setTimeout(appuseResetLiveArm, 5000);
+        return;
+      }
+      appuseResetLiveArm();
+      appuseExplore(false);
+    }
+
+    async function appuseExplore(dryRun) {
+      const target = getSelectedAppUseTarget();
+      const agentId = document.getElementById("appuseAgentSelect")?.value || "";
+      const goal = document.getElementById("appuseGoalInput")?.value?.trim() || "";
+      const maxTurns = Number(document.getElementById("appuseExploreTurns")?.value || 4) || 4;
+      const launch = Boolean(document.getElementById("appuseLaunchChk")?.checked);
+      if (!goal) { showToast("请先在上方填写探索目标需求"); return; }
+      const btn = document.getElementById(dryRun ? "appuseExploreDryBtn" : "appuseExploreLiveBtn");
+      const prev = btn ? btn.textContent : "";
+      if (btn) { btn.disabled = true; btn.textContent = "⏳ 自主探索中…"; }
+      try {
+        const { data } = await apiJson("/api/app-use/explore", {
+          method: "POST",
+          body: JSON.stringify({
+            goal,
+            bundle_id: target.bundleID || "",
+            app_name: target.name || "",
+            app_path: target.appPath || "",
+            agent_id: agentId,
+            max_turns: maxTurns,
+            dry_run: Boolean(dryRun),
+            confirm_run: !dryRun,
+            respect_human_guard: true,
+            launch_if_needed: launch,
+            save: true,
+          }),
+        });
+        document.getElementById("appuseRunReceiptBox").textContent = JSON.stringify(data, null, 2);
+        if (data?.ok && data.workflow) {
+          renderAppUseWorkflow(data.workflow);
+          await appuseRefreshWorkflowsList();
+          await appuseRefreshRuns();
+          showToast(`自主探索完成（${data.turns || 0} 轮）并已生成 SOP`);
+        } else {
+          showToast(data?.error || "自主探索未成功");
+        }
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = prev; }
+      }
+    }
+
+    function renderAppUseRecording(rec) {
+      const el = document.getElementById("appuseRecStatus");
+      if (!el) return;
+      if (rec?.active) {
+        el.textContent = `🔴 正在录制（会话 ${rec.sessionId || ""} · 已采集 ${rec.eventCount || 0} 条操作轨迹 · ${rec.elapsedSec || 0}s）`;
+        if (!APPUSE_REC_POLL) {
+          APPUSE_REC_POLL = setInterval(appusePollRecording, 1500);
+        }
+      } else {
+        clearInterval(APPUSE_REC_POLL);
+        APPUSE_REC_POLL = null;
+        if (Number(rec?.eventCount || 0) > 0) {
+          el.textContent = `⏸ 录制已结束（上次采集 ${rec.eventCount} 条事件 · 可点击开始新一轮示范录制）`;
+        } else {
+          el.textContent = "录制器空闲 · 点击「开始示范录制」后去目标 App 操作，再回来点停止编译。";
+        }
+      }
+    }
+
+    async function appusePollRecording() {
+      try {
+        const { data } = await apiJson("/api/app-use/recording");
+        renderAppUseRecording(data || {});
+      } catch (e) { /* ignore */ }
+    }
+
+    async function appuseStartRecording() {
+      const { data } = await apiJson("/api/app-use/recording/start", {
+        method: "POST",
+        body: JSON.stringify({ max_duration_sec: 180, poll_interval_sec: 0.45 }),
+      });
+      renderAppUseRecording(data || {});
+      if (data?.ok) {
+        showToast("🔴 示范录制已开始，请切换到目标应用操作");
+      } else {
+        showToast(data?.error || "启动录制失败");
+      }
+    }
+
+    async function appuseStopRecording() {
+      const agentId = document.getElementById("appuseAgentSelect")?.value || "";
+      const goalHint = document.getElementById("appuseGoalInput")?.value?.trim() || "";
+      const btn = document.getElementById("appuseRecStopBtn");
+      const prev = btn ? btn.textContent : "⏹ 停止并编译 SOP";
+      if (btn) { btn.disabled = true; btn.textContent = "⏳ 正在编译示范轨迹…"; }
+      try {
+        const { data } = await apiJson("/api/app-use/recording/stop", {
+          method: "POST",
+          body: JSON.stringify({ goal_hint: goalHint, agent_id: agentId, save: true }),
+        });
+        renderAppUseRecording({ active: false, eventCount: data?.eventCount || 0 });
+        document.getElementById("appuseRunReceiptBox").textContent = JSON.stringify(data, null, 2);
+        if (data?.ok && data.workflow) {
+          renderAppUseWorkflow(data.workflow);
+          await appuseRefreshWorkflowsList();
+          showToast(`示范已编译为参数化 SOP（采集 ${data.eventCount || 0} 条轨迹）`);
+        } else {
+          showToast(data?.error || "未采集到可编译事件");
+        }
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = prev; }
+      }
+    }
+
+    function appuseLoadCalcTextEditPreset() {
+      const preset = {
+        id: "pipe_calc_to_textedit_v27",
+        name: "计算器算值 → TextEdit 自动写入报告",
+        stages: [
+          {
+            name: "阶段1：Calculator 计算 256×4",
+            workflow: {
+              id: "wf_pipe_calc_stage",
+              name: "Calculator 算值采集",
+              targetApp: { bundleID: "com.apple.calculator", name: "Calculator" },
+              steps: [
+                { step: 1, action: "activate_app", title: "唤醒计算器", launchIfNeeded: true },
+                { step: 2, action: "press_shortcut", title: "清零", combo: "escape" },
+                { step: 3, action: "press_shortcut", title: "输入 256*4 并回车", sequence: "2,5,6,*,4,return", delayMs: 110 },
+                { step: 4, action: "wait_and_read", title: "采集计算结果", delaySec: 0.4, captureAs: "calc_result", extractMode: "ax_last", saveScreenshot: true },
+              ],
+            },
+          },
+          {
+            name: "阶段2：TextEdit 写入管道变量",
+            workflow: {
+              id: "wf_pipe_textedit_stage",
+              name: "TextEdit 出报告",
+              targetApp: { bundleID: "com.apple.TextEdit", name: "TextEdit" },
+              steps: [
+                { step: 1, action: "activate_app", title: "唤醒文本编辑", launchIfNeeded: true },
+                { step: 2, action: "press_shortcut", title: "新建文稿", combo: "cmd+n" },
+                { step: 3, action: "focus_and_type", title: "写入跨应用变量", text: "跨应用 RPA 流水线实测：Calculator 算得 {{calc_result}} → 自动写入 TextEdit" },
+                { step: 4, action: "wait_and_read", title: "AX+OCR 回读验收", delaySec: 0.5, expectText: "{{calc_result}}", saveScreenshot: true },
+              ],
+            },
+          },
+        ],
+      };
+      const el = document.getElementById("appusePipelineJson");
+      if (el) el.value = JSON.stringify(preset, null, 2);
+      showToast("已填入「计算器 → 文本编辑」跨应用流水线模板");
+    }
+
+    function _parseAppUsePipelineInput() {
+      const raw = document.getElementById("appusePipelineJson")?.value?.trim() || "";
+      if (!raw) throw new Error("请先点击预设或填入流水线 JSON");
+      return JSON.parse(raw);
+    }
+
+    async function appuseSavePipeline() {
+      let obj;
+      try {
+        obj = _parseAppUsePipelineInput();
+      } catch (e) {
+        showToast(e.message || "流水线 JSON 格式有误");
+        return;
+      }
+      const { data } = await apiJson("/api/app-use/pipelines/save", {
+        method: "POST",
+        body: JSON.stringify({ pipeline: obj }),
+      });
+      if (data?.ok) {
+        const listRes = await apiJson("/api/app-use/pipelines").catch(() => ({ data: { pipelines: [] } }));
+        APPUSE_PIPELINES = listRes.data?.pipelines || [];
+        renderAppUsePipelines();
+        showToast("已保存跨应用流水线：" + (data.pipeline?.name || ""));
+      } else {
+        showToast(data?.error || "保存流水线失败");
+      }
+    }
+
+    function appuseRunPipelineLiveClick() {
+      if (!APPUSE_PIPE_ARMED) {
+        APPUSE_PIPE_ARMED = true;
+        const btn = document.getElementById("appusePipelineLiveBtn");
+        if (btn) btn.textContent = "⚠️ 再次点击确认实机联跑";
+        clearTimeout(APPUSE_PIPE_TIMER);
+        APPUSE_PIPE_TIMER = setTimeout(appuseResetLiveArm, 5000);
+        return;
+      }
+      appuseResetLiveArm();
+      appuseRunPipeline(false);
+    }
+
+    async function appuseRunPipeline(dryRun) {
+      let obj;
+      try {
+        obj = _parseAppUsePipelineInput();
+      } catch (e) {
+        showToast(e.message || "请先点击预设或填入合法流水线 JSON");
+        return;
+      }
+      const selfHeal = Boolean(document.getElementById("appuseSelfHealChk")?.checked ?? true);
+      const { data } = await apiJson("/api/app-use/pipelines/run", {
+        method: "POST",
+        body: JSON.stringify({
+          pipeline: obj,
+          dry_run: Boolean(dryRun),
+          confirm_run: !dryRun,
+          respect_human_guard: true,
+          self_heal: selfHeal,
+        }),
+      });
+      document.getElementById("appuseRunReceiptBox").textContent = JSON.stringify(data, null, 2);
+      await appuseRefreshRuns();
+      showToast(dryRun ? "流水线 Dry-Run 完成" : (data?.ok ? "跨应用流水线实机联跑成功" : "流水线实机中止"));
+    }
+
+    function appuseLoadSavedPipeline(encodedId) {
+      const pid = decodeURIComponent(encodedId || "");
+      const pl = APPUSE_PIPELINES.find((p) => p.id === pid);
+      if (pl) {
+        const el = document.getElementById("appusePipelineJson");
+        if (el) el.value = JSON.stringify(pl, null, 2);
+        showToast("已载入流水线：" + (pl.name || pl.id));
+      }
+    }
+
+    async function appuseDeletePipeline(encodedId) {
+      const pid = decodeURIComponent(encodedId || "");
+      const { data } = await apiJson("/api/app-use/pipelines/delete", {
+        method: "POST",
+        body: JSON.stringify({ pipeline_id: pid }),
+      });
+      if (data?.ok) {
+        APPUSE_PIPELINES = APPUSE_PIPELINES.filter((p) => p.id !== pid);
+        renderAppUsePipelines();
+        showToast("已删除流水线");
+      }
+    }
+
+    function renderAppUsePipelines() {
+      const box = document.getElementById("appusePipelinesList");
+      if (!box) return;
+      if (!APPUSE_PIPELINES.length) {
+        box.innerHTML = `<div style="font-size:11.5px; color:var(--text-muted);">暂未保存跨应用流水线；可点上方「🧮 计算器算值 → 📝 文本编辑出报告」快速载入。</div>`;
+        return;
+      }
+      box.innerHTML = APPUSE_PIPELINES.map((pl) => `
+        <div class="appuse-step-card" style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 8px;">
+          <div style="min-width:0;">
+            <div style="font-weight:600; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(pl.name || pl.id)}</div>
+            <div style="font-size:11px; color:var(--text-muted);">${(pl.stages || []).length} 个跨应用阶段</div>
+          </div>
+          <div style="display:flex; gap:5px; flex-shrink:0;">
+            <button type="button" class="btn-outline sm" onclick="appuseLoadSavedPipeline('${encArg(pl.id)}')">载入</button>
+            <button type="button" class="btn-outline sm" onclick="appuseDeletePipeline('${encArg(pl.id)}')">删除</button>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    function renderAppUseRuns() {
+      const box = document.getElementById("appuseRunsList");
+      if (!box) return;
+      if (!APPUSE_RUNS.length) {
+        box.innerHTML = `<div style="font-size:11.5px; color:var(--text-muted);">暂无运行审计记录。</div>`;
+        return;
+      }
+      box.innerHTML = APPUSE_RUNS.map((r) => {
+        const title = r.kind === "pipeline" ? (r.pipelineName || "跨应用流水线") : (r.workflowName || r.targetApp || r.runId);
+        const modeTag = r.dryRun ? "Dry-Run" : "实机";
+        const badgeCls = r.ok ? "ok" : "";
+        const thumb = r.artifactName
+          ? `<a href="/api/app-use/artifact/${encodeURIComponent(r.artifactName)}" target="_blank" title="查看高清截图存证" style="display:inline-block; margin-top:4px;"><img src="/api/app-use/artifact/${encodeURIComponent(r.artifactName)}" alt="" style="width:110px; max-height:68px; object-fit:cover; border-radius:6px; border:1px solid var(--border);" loading="lazy" /></a>`
+          : "";
+        const capTxt = r.capturedVars && Object.keys(r.capturedVars).length ? ` · 变量: ${JSON.stringify(r.capturedVars)}` : "";
+        return `
+          <div class="appuse-step-card" style="padding:6px 8px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+              <strong style="font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(title)}</strong>
+              <span class="pill ${badgeCls}" style="font-size:10.5px;">${escapeHtml(modeTag)} · ${r.ok ? "成功" : "中止"}</span>
+            </div>
+            <div style="font-size:11px; color:var(--text-muted);">${escapeHtml(r.ts || "")} · ${Math.round(r.elapsedMs || 0)}ms${escapeHtml(capTxt)}</div>
+            ${thumb}
+          </div>
+        `;
+      }).join("");
+    }
+
+    function loadSavedAppUseWorkflow(encodedId) {
+      const wid = decodeURIComponent(encodedId || "");
+      const wf = APPUSE_WORKFLOWS.find((w) => w.id === wid);
+      if (wf) {
+        renderAppUseWorkflow(wf);
+        showToast("已载入流程：" + wf.name);
+      }
+    }
+
+    async function deleteSavedAppUseWorkflow(encodedId) {
+      const wid = decodeURIComponent(encodedId || "");
+      const { data } = await apiJson("/api/app-use/delete-workflow", {
+        method: "POST",
+        body: JSON.stringify({ workflow_id: wid }),
+      });
+      if (data?.ok) {
+        APPUSE_WORKFLOWS = APPUSE_WORKFLOWS.filter((w) => w.id !== wid);
+        if (APPUSE_CURRENT_WF?.id === wid) renderAppUseWorkflow(APPUSE_WORKFLOWS[0] || null);
+        renderSavedAppUseWorkflows();
+        showToast("已删除流程");
+      }
+    }
+
+    function renderAppUseStateGraph() {
+      const box = document.getElementById("appuseStateGraphBox");
+      if (!box) return;
+      const apps = APPUSE_STATE_GRAPH?.apps || [];
+      if (!apps.length) {
+        box.innerHTML = `<div style="font-size:11.5px; color:var(--text-muted);">暂未积累状态图谱（运行或泛化任意 App 后自动沉淀界面状态与迁移边）。</div>`;
+        return;
+      }
+      box.innerHTML = apps.map((g) => `
+        <div class="appuse-step-card" style="padding:6px 8px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+          <div style="min-width:0;">
+            <strong style="font-size:12px;">${escapeHtml(g.appName || g.bundleID)}</strong>
+            <div style="font-size:11px; color:var(--text-muted);">${escapeHtml(g.bundleID)} · ${escapeHtml(g.archetypeId || "generic")}</div>
+          </div>
+          <span class="pill" style="font-size:10.5px;">节点 ${g.nodeCount || 0} · 迁移边 ${g.edgeCount || 0}</span>
+        </div>
+      `).join("");
+    }
+
+    async function appuseRefreshStateGraph() {
+      try {
+        const res = await apiJson("/api/app-use/state-graph");
+        APPUSE_STATE_GRAPH = res.data || {};
+        renderAppUseStateGraph();
+      } catch (e) { /* ignore */ }
+    }
+
+    function renderAppUseRiskBadge() {
+      const badge = document.getElementById("appuseRiskBadge");
+      if (!badge) return;
+      const target = getSelectedAppUseTarget();
+      const rp = target?.riskProfile || null;
+      if (!rp) {
+        badge.className = "pill";
+        badge.textContent = "风控策略：待识别";
+        return;
+      }
+      const tier = rp.tier || "safe_native";
+      if (tier === "high_risk_social") {
+        badge.className = "pill warn";
+        badge.textContent = "🛡️ 社交风控保护 · 强制前台拟真节奏";
+      } else if (tier === "moderate_agent_or_web") {
+        badge.className = "pill";
+        badge.textContent = "🟡 中度 · Agent/WebView 双通道";
+      } else {
+        badge.className = "pill ok";
+        badge.textContent = "🟢 安全原生 · 支持无焦点 AX 真并发";
+      }
+      badge.title = rp.advice || "";
+    }
+
+    function renderAppUseConcurrency() {
+      const box = document.getElementById("appuseConcurrencyBox");
+      if (!box) return;
+      const metrics = APPUSE_CONCURRENCY?.metrics || {};
+      const active = APPUSE_CONCURRENCY?.activeLanes || [];
+      const recent = APPUSE_CONCURRENCY?.recentLanes || [];
+      const lease = APPUSE_CONCURRENCY?.hidLeaseStats || {};
+      const stateLabels = {
+        observing: "👀 后台只读感知",
+        ax_headless: "⚡ 无焦点 AX 直调",
+        waiting_hid_lease: "⏳ 排队等前景锁",
+        holding_hid_lease: "🖱️ 持有前景真焦点",
+        human_paced_cooldown: "🛡️ 拟真节奏抖动",
+        paused_for_human: "✋ 待人工确认",
+        done: "✅ 已完成",
+        failed: "❌ 失败",
+      };
+      const summaryHtml = `
+        <div style="display:flex; gap:6px; flex-wrap:wrap; font-size:11px;">
+          <span class="pill ok">无焦点 AX ${metrics.totalHeadlessAxOps || 0} 次 (${metrics.headlessSharePct || 0}%)</span>
+          <span class="pill">前台 HID ${metrics.totalForegroundHidOps || 0} 次 (租约 ${lease.totalAcquisitions || 0} · 争用 ${lease.contendedAcquisitions || 0})</span>
+          <span class="pill ${(metrics.totalRiskBlockedHeadless || 0) > 0 ? "warn" : ""}">风控拦截注入 ${metrics.totalRiskBlockedHeadless || 0} · 平滑降级 ${metrics.totalFallbackCount || 0}</span>
+        </div>
+      `;
+      const lanes = [...active, ...recent.slice(0, 8)];
+      if (!lanes.length) {
+        box.innerHTML = summaryHtml + `<div style="font-size:11.5px; color:var(--text-muted);">暂无并发泳道记录（运行任意并行监控或双通道流程后实时展示）。</div>`;
+        return;
+      }
+      box.innerHTML = summaryHtml + lanes.map((ln) => {
+        const stText = stateLabels[ln.state] || ln.state || "idle";
+        const pillCls = ln.state === "done" || ln.state === "ax_headless" ? "ok" : (ln.state === "failed" || ln.riskTier === "high_risk_social" ? "warn" : "");
+        return `
+          <div class="appuse-step-card" style="padding:6px 8px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+            <div style="min-width:0;">
+              <strong style="font-size:12px;">${escapeHtml(ln.appName || ln.bundleID || ln.laneId)}</strong>
+              <div style="font-size:11px; color:var(--text-muted);">${escapeHtml(ln.riskTier || "safe_native")} · AX ${ln.headlessAxOps || 0} / HID ${ln.foregroundHidOps || 0} · ${ln.elapsedMs || 0}ms</div>
+            </div>
+            <span class="pill ${pillCls}" style="font-size:10.5px; flex-shrink:0;">${escapeHtml(stText)}</span>
+          </div>
+        `;
+      }).join("");
+    }
+
+    async function appuseRefreshConcurrencyStatus() {
+      try {
+        const res = await apiJson("/api/app-use/concurrency-status");
+        APPUSE_CONCURRENCY = res.data || {};
+        renderAppUseConcurrency();
+      } catch (e) { /* ignore */ }
+    }
+
+    async function appuseGeneralizeNewApp() {
+      const target = getSelectedAppUseTarget();
+      const agentId = document.getElementById("appuseAgentSelect")?.value || "";
+      const goal = document.getElementById("appuseGoalInput")?.value?.trim() || "";
+      const customPrompt = document.getElementById("appuseCustomPromptInput")?.value?.trim() || "";
+      const launch = Boolean(document.getElementById("appuseLaunchChk")?.checked);
+      if (!goal) { showToast("请先填写新 App 要自动完成的业务目标"); return; }
+
+      const btn = document.getElementById("appuseGeneralizeBtn");
+      const prev = btn ? btn.textContent : "";
+      if (btn) { btn.disabled = true; btn.textContent = "⏳ 正在泛化未知 App → 合成 → 优化 → 打包 Skill…"; }
+      try {
+        const { data } = await apiJson("/api/app-use/generalize", {
+          method: "POST",
+          body: JSON.stringify({
+            goal,
+            bundle_id: target.bundleID || "",
+            app_name: target.name || "",
+            app_path: target.appPath || "",
+            agent_id: agentId,
+            mode: "auto",
+            launch_if_needed: launch,
+            dry_run_verify: true,
+            export_skill: true,
+            save: true,
+            custom_agent_prompt: customPrompt,
+          }),
+        });
+        document.getElementById("appuseRunReceiptBox").textContent = JSON.stringify(data, null, 2);
+        if (data?.ok && data.workflow) {
+          renderAppUseWorkflow(data.workflow);
+          await appuseRefreshWorkflowsList();
+          await appuseRefreshRuns();
+          await appuseRefreshStateGraph();
+          const grade = data.readiness?.grade || "-";
+          const score = data.readiness?.score ?? "-";
+          const sk = data.exportedSkill?.skillMdPath || "";
+          showToast(`泛化完成！就绪度 ${grade} (${score}分)${sk ? " · 已生成 Skill" : ""}`);
+        } else {
+          showToast(data?.error || "泛化未成功");
+        }
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = prev; }
+      }
+    }
+
+    async function appuseWatchRunningParallel() {
+      const candidates = APPUSE_APPS.filter((a) => a.running && Number(a.windowCount || 0) > 0 && a.bundleID)
+        .slice(0, 4)
+        .map((a) => ({ bundle_id: a.bundleID, app_name: a.name }));
+      if (!candidates.length) {
+        const cur = getSelectedAppUseTarget();
+        if (cur?.bundleID) candidates.push({ bundle_id: cur.bundleID, app_name: cur.name });
+      }
+      if (!candidates.length) { showToast("当前未检测到带窗口的运行中应用"); return; }
+
+      const btn = document.getElementById("appuseWatchParallelBtn");
+      const prev = btn ? btn.textContent : "";
+      if (btn) { btn.disabled = true; btn.textContent = "⏳ 并发扫描窗口中…"; }
+      try {
+        const { data } = await apiJson("/api/app-use/watch-parallel", {
+          method: "POST",
+          body: JSON.stringify({ targets: candidates, include_ocr: false, max_workers: 4 }),
+        });
+        document.getElementById("appuseRunReceiptBox").textContent = JSON.stringify(data, null, 2);
+        await appuseRefreshStateGraph();
+        await appuseRefreshConcurrencyStatus();
+        if (data?.ok) {
+          showToast(`已并发监测 ${data.succeededCount}/${data.targetCount} 个窗口（加速比 ${data.speedupRatio || 1}x · ${data.wallElapsedMs || 0}ms）`);
+        } else {
+          showToast(data?.error || "并行监控失败");
+        }
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = prev; }
+      }
+    }
+
+    async function appuseInstallMetaSkill() {
+      const btn = document.getElementById("appuseInstallMetaSkillBtn");
+      const prev = btn ? btn.textContent : "";
+      if (btn) { btn.disabled = true; btn.textContent = "⏳ 安装全局元技能中…"; }
+      try {
+        const { data } = await apiJson("/api/app-use/install-meta-skill", {
+          method: "POST",
+          body: JSON.stringify({ install_global: true }),
+        });
+        document.getElementById("appuseRunReceiptBox").textContent = JSON.stringify(data, null, 2);
+        if (data?.ok) {
+          const cnt = (data.linkedTargets || []).length + (data.installedPaths || []).length;
+          showToast(`已安装全局元技能 app-use-meta-builder（${cnt} 处目录）`);
+        } else {
+          showToast(data?.error || "安装失败");
+        }
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = prev; }
+      }
     }
   </script>
 </body>
@@ -9624,7 +11396,7 @@ MOBILE_REMOTE_HTML = r"""<!DOCTYPE html>
     </section>
   </main>
   <script>
-    let LAST_TARGETS = ["语音助手", "联系人A", "openbot"];
+    let LAST_TARGETS = ["安晓心", "心安", "openbot"];
     const esc = s => String(s || "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
     async function refreshMobile() {
       try {

@@ -58,7 +58,7 @@ function parseCliArgs(argv) {
 const args = parseCliArgs(process.argv);
 const appFilter = String(args.options.app || 'wechat').toLowerCase();
 const targetContact = String(args.options.target || '').trim();
-const greetingText = String(args.options.greeting || (targetContact ? `喂${targetContact}你好，我是语音助手，语音已经接通啦，听得清我说话吗？` : '喂你好，我是语音助手，语音已经接通啦，听得到我说话吗？')).trim();
+const greetingText = String(args.options.greeting || (targetContact ? `喂${targetContact}你好，我是安晓心，语音已经接通啦，听得清我说话吗？` : '喂你好，我是安晓心，语音已经接通啦，听得到我说话吗？')).trim();
 const customInstructions = String(args.options.instructions || '').trim();
 const virtualMicUid = String(args.options['virtual-mic'] || 'OrayVirtualAudioDevice_UID').trim();
 const idleInputUid = String(args.options['idle-input-uid'] || '').trim();
@@ -185,7 +185,7 @@ async function synthesizePcm24k(text) {
 
 async function generateCallReply(userText, history) {
   const sys = [
-    customInstructions || `你是语音助手，正在和${targetContact || '好友'}通微信语音电话。`,
+    customInstructions || `你是安晓心，正在和${targetContact || '好友'}通微信语音电话。`,
     '请像真人同事通电话那样简短自然回应，每次 15~55 个汉字，绝不输出 Markdown、编号或括号备注。'
   ].join('\n');
   const msgs = [
@@ -450,7 +450,7 @@ async function shutdown(reason = 'normal') {
         transcripts: liveState.transcripts,
         scene: 'voip_voice_call',
         sceneTitle: `微信语音通话（${targetContact || appFilter}）`,
-        botName: '语音助手',
+        botName: '安晓心',
         userDataDir: OPENBOT_DIR
       });
       const existing = fs.existsSync(summariesFile) ? JSON.parse(fs.readFileSync(summariesFile, 'utf8')) : [];
