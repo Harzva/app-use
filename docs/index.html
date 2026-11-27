@@ -293,6 +293,64 @@
       margin-bottom: 0;
     }
 
+    .gallery-card {
+      display: flex;
+      flex-direction: column;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background-color: var(--surface);
+      overflow: hidden;
+      text-decoration: none;
+      color: var(--text);
+      transition: border-color 0.15s ease, transform 0.15s ease;
+    }
+
+    .gallery-card:hover {
+      opacity: 1;
+      border-color: var(--accent-color);
+      transform: translateY(-2px);
+    }
+
+    .gallery-card img {
+      display: block;
+      width: 100%;
+      height: auto;
+      aspect-ratio: 2720 / 1760;
+      object-fit: cover;
+      border-bottom: 1px solid var(--border);
+      background-color: var(--bg);
+    }
+
+    .gallery-card-body {
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex: 1;
+    }
+
+    .gallery-card-body h3 {
+      margin: 0;
+      font-size: 15px;
+    }
+
+    .gallery-card-link {
+      margin-top: auto;
+      padding-top: 4px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .gallery-card {
+        transition: none;
+      }
+      .gallery-card:hover {
+        transform: none;
+      }
+    }
+
     .muted {
       color: var(--muted);
       font-size: 13.5px;
@@ -568,6 +626,7 @@
       <nav class="nav" aria-label="Primary">
         <a class="nav-strong" href="./user-guide.html">📖 零黑话用户手册</a>
         <a href="#v3-zero-fde">v3.0.0 零配置升级</a>
+        <a href="#gallery">实机界面</a>
         <a href="#why">Why App-Use</a>
         <a href="#architecture">5 大核心算法</a>
         <a href="#risk-tiers">反风控分级</a>
@@ -624,6 +683,39 @@
           <h3>4. 内置聊天记录导出包解析（免装额外插件）</h3>
           <p class="muted">开箱内置微信「合并转发」与本地 <code>.zip</code> / <code>*聊天记录*.txt</code> 导出包解析引擎，无需额外安装 WeChatBridge 等第三方插件即可一站完成语料导入。</p>
         </article>
+      </div>
+    </section>
+
+    <section id="gallery" tabindex="-1">
+      <h2>实机界面速览</h2>
+      <p class="muted">
+        以下界面均采集自真实运行的 WeChat Bot 工作台（虚构演示数据）。点击任意卡片即可直达《零黑话用户手册》对应操作章节，查看完整分步指引与大图放大预览。
+      </p>
+      <div class="grid-3">
+        <a class="gallery-card" href="./user-guide.html#ch7">
+          <img src="./assets/user-guide/09-hosting-workbench-home.png" alt="WeChat Bot 主工作台与白名单一键托管运行界面" width="1360" height="880" fetchpriority="high" decoding="async" />
+          <div class="gallery-card-body">
+            <h3>主工作台与白名单一键托管</h3>
+            <p class="muted">顶部直达 4 步训练向导与使用手册；托管控制栏实时展示「托管中」人数、防抢鼠标护航与双击 Esc 急停。</p>
+            <span class="gallery-card-link">查看第 7 章 · 一键托管操作 →</span>
+          </div>
+        </a>
+        <a class="gallery-card" href="./user-guide.html#ch4">
+          <img src="./assets/user-guide/04-wizard-step3-review.png" alt="4 步向导第 3 步：行业词汇提炼与高风险草稿审核门禁界面" width="1360" height="880" loading="lazy" decoding="async" />
+          <div class="gallery-card-body">
+            <h3>词汇提炼与高风险草稿门禁</h3>
+            <p class="muted">自动提炼业务词汇表，凡涉及价格、折扣、交付期限等条款强制拦截进待审核草稿，逐条确认后才上线。</p>
+            <span class="gallery-card-link">查看第 4 章 · 验收与试跑 →</span>
+          </div>
+        </a>
+        <a class="gallery-card" href="./user-guide.html#ch6">
+          <img src="./assets/user-guide/08-sparring-quality-dashboard.png" alt="测试与评分工作区：模拟对练、# 指令纠偏与 1-5 星质量仪表盘" width="1360" height="880" loading="lazy" decoding="async" />
+          <div class="gallery-card-body">
+            <h3>模拟对练与 1–5★ 质量看板</h3>
+            <p class="muted">左侧零风险模拟客户发问并用 <code>#</code> 当场纠偏；右侧汇总 5 维自动体检均分、人工星级与一键回归验证。</p>
+            <span class="gallery-card-link">查看第 6 章 · 打分与优化 →</span>
+          </div>
+        </a>
       </div>
     </section>
 

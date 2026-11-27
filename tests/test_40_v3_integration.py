@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import re
 import shutil
@@ -63,6 +64,12 @@ class V3ZeroFDEIntegrationTest(unittest.TestCase):
             shutil.copy2(
                 REPO_ROOT / "docs" / "user-guide.html",
                 bundle / "docs" / "user-guide.html",
+            )
+        if (REPO_ROOT / "docs" / "assets" / "user-guide").is_dir():
+            shutil.copytree(
+                REPO_ROOT / "docs" / "assets" / "user-guide",
+                bundle / "docs" / "assets" / "user-guide",
+                dirs_exist_ok=True,
             )
         (bundle / CUSTOMER_BUILD_MARKER).write_text("clean\n", encoding="utf-8")
         return bundle
@@ -418,6 +425,53 @@ class V3ZeroFDEIntegrationTest(unittest.TestCase):
                         re.search(rf"(?<![A-Za-z0-9_]){re.escape(term)}(?![A-Za-z0-9_])", visible_text, re.IGNORECASE),
                         f"Banned engineering term found in /user-guide visible text: {term}",
                     )
+
+            # Static user-guide screenshot assets (all 10 PNGs + traversal guards)
+            expected_shots = (
+                "01-permissions-modal.png",
+                "02-wizard-step1-identity.png",
+                "03-wizard-step2-discover.png",
+                "04-wizard-step3-review.png",
+                "05-wizard-step4-simulate.png",
+                "06-contacts-test-friend.png",
+                "07-composer-hashtag-and-rating.png",
+                "08-sparring-quality-dashboard.png",
+                "09-hosting-workbench-home.png",
+                "10-knowledge-base.png",
+            )
+            assets_dir = REPO_ROOT / "docs" / "assets" / "user-guide"
+            for idx, shot_name in enumerate(expected_shots):
+                shot_path = assets_dir / shot_name
+                self.assertTrue(shot_path.is_file(), f"Missing user-guide screenshot: {shot_path}")
+                self.assertGreater(shot_path.stat().st_size, 0, f"Empty screenshot: {shot_path}")
+                with urlopen(f"{base}/assets/user-guide/{shot_name}", timeout=5.0) as asset_resp:
+                    self.assertEqual(asset_resp.status, 200)
+                    self.assertEqual(asset_resp.headers.get("Content-Type"), "image/png")
+                    if idx == 0:
+                        self.assertEqual(asset_resp.headers.get("Cache-Control"), "public, max-age=3600")
+                    asset_bytes = asset_resp.read()
+                self.assertTrue(asset_bytes.startswith(b"\x89PNG"), f"Invalid PNG signature for {shot_name}")
+                self.assertEqual(int(asset_resp.headers.get("Content-Length") or "0"), len(asset_bytes))
+
+            for bad_path in (
+                "/assets/user-guide/../USER_GUIDE.md",
+                "/assets/user-guide/%2e%2e/engine.py",
+                "/assets/user-guide/%2e%2e%2fUSER_GUIDE.md",
+                "/assets/user-guide/..%5cengine.py",
+                "/assets/user-guide/01-permissions-modal.txt",
+                "/assets/user-guide/.hidden.png",
+                "/assets/user-guide/nonexistent-shot.png",
+            ):
+                conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5.0)
+                try:
+                    conn.request("GET", bad_path)
+                    bad_resp = conn.getresponse()
+                    bad_body = bad_resp.read().decode("utf-8", errors="replace")
+                finally:
+                    conn.close()
+                self.assertIn(bad_resp.status, (400, 403, 404), f"Unexpected status for {bad_path}: {bad_resp.status}")
+                self.assertNotIn("WeChatControlEngine", bad_body)
+                self.assertNotIn("WeChat Bot 使用者操作手册", bad_body)
 
             # User guide markdown route
             st, guide = _http_json(f"{base}/api/docs/user-guide")

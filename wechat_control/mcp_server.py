@@ -6,6 +6,7 @@ import hmac
 from html import escape as _escape_html
 import json
 import os
+import re
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -2291,16 +2292,19 @@ def create_http_server(
             *,
             private: bool = False,
             no_cache: bool = False,
+            cache_control: Optional[str] = None,
         ) -> None:
             self.send_response(code)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(data)))
-            if no_cache and not private:
-                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             if private:
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'")
+            elif no_cache:
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            elif cache_control:
+                self.send_header("Cache-Control", cache_control)
             self.end_headers()
             self.wfile.write(data)
 
@@ -2338,6 +2342,61 @@ def create_http_server(
                         self._send_html(200, str(guide_res["html"]))
                     else:
                         self._send_html(200, _render_user_guide_fallback_html(engine))
+                elif path.startswith("/assets/user-guide/"):
+                    raw_rel = path[len("/assets/user-guide/") :]
+                    raw_name = unquote(raw_rel)
+                    ext = Path(raw_name).suffix.lower() if raw_name else ""
+                    mime_map = {
+                        ".png": "image/png",
+                        ".jpg": "image/jpeg",
+                        ".jpeg": "image/jpeg",
+                        ".webp": "image/webp",
+                    }
+                    if (
+                        not raw_name
+                        or raw_name.startswith(".")
+                        or "/" in raw_name
+                        or "\\" in raw_name
+                        or ".." in raw_name
+                        or "\x00" in raw_name
+                        or "%" in raw_name
+                        or Path(raw_name).name != raw_name
+                        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", raw_name)
+                        or ext not in mime_map
+                    ):
+                        self._send_json(400, {"ok": False, "error": "Invalid user-guide asset filename"})
+                        return
+                    candidate_dirs: List[Path] = []
+                    seen_dirs: set[Path] = set()
+                    for root_attr in ("bundle_root", "plugin_root"):
+                        root_val = getattr(engine, root_attr, None)
+                        if root_val:
+                            try:
+                                d_res = (Path(root_val) / "docs" / "assets" / "user-guide").resolve()
+                            except OSError:
+                                continue
+                            if d_res not in seen_dirs:
+                                seen_dirs.add(d_res)
+                                candidate_dirs.append(d_res)
+                    found_file: Optional[Path] = None
+                    for base_resolved in candidate_dirs:
+                        try:
+                            cand = (base_resolved / raw_name).resolve()
+                            if cand.parent == base_resolved and cand.is_file():
+                                found_file = cand
+                                break
+                        except OSError:
+                            continue
+                    if found_file is None:
+                        self._send_json(404, {"ok": False, "error": f"User guide asset not found: {raw_name}"})
+                        return
+                    self._send_bytes(
+                        200,
+                        found_file.read_bytes(),
+                        mime_map[ext],
+                        cache_control="public, max-age=3600",
+                    )
+                    return
                 elif path == "/api/workos/harness":
                     self._send_json(200, engine.get_workos_harness_summary())
                 elif path == "/api/workos/windows":

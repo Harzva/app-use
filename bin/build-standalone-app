@@ -97,6 +97,10 @@ build_bundle() {
       cp "$_doc" "$res_dir/docs/"
     fi
   done
+  if [[ -d "$ROOT_DIR/docs/assets/user-guide" ]]; then
+    mkdir -p "$res_dir/docs/assets/user-guide"
+    rsync -a "$ROOT_DIR/docs/assets/user-guide/" "$res_dir/docs/assets/user-guide/"
+  fi
   # App 自足启动：打包 bin/（wechat-bot launcher 从自身路径推导 PLUGIN_ROOT，装到任何机器都能拉起 console）
   mkdir -p "$res_dir/bin"
   cp "$ROOT_DIR"/bin/wechat-bot "$res_dir/bin/wechat-bot"
@@ -168,6 +172,7 @@ manifest = {
         "Contents/Resources/docs/USER_GUIDE.md",
         "Contents/Resources/docs/user-guide.html",
         "Contents/Resources/docs/DEVELOPER_GUIDE.md",
+        "Contents/Resources/docs/assets/user-guide/*",
         "Contents/Resources/vendor/salescrm/",
         "Contents/Resources/dsh.plugin.json",
         "Contents/Resources/plugin.manifest.json",
