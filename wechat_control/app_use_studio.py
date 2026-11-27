@@ -2089,6 +2089,13 @@ class AppUseStudio:
                 current_action="初始化执行",
             )
 
+        _guard_bypass_ctx = (
+            self.engine.bypass_human_guard(True)
+            if (not dry_run and not respect_human_guard and hasattr(self.engine, "bypass_human_guard"))
+            else None
+        )
+        if _guard_bypass_ctx is not None:
+            _guard_bypass_ctx.__enter__()
         try:
             for raw_st in raw_steps:
                 st = _substitute_params(raw_st, merged_params)
@@ -2821,6 +2828,8 @@ class AppUseStudio:
             lane_ok = True
             lane_final_state = "paused_for_human" if paused_for_human else "done"
         finally:
+            if _guard_bypass_ctx is not None:
+                _guard_bypass_ctx.__exit__(None, None, None)
             if not dry_run:
                 self._lanes.finish_lane(run_id, ok=lane_ok, state=lane_final_state, error=lane_error)
 

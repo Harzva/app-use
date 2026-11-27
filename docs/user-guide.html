@@ -1,0 +1,1955 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <title>WeChat Bot 使用者操作手册 — v3.0.0</title>
+  <style>
+    :root {
+      --bg-light: #ffffff;
+      --bg-dark: #0d1117;
+      --surface-light: #f6f8fa;
+      --surface-dark: #161b22;
+      --card-light: #ffffff;
+      --card-dark: #11161d;
+      --text-light: #111827;
+      --text-dark: #e6edf3;
+      --muted-light: #4b5563;
+      --muted-dark: #9da7b3;
+      --border-light: #d0d7de;
+      --border-dark: #30363d;
+      --accent-light: #111827;
+      --accent-dark: #f0f6fc;
+      --accent-text-light: #ffffff;
+      --accent-text-dark: #0d1117;
+      --ok-light: #166534;
+      --ok-dark: #4ade80;
+      --ok-bg-light: #f0fdf4;
+      --ok-bg-dark: #0f2419;
+      --warn-light: #92400e;
+      --warn-dark: #fbbf24;
+      --warn-bg-light: #fffbeb;
+      --warn-bg-dark: #261d0c;
+      --danger-light: #991b1b;
+      --danger-dark: #fca5a5;
+      --danger-bg-light: #fef2f2;
+      --danger-bg-dark: #2a1215;
+      --hover-light: #eef2f6;
+      --hover-dark: #1f2630;
+      --scrollbar-track-light: #f1f3f5;
+      --scrollbar-track-dark: #161b22;
+      --scrollbar-thumb-light: #6b7280;
+      --scrollbar-thumb-dark: #8b949e;
+
+      --bg: var(--bg-light);
+      --surface: var(--surface-light);
+      --card: var(--card-light);
+      --text: var(--text-light);
+      --muted: var(--muted-light);
+      --border: var(--border-light);
+      --accent-color: var(--accent-light);
+      --accent-text: var(--accent-text-light);
+      --ok: var(--ok-light);
+      --ok-bg: var(--ok-bg-light);
+      --warn: var(--warn-light);
+      --warn-bg: var(--warn-bg-light);
+      --danger: var(--danger-light);
+      --danger-bg: var(--danger-bg-light);
+      --color-hover: var(--hover-light);
+      --scrollbar-track: var(--scrollbar-track-light);
+      --scrollbar-thumb: var(--scrollbar-thumb-light);
+
+      color-scheme: light dark;
+      scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: var(--bg-dark);
+        --surface: var(--surface-dark);
+        --card: var(--card-dark);
+        --text: var(--text-dark);
+        --muted: var(--muted-dark);
+        --border: var(--border-dark);
+        --accent-color: var(--accent-dark);
+        --accent-text: var(--accent-text-dark);
+        --ok: var(--ok-dark);
+        --ok-bg: var(--ok-bg-dark);
+        --warn: var(--warn-dark);
+        --warn-bg: var(--warn-bg-dark);
+        --danger: var(--danger-dark);
+        --danger-bg: var(--danger-bg-dark);
+        --color-hover: var(--hover-dark);
+        --scrollbar-track: var(--scrollbar-track-dark);
+        --scrollbar-thumb: var(--scrollbar-thumb-dark);
+      }
+    }
+
+    @supports (color: light-dark(white, black)) {
+      :root {
+        --bg: light-dark(var(--bg-light), var(--bg-dark));
+        --surface: light-dark(var(--surface-light), var(--surface-dark));
+        --card: light-dark(var(--card-light), var(--card-dark));
+        --text: light-dark(var(--text-light), var(--text-dark));
+        --muted: light-dark(var(--muted-light), var(--muted-dark));
+        --border: light-dark(var(--border-light), var(--border-dark));
+        --accent-color: light-dark(var(--accent-light), var(--accent-dark));
+        --accent-text: light-dark(var(--accent-text-light), var(--accent-text-dark));
+        --ok: light-dark(var(--ok-light), var(--ok-dark));
+        --ok-bg: light-dark(var(--ok-bg-light), var(--ok-bg-dark));
+        --warn: light-dark(var(--warn-light), var(--warn-dark));
+        --warn-bg: light-dark(var(--warn-bg-light), var(--warn-bg-dark));
+        --danger: light-dark(var(--danger-light), var(--danger-dark));
+        --danger-bg: light-dark(var(--danger-bg-light), var(--danger-bg-dark));
+        --color-hover: light-dark(var(--hover-light), var(--hover-dark));
+        --scrollbar-track: light-dark(var(--scrollbar-track-light), var(--scrollbar-track-dark));
+        --scrollbar-thumb: light-dark(var(--scrollbar-thumb-light), var(--scrollbar-thumb-dark));
+      }
+    }
+
+    html {
+      scroll-behavior: smooth;
+      accent-color: var(--accent-color);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", system-ui, sans-serif;
+      font-size: 15.5px;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a {
+      color: var(--text);
+      text-underline-offset: 3px;
+    }
+
+    a:focus-visible,
+    button:focus-visible,
+    summary:focus-visible,
+    [tabindex]:focus-visible {
+      outline: 2px solid var(--accent-color);
+      outline-offset: 2px;
+    }
+
+    /* Sticky Top Bar */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      border-bottom: 1px solid var(--border);
+      background-color: var(--bg);
+    }
+
+    .topbar-inner {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .brand {
+      font-weight: 650;
+      font-size: 15.5px;
+      text-decoration: none;
+      letter-spacing: -0.01em;
+    }
+
+    .version-pill {
+      display: inline-block;
+      padding: 2px 8px;
+      font-size: 12px;
+      font-weight: 500;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background-color: var(--surface);
+      color: var(--muted);
+    }
+
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 13px;
+      border-radius: 6px;
+      font-size: 13.5px;
+      font-weight: 500;
+      text-decoration: none;
+      border: 1px solid var(--border);
+      background-color: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      line-height: 1.3;
+    }
+
+    .btn:hover {
+      background-color: var(--color-hover);
+    }
+
+    .btn-primary {
+      background-color: var(--accent-color);
+      color: var(--accent-text);
+      border-color: var(--accent-color);
+    }
+
+    .btn-primary:hover {
+      opacity: 0.9;
+      background-color: var(--accent-color);
+    }
+
+    /* Two-column Handbook Layout */
+    .layout {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px 24px 72px;
+      display: block;
+    }
+
+    .sidebar {
+      display: none;
+    }
+
+    .content {
+      max-width: 780px;
+      min-width: 0;
+    }
+
+    @media (min-width: 960px) {
+      .layout {
+        display: grid;
+        grid-template-columns: 260px minmax(0, 1fr);
+        gap: 44px;
+        align-items: start;
+      }
+
+      .sidebar {
+        display: block;
+        position: sticky;
+        top: 76px;
+        max-height: calc(100vh - 96px);
+        overflow-y: auto;
+        padding-inline-end: 6px;
+        scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+      }
+
+      .mobile-toc {
+        display: none;
+      }
+    }
+
+    .toc-title {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      margin: 0 0 10px;
+      padding-inline-start: 12px;
+    }
+
+    .toc-nav {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      border-inline-start: 1px solid var(--border);
+      scroll-target-group: auto;
+    }
+
+    .toc-nav a {
+      display: block;
+      padding: 6px 12px;
+      margin-inline-start: -1px;
+      border-inline-start: 2px solid transparent;
+      border-radius: 0 6px 6px 0;
+      font-size: 13.5px;
+      line-height: 1.45;
+      color: var(--muted);
+      text-decoration: none;
+    }
+
+    .toc-nav a:hover {
+      color: var(--text);
+      background-color: var(--surface);
+    }
+
+    /* Use :is() so older browsers without :target-current still apply .target-current */
+    .toc-nav a:is(:target-current, .target-current) {
+      color: var(--text);
+      font-weight: 600;
+      border-inline-start-color: var(--accent-color);
+      background-color: var(--surface);
+    }
+
+    /* Mobile Collapsible TOC */
+    .mobile-toc {
+      margin-bottom: 24px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background-color: var(--surface);
+    }
+
+    .mobile-toc summary {
+      padding: 12px 16px;
+      font-size: 14px;
+      font-weight: 600;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+
+    .mobile-toc summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .mobile-toc summary::before {
+      content: "";
+      inline-size: 0.9em;
+      block-size: 0.9em;
+      flex-shrink: 0;
+      background-color: currentColor;
+      mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.72 5.72a.75.75 0 0 1 1.06 0L8 8.94l3.22-3.22a.75.75 0 1 1 1.06 1.06l-3.75 3.75a.75.75 0 0 1-1.06 0L3.72 6.78a.75.75 0 0 1 0-1.06Z'/%3E%3C/svg%3E") no-repeat center / contain;
+      rotate: -90deg;
+    }
+
+    .mobile-toc[open] > summary::before {
+      rotate: 0deg;
+    }
+
+    .mobile-toc-list {
+      margin: 0;
+      padding: 4px 16px 14px 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 14px;
+      border-top: 1px solid var(--border);
+    }
+
+    .mobile-toc-list a {
+      text-decoration: none;
+      color: var(--muted);
+      padding: 2px 0;
+    }
+
+    .mobile-toc-list a:hover {
+      color: var(--text);
+    }
+
+    /* Typography & Sections */
+    .doc-hero {
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 28px;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 30px;
+      line-height: 1.25;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .hero-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 14px;
+      padding: 14px 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background-color: var(--surface);
+      font-size: 14.5px;
+    }
+
+    section[id^="ch"] {
+      scroll-margin-top: 76px;
+      padding-top: 8px;
+      margin-bottom: 44px;
+      outline: none;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+      font-size: 22px;
+      line-height: 1.35;
+      font-weight: 650;
+      letter-spacing: -0.01em;
+    }
+
+    h3 {
+      margin: 26px 0 10px;
+      font-size: 17px;
+      line-height: 1.4;
+      font-weight: 600;
+    }
+
+    h4 {
+      margin: 20px 0 8px;
+      font-size: 15.5px;
+      font-weight: 600;
+    }
+
+    p {
+      margin: 0 0 12px;
+    }
+
+    ul, ol {
+      margin: 0 0 12px;
+      padding-inline-start: 22px;
+    }
+
+    li + li {
+      margin-top: 5px;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background-color: var(--surface);
+    }
+
+    kbd {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12.5px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background-color: var(--surface);
+      box-shadow: inset 0 -1px 0 var(--border);
+    }
+
+    /* Callouts */
+    .callout {
+      margin: 14px 0;
+      padding: 12px 16px;
+      border: 1px solid var(--border);
+      border-inline-start: 3px solid var(--accent-color);
+      border-radius: 8px;
+      background-color: var(--surface);
+      font-size: 14.5px;
+    }
+
+    .callout-warn {
+      border-inline-start-color: var(--warn);
+      background-color: var(--warn-bg);
+    }
+
+    .callout-danger {
+      border-inline-start-color: var(--danger);
+      background-color: var(--danger-bg);
+    }
+
+    .callout-ok {
+      border-inline-start-color: var(--ok);
+      background-color: var(--ok-bg);
+    }
+
+    .callout p:last-child,
+    .callout ul:last-child {
+      margin-bottom: 0;
+    }
+
+    /* 4-part Step Cards */
+    .step-card {
+      margin: 14px 0 20px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background-color: var(--card);
+      overflow: hidden;
+    }
+
+    .step-row {
+      display: grid;
+      grid-template-columns: 140px minmax(0, 1fr);
+      gap: 14px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      align-items: start;
+    }
+
+    .step-row:last-child {
+      border-bottom: none;
+    }
+
+    .step-row-done {
+      background-color: var(--ok-bg);
+    }
+
+    .step-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      padding-top: 2px;
+    }
+
+    .step-row-done .step-label {
+      color: var(--ok);
+    }
+
+    .step-body {
+      min-width: 0;
+      font-size: 14.5px;
+    }
+
+    .step-body > :first-child {
+      margin-top: 0;
+    }
+
+    .step-body > :last-child {
+      margin-bottom: 0;
+    }
+
+    @media (max-width: 640px) {
+      .step-row {
+        grid-template-columns: 1fr;
+        gap: 6px;
+        padding: 12px 14px;
+      }
+    }
+
+    /* 4-Step Pipeline Strip */
+    .wizard-flow {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 8px;
+      margin: 14px 0;
+    }
+
+    .wizard-pill {
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background-color: var(--surface);
+      font-size: 13.5px;
+      font-weight: 600;
+      text-align: center;
+    }
+
+    /* Feature / Guard Grid */
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+      margin: 14px 0;
+    }
+
+    .info-card {
+      padding: 14px 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background-color: var(--surface);
+      font-size: 14.5px;
+    }
+
+    .info-card strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    /* Responsive Table (sticky headers + @container stacked fallback) */
+    .table-wrapper {
+      overflow: auto;
+      max-inline-size: 100%;
+      max-block-size: min(640px, 82vh);
+      container-type: inline-size;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background-color: var(--bg);
+      margin: 14px 0 22px;
+      scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 14px;
+      text-align: left;
+    }
+
+    caption {
+      text-align: left;
+      padding: 10px 14px;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      background-color: var(--surface);
+    }
+
+    thead {
+      position: sticky;
+      inset-block-start: 0;
+      z-index: 2;
+      background-color: var(--surface);
+    }
+
+    th,
+    td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    thead th {
+      font-weight: 600;
+      white-space: nowrap;
+      border-bottom: 1px solid var(--border);
+    }
+
+    tbody th {
+      position: sticky;
+      inset-inline-start: 0;
+      z-index: 1;
+      background-color: var(--bg);
+      font-weight: 600;
+      border-inline-end: 1px solid var(--border);
+      min-width: 155px;
+    }
+
+    tbody tr:last-child th,
+    tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    #directive-table {
+      --col-2: "直接复制并改写这句话发送";
+      --col-3: "发送后 AI 会立刻做什么";
+    }
+
+    @container (width < 640px) {
+      .table-wrapper {
+        border: none;
+        background-color: transparent;
+      }
+
+      table,
+      thead,
+      tbody,
+      tr,
+      th,
+      td {
+        display: block;
+      }
+
+      caption {
+        border: 1px solid var(--border);
+        border-radius: 8px 8px 0 0;
+      }
+
+      thead {
+        display: none;
+      }
+
+      tr {
+        margin-block-end: 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background-color: var(--bg);
+        overflow: hidden;
+      }
+
+      tbody th {
+        position: sticky;
+        inset-block-start: 0;
+        z-index: 2;
+        background-color: var(--surface);
+        border-inline-end: none;
+        border-bottom: 1px solid var(--border);
+      }
+
+      td {
+        white-space: normal;
+      }
+
+      #directive-table td:nth-child(2)::before,
+      #directive-table td:nth-child(3)::before {
+        display: block;
+        font-size: 12.5px;
+        font-weight: 600;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+
+      #directive-table td:nth-child(2)::before {
+        content: var(--col-2) "：";
+      }
+
+      #directive-table td:nth-child(3)::before {
+        content: var(--col-3) "：";
+      }
+    }
+
+    /* Copyable # Command Chips */
+    .cmd-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .cmd-chip {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background-color: var(--surface);
+    }
+
+    .cmd-chip code {
+      border: none;
+      background: transparent;
+      padding: 0;
+      font-size: 13px;
+      line-height: 1.5;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+
+    .copy-chip-btn {
+      flex-shrink: 0;
+      padding: 3px 9px;
+      font-size: 12px;
+      font-weight: 500;
+      border-radius: 5px;
+      border: 1px solid var(--border);
+      background-color: var(--bg);
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    .copy-chip-btn:hover {
+      background-color: var(--color-hover);
+    }
+
+    .copy-chip-btn.copied {
+      color: var(--ok);
+      border-color: var(--ok);
+      background-color: var(--ok-bg);
+    }
+
+    .cmd-note {
+      font-size: 12.5px;
+      color: var(--muted);
+    }
+
+    /* Accordion (native <details> / <summary>) */
+    .accordion {
+      margin-top: 18px;
+    }
+
+    .accordion-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    .accordion-header h3 {
+      margin: 0;
+    }
+
+    .btn-toggle-all {
+      padding: 5px 12px;
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background-color: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    .btn-toggle-all:hover {
+      background-color: var(--color-hover);
+    }
+
+    [command="--toggle-all"][aria-expanded="true"] .expand-label,
+    [command="--toggle-all"][aria-expanded="false"] .collapse-label {
+      display: none;
+    }
+
+    .faq-item {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background-color: var(--card);
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+
+    .faq-item summary {
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 13px 16px;
+      font-weight: 600;
+      font-size: 15px;
+      line-height: 1.45;
+      cursor: pointer;
+    }
+
+    .faq-item summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .faq-item summary:where(:not([aria-disabled="true"])):hover {
+      background-color: var(--color-hover);
+    }
+
+    .faq-item summary::before {
+      content: "";
+      inline-size: 1em;
+      block-size: 1em;
+      flex-shrink: 0;
+      background-color: currentColor;
+      mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.72 5.72a.75.75 0 0 1 1.06 0L8 8.94l3.22-3.22a.75.75 0 1 1 1.06 1.06l-3.75 3.75a.75.75 0 0 1-1.06 0L3.72 6.78a.75.75 0 0 1 0-1.06Z'/%3E%3C/svg%3E") no-repeat center / contain;
+      rotate: -90deg;
+    }
+
+    .faq-item summary:dir(rtl)::before {
+      rotate: 90deg;
+    }
+
+    .faq-item[open] > summary::before {
+      rotate: 0deg;
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .faq-item summary::before,
+      .mobile-toc summary::before {
+        transition: rotate 0.2s;
+      }
+    }
+
+    .faq-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 24px;
+      height: 22px;
+      padding: 0 6px;
+      border-radius: 5px;
+      border: 1px solid var(--border);
+      background-color: var(--surface);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      flex-shrink: 0;
+    }
+
+    .faq-body {
+      padding: 0 16px 14px 44px;
+      font-size: 14.5px;
+      color: var(--text);
+    }
+
+    .faq-body p:last-child {
+      margin-bottom: 0;
+    }
+
+    /* Slide up/down animation keeping closed details findable (content-visibility: hidden, not display: none) */
+    .faq-item::details-content {
+      interpolate-size: allow-keywords;
+      overflow: clip;
+      contain: layout;
+    }
+
+    .faq-item:not([open])::details-content {
+      block-size: 0;
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .faq-item::details-content {
+        transition: block-size, content-visibility, display;
+        transition-duration: 0.28s;
+        transition-timing-function: ease-in-out;
+        transition-behavior: allow-discrete;
+      }
+    }
+
+    /* Legacy WebKit scrollbar fallback */
+    @supports not (scrollbar-color: auto) {
+      :root,
+      .sidebar,
+      .table-wrapper {
+        scrollbar-width: auto;
+      }
+      .sidebar::-webkit-scrollbar,
+      .table-wrapper::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+      }
+      .sidebar::-webkit-scrollbar-thumb,
+      .table-wrapper::-webkit-scrollbar-thumb {
+        background: var(--scrollbar-thumb);
+        border-radius: 5px;
+      }
+      .sidebar::-webkit-scrollbar-track,
+      .table-wrapper::-webkit-scrollbar-track {
+        background: var(--scrollbar-track);
+      }
+    }
+
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 20px 24px;
+      max-width: 1180px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 13.5px;
+      color: var(--muted);
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand-group">
+        <a class="brand" href="#top">WeChat Bot 使用者操作手册</a>
+        <span class="version-pill">v3.0.0 零配置版</span>
+      </div>
+      <div class="topbar-actions">
+        <a class="btn" href="./index.html">返回项目首页</a>
+        <a class="btn btn-primary" href="https://github.com/Harzva/app-use/releases/tag/v3.0.0" target="_blank" rel="noopener">⬇️ 下载 macOS 安装包 v3.0.0</a>
+      </div>
+    </div>
+  </header>
+
+  <div class="layout" id="top">
+    <aside class="sidebar" aria-label="手册目录">
+      <p class="toc-title">目录导航</p>
+      <nav class="toc-nav" aria-label="章节目录">
+        <a href="#ch1">1. 3 分钟安装与开启 2 项权限</a>
+        <a href="#ch2">2. 首次打开：4 步初始化助手</a>
+        <a href="#ch3">3. 让软件自己学你的业务</a>
+        <a href="#ch4">4. 验收词汇表与话术库</a>
+        <a href="#ch5">5. 用测试小号把 AI 练熟再上岗</a>
+        <a href="#ch6">6. 给 AI 回复打分与持续优化</a>
+        <a href="#ch7">7. 从影子辅助切换到一键托管</a>
+        <a href="#ch8">8. 本地隐私与 10 大常见问题</a>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <details class="mobile-toc">
+        <summary>📑 目录导航（点击展开全 8 章）</summary>
+        <ol class="mobile-toc-list">
+          <li><a href="#ch1">3 分钟安装软件与开启 2 项 macOS 权限</a></li>
+          <li><a href="#ch2">首次打开：4 步初始化你的专属销售助手</a></li>
+          <li><a href="#ch3">让软件自己学你的业务（3 种方式 + 挑样本技巧）</a></li>
+          <li><a href="#ch4">验收你的专属词汇表和话术库</a></li>
+          <li><a href="#ch5">用测试小号把 AI 练熟再上岗（含 # 指令速查表）</a></li>
+          <li><a href="#ch6">给 AI 回复打分与持续优化</a></li>
+          <li><a href="#ch7">从「影子辅助模式」平滑切换到「好友一键托管」</a></li>
+          <li><a href="#ch8">数据全本地隐私说明 &amp; 10 大常见问题快速排查</a></li>
+        </ol>
+      </details>
+
+      <header class="doc-hero">
+        <h1>WeChat Bot 使用者操作手册</h1>
+        <div class="hero-meta">
+          <div><strong>适用对象</strong>：企业老板、销售负责人、一线销售顾问、私域运营人员</div>
+          <div><strong>阅读前提</strong>：无需任何编程或技术背景，照着每一步的「<strong>你要做什么 → 点哪里 → 屏幕会看到什么 → 完成标志</strong>」即可在 10 分钟内完成安装、学习业务、测试练兵并安全上线。</div>
+        </div>
+      </header>
+
+      <!-- Chapter 1 -->
+      <section id="ch1" tabindex="-1">
+        <h2>1. 3 分钟安装软件与开启 2 项 macOS 权限</h2>
+        <p>WeChat Bot 通过模拟正常人工查看和输入来协助你回复微信消息，因此不需要破解微信，只需要获得苹果电脑系统的 <strong>2 项基础授权</strong>：<strong>辅助功能</strong> 与 <strong>屏幕录制</strong>。</p>
+
+        <h3>1.1 安装软件到「应用程序」</h3>
+        <div class="step-card">
+          <div class="step-row">
+            <div class="step-label">你要做什么</div>
+            <div class="step-body">把下载好的 <code>WeChat Bot.app</code> 放到电脑的「应用程序」目录中，避免在临时下载目录或外接硬盘中直接运行。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">点哪里</div>
+            <div class="step-body">
+              <ol>
+                <li>在「访达（Finder）」中打开你下载软件的文件夹（或安装包窗口）。</li>
+                <li>将 <code>WeChat Bot</code> 图标拖入左侧或右侧的 <strong>「应用程序（Applications）」</strong> 文件夹。</li>
+                <li>双击「应用程序」里的 <strong>WeChat Bot</strong> 启动软件（若系统首次提示“来自身份不明开发者”或“确认打开”，请打开苹果菜单 <code></code> → <strong>系统设置</strong> → <strong>隐私与安全性</strong>，在底部点 <strong>「仍要打开」</strong>）。</li>
+              </ol>
+            </div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">屏幕会看到什么</div>
+            <div class="step-body">WeChat Bot 主窗口打开；顶部状态栏会提示「正在连接工作台」，随后若缺少系统权限，屏幕中央会自动弹出 <strong>「需要授权以下权限才能正常使用 WeChat Bot」</strong> 引导窗口。</div>
+          </div>
+          <div class="step-row step-row-done">
+            <div class="step-label">✅ 完成标志</div>
+            <div class="step-body">你可以在苹果电脑的「应用程序」中看到 <code>WeChat Bot</code>，且能正常打开看到引导界面。</div>
+          </div>
+        </div>
+
+        <h3>1.2 开启第 1 项权限：辅助功能</h3>
+        <div class="callout">
+          <p><strong>为什么需要它</strong>？用来读取当前微信聊天窗口里的消息上下文，并在你确认发送或开启托管后，安全地把回复内容填入微信输入框。系统里的「系统事件控制」会随辅助功能一起生效，没有单独开关。</p>
+        </div>
+        <div class="step-card">
+          <div class="step-row">
+            <div class="step-label">你要做什么</div>
+            <div class="step-body">在 macOS 系统设置中为 <code>WeChat Bot</code> 打开「辅助功能」开关。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">点哪里</div>
+            <div class="step-body">
+              <ol>
+                <li>在弹出的授权引导窗口里，点击 <strong>「⚙️ 打开系统设置去授权」</strong>。</li>
+                <li>系统会自动跳转到 <strong>系统设置 → 隐私与安全性 → 辅助功能</strong>，同时屏幕上会出现一张贴靠在设置窗口旁的 <strong>小浮卡</strong>（上面写着 <code>WeChat Bot ⠿ 拖我</code>）。</li>
+                <li>如果列表里<strong>已经有</strong> <code>WeChat Bot</code>：直接把右侧开关拨成开启（蓝色/绿色）即可，可能需要输入一次电脑开机密码或指纹。</li>
+                <li>如果列表里<strong>还没有</strong> <code>WeChat Bot</code>：用鼠标按住小浮卡上的 <strong>「WeChat Bot ⠿ 拖我」</strong>，直接拖进系统设置的「辅助功能」应用列表里，再打开开关。</li>
+                <li>回到引导窗口或小浮卡，点击 <strong>「🔄 我已勾选，重新检查」</strong>（或 <strong>「我已打开开关 → 完成并生效」</strong>）。</li>
+              </ol>
+            </div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">屏幕会看到什么</div>
+            <div class="step-body">辅助功能状态变为绿色 <strong>「✅ 已授权」</strong>，小浮卡自动收起并自动切换到下一项未完成权限。</div>
+          </div>
+          <div class="step-row step-row-done">
+            <div class="step-label">✅ 完成标志</div>
+            <div class="step-body">「辅助功能」显示为「已授权」。</div>
+          </div>
+        </div>
+
+        <h3>1.3 开启第 2 项权限：屏幕录制</h3>
+        <div class="callout">
+          <p><strong>为什么需要它</strong>？用来识别微信会话列表里的未读红点、聊天图片、公众号/视频号卡片和窗口画面内容。</p>
+        </div>
+        <div class="step-card">
+          <div class="step-row">
+            <div class="step-label">你要做什么</div>
+            <div class="step-body">在 macOS 系统设置中为 <code>WeChat Bot</code> 打开「录屏与系统录音（屏幕录制）」开关，并按系统提示重启软件使其生效。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">点哪里</div>
+            <div class="step-body">
+              <ol>
+                <li>点击授权弹窗中的 <strong>「⚙️ 打开系统设置去授权」</strong>，自动打开 <strong>系统设置 → 隐私与安全性 → 录屏与系统录音</strong>。</li>
+                <li>在列表中找到 <code>WeChat Bot</code> 并打开开关（若列表里没有，同样把小浮卡上的 <strong>「WeChat Bot ⠿ 拖我」</strong> 拖入列表后打开开关）。</li>
+                <li>当系统弹出提示框询问 <strong>「“WeChat Bot”需要在退出并重新打开后才能录制屏幕内容」</strong> 时，点击 <strong>「退出并重新打开」</strong>。</li>
+              </ol>
+            </div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">屏幕会看到什么</div>
+            <div class="step-body">软件自动重启一次，启动后权限引导弹窗不再出现，顶部连接状态变为绿色 <strong>「工作台已就绪」</strong>（或正常显示工作台主界面）。</div>
+          </div>
+          <div class="step-row step-row-done">
+            <div class="step-label">✅ 完成标志</div>
+            <div class="step-body">两项权限均显示已授权，首页不再弹出红色/橙色权限警示。</div>
+          </div>
+        </div>
+        <div class="callout callout-ok">
+          <p><strong>💡 实用提示</strong>：如果以前装过老版本、系统设置里开关明明开着却还提示未授权，请在授权弹窗上展开「为什么开关已经打开，这里还显示未授权？」，点击 <strong>「重新登记授权」</strong> 即可一键清理旧版本绑定记录并重新登记当前版本。</p>
+        </div>
+      </section>
+
+      <!-- Chapter 2 -->
+      <section id="ch2" tabindex="-1">
+        <h2>2. 首次打开：4 步初始化你的专属销售助手</h2>
+        <p>第一次打开已授权的 WeChat Bot，软件会自动弹出 <strong>「✨ 快速训练向导（4 步打造你的专属销售助手）」</strong>（平时也可以随时在工作台顶部点击 <strong>「✨ 快速训练向导」</strong> 打开；顶部旁边的 <strong>「📖 使用手册」</strong> 按钮可随时在软件内翻看本手册）。</p>
+        <div class="callout">
+          <p><strong>重要说明</strong>：软件<strong>开箱即用，无需任何额外安装配置</strong>——不需要自己配代码环境、不需要额外装插件、也不需要手动写复杂规则，按向导顶部的 4 个步骤填完即可使用。</p>
+        </div>
+        <div class="wizard-flow" aria-label="4 步初始化流程">
+          <div class="wizard-pill">1 · 身份与行业包</div>
+          <div class="wizard-pill">2 · 发现聊天与资料</div>
+          <div class="wizard-pill">3 · 词汇与草稿验收</div>
+          <div class="wizard-pill">4 · 3 轮模拟试跑</div>
+        </div>
+
+        <h3>第 1 步（<code>1 · 身份与行业包</code>）：填好身份、产品、场景与测试小号</h3>
+        <div class="step-card">
+          <div class="step-row">
+            <div class="step-label">你要做什么</div>
+            <div class="step-body">告诉 AI 你是谁、卖什么、用哪套销售策略模板，并可顺手指定测试小号。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">点哪里</div>
+            <div class="step-body">
+              <p>在 <strong>「1 · 身份与行业包」</strong> 页面填写以下内容：</p>
+              <ol>
+                <li><strong>你的称呼 / 主账号名</strong>：例如 <code>陈经理</code>、<code>小林</code>（AI 对话中需要自称时会使用这个称呼）。</li>
+                <li><strong>企业 / 品牌名称</strong>：例如 <code>星河定制家居</code>。</li>
+                <li><strong>历史聊天里的常用名/别名（逗号分隔，帮助识别哪句是你说的）</strong>：例如 <code>Kevin-华东区, 小陈</code>（有助于导入聊天记录时准确区分「哪句话是你说的、哪句话是客户说的」）。</li>
+                <li><strong>一句话主营产品 / 业务简介</strong>：例如 <code>主打全屋环保实木定制与上门量尺设计，主要服务新房装修业主</code>。</li>
+                <li><strong>行业销售场景包</strong>：下拉选择 <strong>「通用私域与顾问式销售」</strong>（默认推荐，内置 9 个私域跟进阶段与实战打底话术）。</li>
+                <li><strong>测试好友名称（用于私下试跑与 # 指令调优）</strong>（选填）：例如填入你的微信小号 <code>测试小号</code>，系统会自动将管理员默认包含为「文件传输助手」，普通外部客户绝无权通过 <code>#</code> 指令指挥 AI。</li>
+                <li>点击右下角 <strong>「保存并进入第 2 步 →」</strong>。</li>
+              </ol>
+            </div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">屏幕会看到什么</div>
+            <div class="step-body">第 1 步标签变为已完成状态，向导自动切换到第 2 步 <strong>「2 · 发现聊天与资料」</strong>。</div>
+          </div>
+          <div class="step-row step-row-done">
+            <div class="step-label">✅ 完成标志</div>
+            <div class="step-body">进入第 2 步语料发现界面，专属身份与销售场景包已保存。</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Chapter 3 -->
+      <section id="ch3" tabindex="-1">
+        <h2>3. 让软件自己学你的业务（3 种方式 + 挑样本技巧）</h2>
+        <p>初始化到第 2 步 <strong>「2 · 发现聊天与资料」</strong> 后，你可以直接在这里让软件学习你的真实成交聊天记录和产品资料，随后也能随时在工作台补喂新资料。</p>
+        <div class="callout callout-ok">
+          <p><strong>💡 特别说明</strong>：<strong>无需安装额外 WeChatBridge 等第三方插件！</strong> 本软件已经内置聊天导出包解析与微信窗口直接读取能力，所有导入与学习操作都在软件内一站完成。</p>
+        </div>
+
+        <h3>方式 1：自动发现微信活跃客户并勾选学习（最省事）</h3>
+        <div class="step-card">
+          <div class="step-row">
+            <div class="step-label">你要做什么</div>
+            <div class="step-body">让软件扫描你当前微信里最近互动频繁、带有询价/方案/成交信号的好友会话，你只需打勾即可批量学习。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">点哪里</div>
+            <div class="step-body">
+              <ol>
+                <li>先确保电脑上的 <strong>微信</strong> 处于登录状态。</li>
+                <li>在向导第 2 步 <strong>「2 · 发现聊天与资料」</strong> 中，点右上角 <strong>「🔍 重新扫描会话与导出包」</strong>（首次进入第 2 步也会自动扫描）。</li>
+                <li>查看左侧 <strong>「活跃高价值微信会话」</strong> 列表——软件已经自动过滤掉「公众号」「服务号」「微信团队」「腾讯新闻」及你设置的「测试好友」，把带有<strong>询价、报价、方案、合同、交付、试用、对比</strong>等高价值信号的客户排在前面并标出推荐理由。</li>
+                <li>勾选你想让 AI 学习的 3–10 位代表性老客户或高意向客户，点击 <strong>「⚡ 开始自训练并提炼话术 →」</strong>（如果暂不训练想先体验，可点「跳过训练直接看话术」）。</li>
+              </ol>
+            </div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">屏幕会看到什么</div>
+            <div class="step-body">系统自动提炼行业词汇表与话术草稿，完成后自动跳到第 3 步 <strong>「3 · 词汇与草稿验收」</strong> 并展示本次提炼统计。</div>
+          </div>
+          <div class="step-row step-row-done">
+            <div class="step-label">✅ 完成标志</div>
+            <div class="step-body">第 3 步顶部显示本次生成的词汇条数与话术/草稿条数。</div>
+          </div>
+        </div>
+
+        <h3>方式 2：拖入或扫描微信「合并转发」的聊天记录（效果最深）</h3>
+        <div class="callout">
+          <p><strong>怎么从微信准备文件</strong>：在手机或电脑微信里打开一位老客户的聊天窗口 → 长按/多选你们之间最精彩的一段咨询成交对话 → 点 <strong>「合并转发」</strong>（或用电脑微信聊天记录导出功能）保存为 <code>.zip</code> 压缩包或 <code>聊天记录.txt</code> 文件。</p>
+        </div>
+        <div class="step-card">
+          <div class="step-row">
+            <div class="step-label">你要做什么</div>
+            <div class="step-body">把微信里以前聊得特别好的金牌成交对话，导出或合并转发成文件让软件学习。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">点哪里</div>
+            <div class="step-body">
+              <ol>
+                <li>在第 2 步右侧 <strong>「本地导出聊天包 (.zip / *聊天记录*.txt)」</strong> 列表中直接勾选扫描到的文件（系统会自动扫描你电脑的「下载」和「桌面」目录，绝不改动原文件），<strong>或者</strong>把本地文件路径填进下方 <strong>「补充聊天记录路径（可选）或粘贴产品资料 / FAQ 文本」</strong> 输入框中。</li>
+                <li>点击 <strong>「⚡ 开始自训练并提炼话术 →」</strong>（系统如果同时读取了 2 份以上不同会话，会自动对比交叉发言人猜出哪位是你自己，并结合你第 1 步填的别名合并识别）。</li>
+              </ol>
+            </div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">屏幕会看到什么</div>
+            <div class="step-body">系统自动把同一方连续发的碎气泡合并成完整的一问一答，自动遮蔽手机号、微信号、地址等隐私信息，并提炼出词汇表和话术草稿。</div>
+          </div>
+          <div class="step-row step-row-done">
+            <div class="step-label">✅ 完成标志</div>
+            <div class="step-body">进入第 3 步看到提取出的行业词汇与待验收草稿列表。</div>
+          </div>
+        </div>
+
+        <h3>方式 3：喂入产品资料、常见问答或价目表（补齐硬知识）</h3>
+        <div class="step-card">
+          <div class="step-row">
+            <div class="step-label">你要做什么</div>
+            <div class="step-body">把产品手册、规格参数表、报价说明、常见售后问答喂给 AI，避免它回答具体参数时瞎编。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">点哪里</div>
+            <div class="step-body">
+              <ul>
+                <li><strong>在向导中快速喂入</strong>：在第 2 步下方的文本框中直接粘贴产品介绍、常见问答或报价说明文本，点击 <strong>「⚡ 开始自训练并提炼话术 →」</strong> 一起提炼。</li>
+                <li><strong>日常随时补充文档</strong>：在主工作台 <strong>「对话」</strong> 底部操作栏点 <strong>「📄 喂资料入库」</strong>（或进入 <strong>「知识库」</strong> 标签页），把 <code>.pdf</code>、<code>.md</code>、<code>.txt</code> 格式的产品文档直接拖进去或粘贴长文本；策略选择保持默认的 <strong>「绑进知识库（推荐）」</strong>，点击拆解入库。</li>
+              </ul>
+            </div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">屏幕会看到什么</div>
+            <div class="step-body">软件自动把长文档拆分成清晰的「核心卖点」「规格参数」「常见问题」「注意事项」卡片，供你核对后保存。</div>
+          </div>
+          <div class="step-row step-row-done">
+            <div class="step-label">✅ 完成标志</div>
+            <div class="step-body">界面提示资料已拆解入库，在「知识库」标签页中可搜到对应产品条目的内容。</div>
+          </div>
+        </div>
+
+        <h3>附：如何挑选高质量样本（事半功倍的 4 条技巧）</h3>
+        <div class="info-grid">
+          <div class="info-card">
+            <strong>1. 优先选「从陌生到成交」的完整对话</strong>
+            包含客户质疑、你如何拆解价值、怎么回应预算问题、最后怎么收口下单的记录最值钱。
+          </div>
+          <div class="info-card">
+            <strong>2. 宁缺毋滥，3–10 个好客户胜过 100 个闲聊群</strong>
+            群聊水聊、纯“在吗/好的/谢谢/[表情]”会被系统自动过滤，但自己先挑出高质量私聊效果最好。
+          </div>
+          <div class="info-card">
+            <strong>3. 补充「典型被拒与挽回」对话</strong>
+            客户说“太贵了”“我再考虑一下”“问问合伙人”时你是怎么接住的，AI 学了这类样本最能提升成交率。
+          </div>
+          <div class="info-card">
+            <strong>4. 隐私无需担心</strong>
+            系统在学习前会自动把聊天里的手机号、邮箱、微信号、详细门牌地址和客户真实姓名替换为脱敏占位符，不会把张三的电话泄露给李四。
+          </div>
+        </div>
+      </section>
+
+      <!-- Chapter 4 -->
+      <section id="ch4" tabindex="-1">
+        <h2>4. 验收你的专属词汇表和话术库</h2>
+        <p>AI 从聊天记录和资料里学完后，<strong>不会直接盲目对外部客户乱用涉及钱和承诺的内容</strong>。在向导第 3 步 <strong>「3 · 词汇与草稿验收」</strong> 以及日常的 <strong>「知识库」</strong> 页面中，花 2 分钟做一次「出厂验收」。</p>
+
+        <h3>4.1 核对与删改行业词汇表</h3>
+        <div class="step-card">
+          <div class="step-row">
+            <div class="step-label">你要做什么</div>
+            <div class="step-body">检查 AI 从你过往聊天中提炼出的行业黑话、产品简称、型号别称，确保它真的听得懂行话、说得出内行话。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">点哪里</div>
+            <div class="step-body">
+              <ol>
+                <li>在向导第 3 步查看 <strong>「提炼业务词汇表」</strong> 展示的关键词标签；训练后也可随时在主工作台顶部进入 <strong>「知识库」</strong> 标签页，查看完整的词汇与话术列表。</li>
+                <li>对不准确的词条在知识库中点编辑修改定义或补充客户常说的同义词；没用的废词直接删掉或撤回。</li>
+              </ol>
+            </div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">屏幕会看到什么</div>
+            <div class="step-body">词汇标签与知识库卡片清晰列出词条名、解释与业务来源。</div>
+          </div>
+          <div class="step-row step-row-done">
+            <div class="step-label">✅ 完成标志</div>
+            <div class="step-body">核心产品名、套餐名、行业缩写都准确无误，无莫名其妙的错别词。</div>
+          </div>
+        </div>
+
+        <h3>4.2 重点核对「标红」的报价与承诺条款（安全门禁）</h3>
+        <div class="callout callout-warn">
+          <p><strong>为什么会标红</strong>？只要某条学出来的话术提到了<strong>具体金额数字、折扣比例、退款/退货条件、具体几天交付、免费赠送权益、绝对化效果保证</strong>，系统会强制设为 <strong>「待审核草稿」</strong>（带有风险标签提醒），必须由你亲自确认过才能上线，防止把给某个老客户的特批价当成公开统一报价发给所有人！</p>
+        </div>
+        <div class="step-card">
+          <div class="step-row">
+            <div class="step-label">你要做什么</div>
+            <div class="step-body">逐条审批系统自动拦截成「待审核发布草稿」的高风险条目。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">点哪里</div>
+            <div class="step-body">
+              <ol>
+                <li>在向导第 3 步的 <strong>「待审核发布草稿（含价格/折扣/承诺等高风险条款，需勾选取舍后发布）」</strong> 清单中逐条查看（也可在 <strong>「知识库」</strong> 中筛选草稿）。</li>
+                <li>核对标题和正文里的金额、折扣适用条件、交付周期是不是你的当前最新标准；需要微调前提条件的（例如“满 5 套才享 9 折”）直接在草稿框里改好字。</li>
+                <li>仅勾选确认无误的条目（确实不适合公开使用的取消勾选即可）。</li>
+              </ol>
+            </div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">屏幕会看到什么</div>
+            <div class="step-body">每张草稿卡片清楚标出触发的风险标签（如价格、折扣、交付承诺）与可编辑的标题/正文框。</div>
+          </div>
+          <div class="step-row step-row-done">
+            <div class="step-label">✅ 完成标志</div>
+            <div class="step-body">已核对全部高风险草稿并勾选取舍完成。</div>
+          </div>
+        </div>
+
+        <h3>4.3 一键发布上线，并先做 3 轮模拟试跑</h3>
+        <div class="step-card">
+          <div class="step-row">
+            <div class="step-label">你要做什么</div>
+            <div class="step-body">把核对确认好的草稿正式发布进知识库，并在软件内先试聊 3 轮看效果。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">点哪里</div>
+            <div class="step-body">
+              <ol>
+                <li>点击向导第 3 步右下角 <strong>「✅ 审核发布所选并试跑 →」</strong>，自动进入第 4 步 <strong>「4 · 3 轮模拟试跑」</strong>。</li>
+                <li>在第 4 步输入框里发几句客户常问的话（如“你们这套方案多少钱？”“能先看看案例吗？”），点击 <strong>「发送测试」</strong>。</li>
+                <li>满意后可点击 <strong>「前往「🧪 测试与评分」工作区」</strong> 继续深度练兵，或点击 <strong>「🎉 完成初始化」</strong> 回到主工作台。</li>
+              </ol>
+            </div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">屏幕会看到什么</div>
+            <div class="step-body">无需切到微信窗口，向导内立即展示 AI 结合新词汇与已发布话术生成的回复气泡。</div>
+          </div>
+          <div class="step-row step-row-done">
+            <div class="step-label">✅ 完成标志</div>
+            <div class="step-body">第 4 步试跑回复符合你的业务口径，顺利进入主工作台或「🧪 测试与评分」工作区。</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Chapter 5 -->
+      <section id="ch5" tabindex="-1">
+        <h2>5. 用测试小号把 AI 练熟再上岗（含 <code>#</code> 指令速查表）</h2>
+        <div class="callout callout-warn">
+          <p><strong>千万不要一上来就拿真客户试水！</strong> WeChat Bot 为你准备了零风险的「练兵沙盒」：你可以把自己的<strong>微信小号 / 同事微信号</strong>设为「🧪 测试好友」在真实微信里跟它对练，也可以直接在工作台顶部的 <strong>「🧪 测试与评分」</strong> 标签页内模拟买家连续发问，并用 <code>#</code> 井号随时当场纠偏。</p>
+        </div>
+
+        <h3>5.1 准备工作：把小号或同事设为「🧪 测试好友」，或打开测试工作区</h3>
+
+        <h4>方式 A：在真实微信里用测试小号对练</h4>
+        <div class="step-card">
+          <div class="step-row">
+            <div class="step-label">你要做什么</div>
+            <div class="step-body">把你用来测试的微信小号（或配合测试的同事）标记为「🧪 测试好友」。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">点哪里</div>
+            <div class="step-body">
+              <p>以下 3 处任意一处均可设置：</p>
+              <ol>
+                <li><strong>对话页顶部</strong>：在 <strong>「对话」</strong> 页选中该好友后，点击回复对象栏右侧的 <strong>「🧪 设为测试好友」</strong>（需要取消时再点 <strong>「🧪 取消测试好友」</strong>）。</li>
+                <li><strong>联系人页卡片</strong>：进入 <strong>「联系人」</strong> 标签页，在对应好友卡片上点击 <strong>「🧪 设为测试好友」</strong>。</li>
+                <li><strong>测试与评分工作区</strong>：进入顶部 <strong>「🧪 测试与评分」</strong> 标签页，在底部的 <strong>「3 · 测试好友管理 &amp; 对练日志打分」</strong> 右侧输入好友微信名，点击 <strong>「＋ 添加测试好友」</strong>。</li>
+              </ol>
+            </div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">屏幕会看到什么</div>
+            <div class="step-body">提示「已将『XX』设为测试好友（允许 # 指令纠偏，且不计入客户统计）」，该好友被添加到测试好友标签墙中，且<strong>自动与正式客户跟进名单隔离</strong>，不会污染真实客户的跟进记录与成交统计。</div>
+          </div>
+          <div class="step-row step-row-done">
+            <div class="step-label">✅ 完成标志</div>
+            <div class="step-body">测试好友名单中已出现你的小号或同事名称。</div>
+          </div>
+        </div>
+
+        <h4>方式 B：直接在软件内的「🧪 测试与评分」模拟窗对练</h4>
+        <div class="step-card">
+          <div class="step-row">
+            <div class="step-label">你要做什么</div>
+            <div class="step-body">不想切来切去切换两个微信账号时，直接在 WeChat Bot 里面做本地零风险模拟压测。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">点哪里</div>
+            <div class="step-body">点击主导航栏的 <strong>「🧪 测试与评分」</strong> 标签页，查看左侧 <strong>「1 · 模拟客户对练窗口（本地零风险试跑）」</strong>（可按需修改顶部的「测试好友/模拟客户名」与「模拟测试性格」下拉框）。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">屏幕会看到什么</div>
+            <div class="step-body">界面左侧呈现双气泡对练窗口，输入提问后点 <strong>「发送试跑」</strong>（或直接按回车键），1–3 秒内就会收到 AI 的回答以及自动体检得分。</div>
+          </div>
+          <div class="step-row step-row-done">
+            <div class="step-label">✅ 完成标志</div>
+            <div class="step-body">发送一句“你好，这个怎么卖”，模拟窗顺利回复并记录下本轮对话。</div>
+          </div>
+        </div>
+
+        <h3>5.2 像真实买家一样连续发问，并用 <code>#</code> 当场纠偏</h3>
+        <div class="step-card">
+          <div class="step-row">
+            <div class="step-label">你要做什么</div>
+            <div class="step-body">扮演最挑剔的买家连续发问（例如：“直接报个最低价”“太贵了，别家才一半”“周五能不能发货”“我考虑考虑”）。当你发现 AI 哪句话说得不对、太硬或露馅时，<strong>直接在下一条消息以 <code>#</code> 开头告诉它怎么改</strong>！</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">点哪里</div>
+            <div class="step-body">
+              <ul>
+                <li>在 <strong>「🧪 测试好友」</strong> 的微信聊天窗里直接发送 <code>#</code> 开头消息；</li>
+                <li><strong>或者</strong>在 <strong>「🧪 测试与评分 → 1 · 模拟客户对练窗口」</strong> 里直接发送 <code>#</code> 开头消息；</li>
+                <li><strong>或者</strong>在 <strong>「对话」</strong> 页的回复草稿框里直接输入 <code>#</code> 开头内容：输入框上方会自动弹出提示条 <strong>「🛡️ 管理员指令模式：仅指导 AI 改写，不直接发给客户」</strong>，点击提示条右侧的 <strong>「立即按指令改写」</strong> 即可。</li>
+              </ul>
+            </div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">屏幕会看到什么</div>
+            <div class="step-body">发出 <code>#</code> 指令后，测试窗口/微信测试群里会收到一条简短的确认回执，紧接着就是 <strong>AI 当场按新要求重新回答一遍的结果</strong>！</div>
+          </div>
+          <div class="step-row step-row-done">
+            <div class="step-label">✅ 完成标志</div>
+            <div class="step-body">你看到 AI 当场重回的句子完全符合你的预期。</div>
+          </div>
+        </div>
+
+        <div class="callout callout-danger">
+          <p><strong>🛡️ 安全门禁说明（非常重要）</strong></p>
+          <ul>
+            <li><strong>谁发才有效</strong>：只有你在测试沙盒、手机遥控台、设为 <strong>「🧪 测试好友」</strong> 的微信号或 <strong>「文件传输助手 / 管理员」</strong> 发出的 <code>#</code> 才会被系统当成“老板教AI”的指令。</li>
+            <li><strong>外部普通客户发 <code>#</code> 会怎样</strong>：如果真实客户聊天时发了一句 <code>#活动咨询#</code> 或 <code>#怎么买</code>，系统会<strong>严格忽略其指令权限</strong>，绝不会让客户篡改你的话术，同时系统也有外发防泄露保护，<strong>绝不会把你的 <code>#</code> 内部纠偏指令文本误发给普通外部客户</strong>。</li>
+          </ul>
+        </div>
+
+        <h4>📋 可直接复制的 <code>#</code> 指令速查表（支持半角 <code>#</code> 和全角 <code>＃</code>）</h4>
+        <div id="copy-live" class="sr-only" aria-live="polite"></div>
+        <div tabindex="0" role="region" aria-labelledby="directive-caption" class="table-wrapper">
+          <table id="directive-table">
+            <caption id="directive-caption">可直接点击复制的 # 纠偏与调优指令速查表</caption>
+            <thead>
+              <tr>
+                <th scope="col">你想做什么</th>
+                <th scope="col">直接复制并改写这句话发送</th>
+                <th scope="col">发送后 AI 会立刻做什么</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">直接指出说错了并要求重写（最常用）</th>
+                <td>
+                  <div class="cmd-list">
+                    <div class="cmd-chip">
+                      <code># 不能这样说，别一上来就报底价，先问对方要几套以及使用场景</code>
+                      <button type="button" class="copy-chip-btn" data-copy-text="# 不能这样说，别一上来就报底价，先问对方要几套以及使用场景">复制</button>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <ol>
+                    <li>记住这条禁止写法（负向避坑）</li>
+                    <li>降低刚才那条旧话术的权重</li>
+                    <li>把正确要求存入标准话术库</li>
+                    <li><strong>当场按新口径重新回复刚才那道题！</strong></li>
+                  </ol>
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">补充临时新政策 / 促销口径</th>
+                <td>
+                  <div class="cmd-list">
+                    <div class="cmd-chip">
+                      <code># 告诉他本周五前下单可免费送上门安装调试</code>
+                      <button type="button" class="copy-chip-btn" data-copy-text="# 告诉他本周五前下单可免费送上门安装调试">复制</button>
+                    </div>
+                  </div>
+                </td>
+                <td>立刻把这条规则加入约束与话术，并按新政策当场重新生成刚才的回复。</td>
+              </tr>
+              <tr>
+                <th scope="row">直接保存一条标准话术</th>
+                <td>
+                  <div class="cmd-list">
+                    <div class="cmd-chip">
+                      <code>#话术 问价格 =&gt; 先了解客户人数或采购规模，再给对应区间价</code>
+                      <button type="button" class="copy-chip-btn" data-copy-text="#话术 问价格 => 先了解客户人数或采购规模，再给对应区间价">复制</button>
+                    </div>
+                  </div>
+                </td>
+                <td>直接沉淀一条新的「场景 =&gt; 标准话术」到知识库并回执确认。</td>
+              </tr>
+              <tr>
+                <th scope="row">直接教它一个行业新词汇</th>
+                <td>
+                  <div class="cmd-list">
+                    <div class="cmd-chip">
+                      <code>#词汇 定制版 =&gt; 指支持按客户Logo和尺寸单独开模定制的方案，起订量20套</code>
+                      <button type="button" class="copy-chip-btn" data-copy-text="#词汇 定制版 => 指支持按客户Logo和尺寸单独开模定制的方案，起订量20套">复制</button>
+                    </div>
+                  </div>
+                </td>
+                <td>将该术语与解释写入专属词汇表，后续遇到同义词自动对齐。</td>
+              </tr>
+              <tr>
+                <th scope="row">给刚才这句回复直接打分</th>
+                <td>
+                  <div class="cmd-list">
+                    <div class="cmd-chip">
+                      <code>#评分 2 语气太像客服机器人，不够口语化</code>
+                      <button type="button" class="copy-chip-btn" data-copy-text="#评分 2 语气太像客服机器人，不够口语化">复制</button>
+                    </div>
+                    <div class="cmd-chip">
+                      <code>#5星 这句接得很好</code>
+                      <button type="button" class="copy-chip-btn" data-copy-text="#5星 这句接得很好">复制</button>
+                    </div>
+                    <div class="cmd-chip">
+                      <code>#2分 漏说交付周期</code>
+                      <button type="button" class="copy-chip-btn" data-copy-text="#2分 漏说交付周期">复制</button>
+                    </div>
+                  </div>
+                </td>
+                <td>记录 1–5 星评分并附上原因标签；低分自动降权避坑，高分沉淀为金牌范例。</td>
+              </tr>
+              <tr>
+                <th scope="row">紧急接管或恢复</th>
+                <td>
+                  <div class="cmd-list">
+                    <div class="cmd-chip">
+                      <code>#停</code>
+                      <button type="button" class="copy-chip-btn" data-copy-text="#停">复制</button>
+                    </div>
+                    <div class="cmd-chip">
+                      <code>#接管</code>
+                      <button type="button" class="copy-chip-btn" data-copy-text="#接管">复制</button>
+                    </div>
+                    <div class="cmd-chip">
+                      <code>#恢复</code>
+                      <button type="button" class="copy-chip-btn" data-copy-text="#恢复">复制</button>
+                    </div>
+                  </div>
+                  <span class="cmd-note">暂停托管用 #停 或 #接管；恢复自动回复用 #恢复</span>
+                </td>
+                <td>立即暂停当前测试/托管会话（仅出草稿不自动发），或恢复自动回复。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>5.3 一键复测历史踩坑题（确认改完不复发）</h3>
+        <div class="step-card">
+          <div class="step-row">
+            <div class="step-label">你要做什么</div>
+            <div class="step-body">每次你用 <code>#</code> 提完意见或打完低分之后，检查一下 AI 是不是真的记住了、会不会顾此失彼。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">点哪里</div>
+            <div class="step-body">在 <strong>「🧪 测试与评分」</strong> 标签页右上角点击 <strong>「🧪 一键回归验证」</strong>。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">屏幕会看到什么</div>
+            <div class="step-body">系统自动把所有曾被你用 <code>#</code> 纠正过、或打过 1–2 星差评的历史提问重新跑一遍，逐题核查是否避开了禁止说法，并在模拟窗下方展示「复测通过率（例如 <code>18 / 20 题通过，通过率 90%</code>）」以及未通过项详情。</div>
+          </div>
+          <div class="step-row step-row-done">
+            <div class="step-label">✅ 完成标志</div>
+            <div class="step-body">历史踩坑题复测通过率达到 <strong>85%–90% 以上</strong>，关键红线问题（乱报价、乱承诺）全部通过。</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Chapter 6 -->
+      <section id="ch6" tabindex="-1">
+        <h2>6. 给 AI 回复打分与持续优化</h2>
+        <p>AI 正式辅助你接待客户后，不需要你懂任何复杂参数，只需要像带新员工一样给它的草稿或回复打星，系统会自动“越用越准”。</p>
+
+        <h3>6.1 1–5 星人工打分与失分标签</h3>
+        <div class="step-card">
+          <div class="step-row">
+            <div class="step-label">你要做什么</div>
+            <div class="step-body">看到特别棒的回复给 4–5 星鼓励，看到不够满意的回复给 1–2 星并点一下错在哪里。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">点哪里</div>
+            <div class="step-body">
+              <p>两处均可随时打分：</p>
+              <ol>
+                <li><strong>在「对话」页草稿框下方</strong>：每次点完「生成草稿」后，下方评分反馈条会显示本句的自动体检分，直接点击 <code>1★</code> 到 <code>5★</code> 按钮。</li>
+                <li><strong>在「🧪 测试与评分 → 3 · 测试好友管理 &amp; 对练日志打分」列表</strong>：每条历史对练记录下方也带有 <code>1★</code>–<code>5★</code> 快捷评分按钮。</li>
+                <li>打完星后，若发现问题，顺手点选下方失分标签（<code>语气太硬</code>、<code>未答重点</code>、<code>缺少推进</code>、<code>术语不准</code>、<code>价格越权</code>），再点 <strong>「提交评分」</strong>。</li>
+                <li>（如果你直接手动修改了草稿内容，也可以直接点旁边的 <strong>「✨ 一键存为 SOP」</strong>，把你的修改直接沉淀为标准话术。）</li>
+              </ol>
+            </div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">屏幕会看到什么</div>
+            <div class="step-body">
+              <ul>
+                <li><strong>打 4–5 星</strong>：对应引用的话术在知识库里的排序权重自动提高，且这条问答会存入 <strong>「🏆 金牌范例库」</strong>，以后遇到类似问题优先参考。</li>
+                <li><strong>打 1–2 星</strong>：对应旧话术自动降权，如果你写了改写建议或选了失分标签，会自动生成一条「避坑约束」和修正规则。</li>
+              </ul>
+            </div>
+          </div>
+          <div class="step-row step-row-done">
+            <div class="step-label">✅ 完成标志</div>
+            <div class="step-body">界面提示评分已记录，相关话术权重已自动更新。</div>
+          </div>
+        </div>
+
+        <h3>6.2 查看「1-5 星质量仪表盘」，每周 3 分钟持续优化</h3>
+        <div class="step-card">
+          <div class="step-row">
+            <div class="step-label">你要做什么</div>
+            <div class="step-body">每周五花 3 分钟扫一眼质量看板，把本周暴露出的共性短板集中补齐。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">点哪里</div>
+            <div class="step-body">进入 <strong>「🧪 测试与评分」</strong> 标签页，查看右侧 <strong>「2 · 1-5 星质量仪表盘 &amp; 低分改进清单」</strong>（点击右上角 <strong>「🔄 刷新数据」</strong> 可拉取最新统计）。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">屏幕会看到什么</div>
+            <div class="step-body">
+              <ol>
+                <li><strong>核心指标卡</strong>：近 7 天平均分、总对话轮次、5 维自动体检均分（系统会自动对每条回复从“知识库依据、术语对齐、销售推进、合规安全、像不像真人” 5 个维度体检，低于 70 分会自动标黄提醒复核）。</li>
+                <li><strong>星级分布与高频问题标签</strong>：一眼看出本周扣分最多的是「语气太硬」「未答重点」还是「缺少推进」。</li>
+                <li><strong>低分 / 需关注改进项</strong>：集中列出得分较低的对练/对话轮次，方便你直接针对性纠偏。</li>
+                <li><strong>本周动作</strong>：对低分项打低分或用 <code>#</code> 纠偏补齐话术 → 点击右上角 <strong>「🧪 一键回归验证」</strong> 确认通过，3 分钟收工。</li>
+              </ol>
+            </div>
+          </div>
+          <div class="step-row step-row-done">
+            <div class="step-label">✅ 完成标志</div>
+            <div class="step-body">低分待改清单清空，本周均分稳步上升。</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Chapter 7 -->
+      <section id="ch7" tabindex="-1">
+        <h2>7. 从「影子辅助模式」平滑切换到「好友一键托管」</h2>
+        <p>为了既保证零风险、又不耽误效率，强烈建议按 <strong>「先影子辅助 → 再白名单托管」</strong> 两步走。</p>
+
+        <h3>7.1 第一阶段：影子辅助模式（只出草稿，不自动发送）</h3>
+        <div class="step-card">
+          <div class="step-row">
+            <div class="step-label">你要做什么</div>
+            <div class="step-body">让 AI 帮你在后台盯着最新来信并提前写好回复草稿，你扫一眼觉得没问题再自己点发送（最适合上线前 3 天）。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">点哪里</div>
+            <div class="step-body">
+              <ol>
+                <li>在工作台 <strong>「对话」</strong> 首页左侧会话列表中，点击要处理的好友或把它加入 <strong>「关注列表」</strong>（此时<strong>不要</strong>点顶部的「🚀 一键托管」）。</li>
+                <li>右侧选择或核对对象后，点击下方 <strong>「生成草稿」</strong>；若遇到客户发来公众号文章、视频号或长链接，点 <strong>「@元宝 解析」</strong> 或 <strong>「转发小微」</strong>，系统会自动把解析结论写入草稿依据。</li>
+                <li>确认发送安全模式保持为 <strong>「模拟检查（不写入微信）」</strong> 或 <strong>「粘贴校验后清空」</strong> 进行试跑；确认草稿满意后，再切换为 <strong>「确认并发送」</strong> 发出。</li>
+              </ol>
+            </div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">屏幕会看到什么</div>
+            <div class="step-body">草稿框填入 AI 拟好的回复，下方可展开「草稿依据」查看它引用了哪几条知识库话术、当前用了哪种性格语气。你修改过的内容不会轻易被新草稿覆盖。</div>
+          </div>
+          <div class="step-row step-row-done">
+            <div class="step-label">✅ 完成标志</div>
+            <div class="step-body">你连续确认了 10–20 条草稿，几乎不用大改就能直接发送。</div>
+          </div>
+        </div>
+
+        <h3>7.2 第二阶段：开启「好友一键托管」（白名单自动回复）</h3>
+        <div class="step-card">
+          <div class="step-row">
+            <div class="step-label">你要做什么</div>
+            <div class="step-body">把已经磨合好的测试小号或成熟渠道的常规咨询好友，交由 AI 自动巡检并发送回复。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">点哪里</div>
+            <div class="step-body">
+              <ol>
+                <li>在左侧 <strong>「已关注 / 托管名单」</strong> 中只保留你确认放心的联系人（<strong>严格白名单机制</strong>：不在名单里的好友或非白名单独立小窗，即使打开了也<strong>只读不发</strong>）。</li>
+                <li>点击顶部绿色主按钮 <strong>「🚀 一键托管」</strong>。</li>
+              </ol>
+            </div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">屏幕会看到什么</div>
+            <div class="step-body">顶部托管徽章变成绿色运行中状态，状态条显示「已关注监视 · 对方发消息将自动回复」。如果勾选了弹出独立小窗，多个托管对象可各自小窗并行不打架。</div>
+          </div>
+          <div class="step-row step-row-done">
+            <div class="step-label">✅ 完成标志</div>
+            <div class="step-body">当白名单好友发来新消息时，系统自动完成草稿生成、安全校验并发送回复。</div>
+          </div>
+        </div>
+
+        <h3>7.3 安全防封节奏、双击 <code>Esc</code> 急停与随时转人工</h3>
+        <p>系统内置了多层保护，既像真人一样自然，又让你随时能一把拉住刹车：</p>
+        <div class="info-grid">
+          <div class="info-card">
+            <strong>防封拟人节奏</strong>
+            每次轮询自带随机间隔抖动（约 3–4 秒级不等，绝不死板定时），连续发来的多条碎气泡会自动合并后一次回复，发送前会进行「粘贴后回读长度与内容校验」，并阻止 120 秒内向同一人重复发送相同内容。
+          </div>
+          <div class="info-card">
+            <strong>防抢鼠标守卫</strong>
+            只要你自己在电脑上动了鼠标或敲了键盘，系统立即识别到“主人在用电脑”，<strong>自动礼让暂停操作并进入 45 秒冷却保护</strong>，绝不和你抢鼠标、绝不把消息贴到你正在打字的窗口里。
+          </div>
+          <div class="info-card">
+            <strong>⌨️ 双击 <kbd>Esc</kbd> 急停</strong>
+            无论你在工作台哪个页面，只要<strong>连续按两次键盘左上角的 <kbd>Esc</kbd> 键</strong>（或点击顶部 <strong>「⏹ 停止」</strong>），托管循环会<strong>立即全局暂停</strong>。
+          </div>
+          <div class="info-card">
+            <strong>🙋 随时转人工</strong>
+            客户说出「转人工 / 找真人 / 人工客服」或触发退款、投诉、情绪激动等高风险词时，系统会自动将该客户标记为 <strong>「人工接管中」</strong>，不再自动发送。你也可点 <strong>「人工接管」</strong> 或发 <code>#停</code>；处理完后再点 <strong>「恢复托管」</strong>（或发 <code>#恢复</code>）。
+          </div>
+        </div>
+      </section>
+
+      <!-- Chapter 8 -->
+      <section id="ch8" tabindex="-1">
+        <h2>8. 数据全本地隐私说明 &amp; 10 大常见问题快速排查</h2>
+
+        <h3>8.1 数据全本地隐私说明</h3>
+        <div class="callout">
+          <p><strong>数据存在哪里</strong>：你的所有客户档案、聊天记录缓存、知识库词条、行业话术、评分台账和训练报告，<strong>全部保存在你这台 Mac 本机硬盘的用户目录中</strong>（安装版固定存放在你个人账号的应用程序支持目录下，升级软件版本时历史数据会自动保留，不会丢失）。</p>
+        </div>
+        <p><strong>会不会泄露给其他客户或外部公司？</strong></p>
+        <ol>
+          <li>不同客户/测试好友之间严格隔离，「🧪 测试好友」的数据与内部 <code>#</code> 纠偏记录绝不会混入正式客户跟进列表。</li>
+          <li>导入聊天记录提取话术前，系统会自动对手机号、身份证号、银行卡、邮箱、微信号、详细地址和客户姓名做<strong>自动脱敏替换</strong>。</li>
+          <li>仅在你启用了智能回复模型服务并主动触发生成/深读时，才会将当前必要的单轮对话上下文发送给你自己选定的模型服务，其余所有资产与全量聊天历史均留在本机。</li>
+        </ol>
+
+        <section class="accordion" id="faq-accordion" aria-labelledby="faq-heading">
+          <div class="accordion-header">
+            <h3 id="faq-heading">8.2 10 大常见问题快速排查</h3>
+            <button type="button" class="btn-toggle-all" commandfor="faq-accordion" command="--toggle-all" aria-expanded="false">
+              <span class="expand-label">全部展开</span>
+              <span class="collapse-label">全部收起</span>
+            </button>
+          </div>
+
+          <details class="faq-item">
+            <summary><span class="faq-num">01</span><span>系统设置里开关明明开着，软件还提示未授权？</span></summary>
+            <div class="faq-body">
+              <p>多半是系统还记着旧版本的软件签名。打开授权弹窗 → 展开「为什么开关已经打开，这里还显示未授权？」→ 点 <strong>「重新登记授权」</strong> → 重新打开系统设置开关（屏幕录制需点“退出并重新打开”）。</p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary><span class="faq-num">02</span><span>点完屏幕录制开关后，软件还是认不出来微信画面？</span></summary>
+            <div class="faq-body">
+              <p>macOS 规定屏幕录制权限必须重启应用才生效。完全退出 <code>WeChat Bot</code>（快捷键 <kbd>Command</kbd> + <kbd>Q</kbd>）后再重新打开一次即可。</p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary><span class="faq-num">03</span><span>自动发现活跃客户时，列表里找不到刚刚聊过的人？</span></summary>
+            <div class="faq-body">
+              <p>先把电脑版 <strong>微信</strong> 切换到「聊天」主列表并保持窗口可见（不要最小化到系统托盘或完全隐藏在其他桌面全屏空间里），然后回工作台点一次 <strong>「🔄 刷新」</strong> 再扫描。</p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary><span class="faq-num">04</span><span>拖入微信聊天记录后，系统把“客户说的话”当成了“我说的话”？</span></summary>
+            <div class="faq-body">
+              <p>说明你在历史记录里的昵称和初始化填写的不一样。在导入确认页核对「销售本人名称」下拉框，改成聊天记录里属于你的那个名字，或回设置里把曾用昵称补充到「常用别名」后再重新导入。</p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary><span class="faq-num">05</span><span>AI 学完之后有几条带报价的话术找不到 / 没生效？</span></summary>
+            <div class="faq-body">
+              <p>这是安全门禁在保护你！凡是提到具体价格、折扣、退款或交付天数的话术，都会自动放在待审核草稿里等待确认。点顶部 <strong>「✨ 快速训练向导」</strong> 进入第 3 步 <strong>「3 · 词汇与草稿验收」</strong>，或进入 <strong>「知识库」</strong> 筛选草稿，核对金额无误后勾选并发布即可生效。</p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary><span class="faq-num">06</span><span>我在测试小号微信里发 <code>#</code> 纠偏指令，为什么没反应？</span></summary>
+            <div class="faq-body">
+              <p>请逐一检查 3 点：① 该小号是否已经设为 <strong>「🧪 测试好友」</strong> 或加入管理员名单（<code>文件传输助手</code> 默认可用）；② 消息是否以 <code>#</code> 或全角 <code>＃</code> 开头；③ 在此之前是否有至少一轮对话记录供系统定位“要改哪一句”。</p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary><span class="faq-num">07</span><span>如果真客户在微信里不小心发了 <code>#</code> 开头的消息，会不会把我的知识库改乱？</span></summary>
+            <div class="faq-body">
+              <p><strong>绝对不会！</strong> 系统在执行任何 <code>#</code> 指令前都会做严格的身份核验，普通外部客户发 <code>#</code> 会被直接拦截忽略，且软件也禁止把原始 <code>#</code> 指令文本发往外部客户窗口。</p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary><span class="faq-num">08</span><span>一键托管跑着跑着突然自己暂停了，是不是坏了？</span></summary>
+            <div class="faq-body">
+              <p>常见有两种正常保护触发：① <strong>防抢鼠标守卫生效</strong>——你刚才移动了鼠标或打了字，软件礼让暂停 45 秒后会自动恢复；② <strong>触发转人工</strong>——对方发了“转人工 / 退款 / 投诉”等字眼，或你连按了两次 <kbd>Esc</kbd> 急停。点工作台右上角 <strong>「🩺 诊断」</strong> 一眼就能看到具体原因。</p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary><span class="faq-num">09</span><span>导入的 PDF 产品手册识不出文字或有乱码？</span></summary>
+            <div class="faq-body">
+              <p>纯图片扫描版 PDF 也能识别，请确认「屏幕录制」权限已开启，且不要把整本上百页的画册一次全塞进去；建议先挑核心产品页和价目页拆分后喂入，或直接复制文字粘贴到「📄 喂资料入库」里，拆解准确度最高。</p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary><span class="faq-num">10</span><span>担心 AI 回复太像机器人，怎么快速调教得更像我自己？</span></summary>
+            <div class="faq-body">
+              <p>三招组合最快：① 在向导第 2 步导入你自己的 5 个真实成交聊天记录（让软件学你的句长、口头禅和标点习惯）；② 在 <strong>「🧪 测试与评分」</strong> 或测试小号里连聊 10 轮，遇到带“一二三点 / 您好请问”这种书面腔就发 <code># 别用一二三点列清单，像微信口语一样分两句短话说</code>；③ 给口语自然的回复多打 <strong>5★</strong> 存成金牌范例。</p>
+            </div>
+          </details>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <footer>
+    <span>WeChat Bot 使用者操作手册 · v3.0.0 零配置版</span>
+    <span><a href="./index.html">返回项目首页</a> · <a href="https://github.com/Harzva/app-use/releases/tag/v3.0.0" target="_blank" rel="noopener">下载 macOS 安装包 v3.0.0</a></span>
+  </footer>
+
+  <script>
+    (function () {
+      /* 1. Copy buttons for # directive table */
+      const liveRegion = document.getElementById("copy-live");
+      const copyButtons = document.querySelectorAll(".copy-chip-btn");
+      for (const btn of copyButtons) {
+        btn.addEventListener("click", async () => {
+          const text = btn.getAttribute("data-copy-text") || "";
+          if (!text) return;
+          let ok = false;
+          if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+            try {
+              await navigator.clipboard.writeText(text);
+              ok = true;
+            } catch (err) {
+              ok = false;
+            }
+          }
+          if (!ok) {
+            const ta = document.createElement("textarea");
+            ta.value = text;
+            ta.setAttribute("readonly", "");
+            ta.style.position = "fixed";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.select();
+            try {
+              ok = document.execCommand("copy");
+            } catch (err) {
+              ok = false;
+            }
+            document.body.removeChild(ta);
+          }
+          if (ok) {
+            const prev = btn.textContent;
+            btn.textContent = "已复制 ✓";
+            btn.classList.add("copied");
+            if (liveRegion) {
+              liveRegion.textContent = "已复制指令：" + text;
+            }
+            setTimeout(() => {
+              btn.textContent = prev;
+              btn.classList.remove("copied");
+            }, 1500);
+          }
+        });
+      }
+
+      /* 2. Accordion Expand/Collapse All (Invoker Commands + fallback) */
+      const faqAccordion = document.getElementById("faq-accordion");
+      const toggleAllBtn = document.querySelector('[command="--toggle-all"]');
+      if (faqAccordion && toggleAllBtn) {
+        const runToggleAll = (button) => {
+          const expand = button.getAttribute("aria-expanded") !== "true";
+          for (const details of faqAccordion.querySelectorAll(":scope > details")) {
+            details.open = expand;
+          }
+          button.setAttribute("aria-expanded", String(expand));
+        };
+
+        if (Object.hasOwn(HTMLButtonElement.prototype, "commandForElement")) {
+          document.addEventListener("command", (event) => {
+            if (event.command !== "--toggle-all" || event.target !== faqAccordion) return;
+            runToggleAll(event.source);
+          }, { capture: true });
+        } else {
+          toggleAllBtn.addEventListener("click", () => runToggleAll(toggleAllBtn));
+        }
+
+        document.addEventListener("toggle", (event) => {
+          const target = event.target;
+          if (!(target instanceof HTMLDetailsElement)) return;
+          if (!target.matches("#faq-accordion > details")) return;
+          const items = faqAccordion.querySelectorAll(":scope > details");
+          const allOpen = Array.prototype.every.call(items, (item) => item.open);
+          toggleAllBtn.setAttribute("aria-expanded", String(allOpen));
+        }, { capture: true });
+      }
+
+      /* 3. Scrollspy aria-current sync + IntersectionObserver fallback */
+      const navLinks = document.querySelectorAll(".toc-nav a");
+      const sections = document.querySelectorAll('main section[id^="ch"]');
+      if (navLinks.length > 0 && sections.length > 0) {
+        if (CSS.supports("scroll-target-group: auto")) {
+          const syncAriaCurrent = () => {
+            const currentLink = document.querySelector(".toc-nav a:target-current");
+            navLinks.forEach((link) => {
+              link.setAttribute("aria-current", link === currentLink ? "true" : "false");
+            });
+          };
+          if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", syncAriaCurrent);
+          } else {
+            syncAriaCurrent();
+          }
+          document.addEventListener("scrollend", syncAriaCurrent);
+        } else {
+          const setActive = (id) => {
+            navLinks.forEach((link) => {
+              const isActive = link.getAttribute("href") === `#${id}`;
+              link.classList.toggle("target-current", isActive);
+              link.setAttribute("aria-current", String(isActive));
+            });
+          };
+          setActive(sections[0].id);
+          const observer = new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+              if (entry.isIntersecting) {
+                setActive(entry.target.id);
+              }
+            }
+          }, { rootMargin: "-25% 0px -60% 0px", threshold: 0 });
+          sections.forEach((section) => observer.observe(section));
+        }
+      }
+
+      /* 4. Close mobile TOC after jumping to a section */
+      const mobileToc = document.querySelector(".mobile-toc");
+      if (mobileToc) {
+        mobileToc.querySelectorAll("a").forEach((link) => {
+          link.addEventListener("click", () => {
+            mobileToc.open = false;
+          });
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -196,7 +196,9 @@ class WeChatLiveInspector:
         status = self._run_native(["status"], 10.0)
         windows = status.get("windows") or []
         if not status.get("wechatRunning") or not windows:
-            self._run_native(["activate"], 12.0)
+            act = self._run_native(["activate"], 12.0)
+            if isinstance(act, dict) and (act.get("blockedByHumanGuard") or act.get("error_code") == "human_input_active"):
+                raise RuntimeError(f"Human input active during WeChat launch/activate: {act}")
             self._sleep(0.35)
             status = self._run_native(["status"], 10.0)
             windows = status.get("windows") or []
@@ -204,7 +206,9 @@ class WeChatLiveInspector:
             raise RuntimeError(f"WeChat is not running: {status}")
         if not windows:
             raise RuntimeError("No visible WeChat window found (please keep WeChat main window open).")
-        self._run_native(["activate"], 10.0)
+        act2 = self._run_native(["activate"], 10.0)
+        if isinstance(act2, dict) and (act2.get("blockedByHumanGuard") or act2.get("error_code") == "human_input_active"):
+            raise RuntimeError(f"Human input active during WeChat activate: {act2}")
         self._sleep(0.3)
         return status
 
@@ -823,18 +827,24 @@ class WeChatLiveInspector:
         rel_y: float,
         *,
         double: bool = False,
-    ) -> None:
+    ) -> Dict[str, Any]:
         abs_x = float(bounds["x"]) + rel_x
         abs_y = float(bounds["y"]) + rel_y
         cmd = ["click", "--x", f"{abs_x:.1f}", "--y", f"{abs_y:.1f}"]
         if double:
             cmd.append("--double")
-        self._run_native(cmd, 5.0)
+        res = self._run_native(cmd, 5.0)
+        if isinstance(res, dict) and (res.get("blockedByHumanGuard") or res.get("error_code") == "human_input_active"):
+            raise RuntimeError(f"Human input active during UI click: {res}")
+        return res if isinstance(res, dict) else {}
 
-    def _scroll_rel(self, bounds: Dict[str, Any], rel_x: float, rel_y: float, dy: int) -> None:
+    def _scroll_rel(self, bounds: Dict[str, Any], rel_x: float, rel_y: float, dy: int) -> Dict[str, Any]:
         abs_x = float(bounds["x"]) + rel_x
         abs_y = float(bounds["y"]) + rel_y
-        self._run_native(["scroll", "--x", f"{abs_x:.1f}", "--y", f"{abs_y:.1f}", "--dy", str(dy)], 5.0)
+        res = self._run_native(["scroll", "--x", f"{abs_x:.1f}", "--y", f"{abs_y:.1f}", "--dy", str(dy)], 5.0)
+        if isinstance(res, dict) and (res.get("blockedByHumanGuard") or res.get("error_code") == "human_input_active"):
+            raise RuntimeError(f"Human input active during UI scroll: {res}")
+        return res if isinstance(res, dict) else {}
 
     @staticmethod
     def _is_folder_view(rows: List[Dict[str, Any]]) -> bool:

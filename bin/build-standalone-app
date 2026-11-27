@@ -13,10 +13,10 @@ VISION_BIN="$ROOT_DIR/bin/wechat-vision-ax"
 BIN_OUT="$ROOT_DIR/bin/wechat-studio-app"
 mkdir -p "$ROOT_DIR/bin" "$ROOT_DIR/dist" "/Volumes/SanDisk/Builds"
 
-APP_VERSION="2.9.0"
+APP_VERSION="3.0.0"
 
-# 版本一致性自检：四处版本声明必须一致，漏改即中止构建（防 App/插件版本错位）
-for _vf in pyproject.toml plugin.manifest.json dsh.plugin.json; do
+# 版本一致性自检：五处版本声明必须一致，漏改即中止构建（防 App/插件版本错位）
+for _vf in pyproject.toml plugin.manifest.json dsh.plugin.json market/wechat-rpa-control.plugin.json; do
   case "$_vf" in
     pyproject.toml) _pat="version = \"${APP_VERSION}\"" ;;
     *) _pat="\"version\": \"${APP_VERSION}\"" ;;
@@ -26,7 +26,7 @@ for _vf in pyproject.toml plugin.manifest.json dsh.plugin.json; do
     exit 1
   fi
 done
-APP_BUILD="2900"
+APP_BUILD="3000"
 
 swiftc -O "$ROOT_DIR/native/wechat_vision_ax.swift" \
   -framework AppKit \
@@ -77,10 +77,26 @@ build_bundle() {
     "$res_dir/wechat-vision-ax"
 
   cp "$ICNS_OUT" "$res_dir/AppIcon.icns"
-  printf '%s\n' "$ROOT_DIR" > "$res_dir/repo_root.txt"
+  if [[ "${WECHAT_CLEAN_CUSTOMER_BUILD:-0}" == "1" ]]; then
+    touch "$res_dir/customer_build.marker"
+  else
+    printf '%s\n' "$ROOT_DIR" > "$res_dir/repo_root.txt"
+  fi
 
   # Self-contained runtime payload (R01/R02)
   cp "$ROOT_DIR"/wechat_control/*.py "$ROOT_DIR/wechat_control/workbench.html" "$res_dir/wechat_control/"
+  mkdir -p "$res_dir/config_templates/sales_packs" "$res_dir/docs"
+  if compgen -G "$ROOT_DIR/config_templates/sales_packs/*.json" >/dev/null; then
+    cp "$ROOT_DIR"/config_templates/sales_packs/*.json "$res_dir/config_templates/sales_packs/"
+  fi
+  if compgen -G "$ROOT_DIR/docs/*.md" >/dev/null; then
+    cp "$ROOT_DIR"/docs/*.md "$res_dir/docs/"
+  fi
+  for _doc in "$ROOT_DIR/docs/USER_GUIDE.md" "$ROOT_DIR/docs/user-guide.html" "$ROOT_DIR/docs/DEVELOPER_GUIDE.md"; do
+    if [[ -f "$_doc" ]]; then
+      cp "$_doc" "$res_dir/docs/"
+    fi
+  done
   # App 自足启动：打包 bin/（wechat-bot launcher 从自身路径推导 PLUGIN_ROOT，装到任何机器都能拉起 console）
   mkdir -p "$res_dir/bin"
   cp "$ROOT_DIR"/bin/wechat-bot "$res_dir/bin/wechat-bot"
@@ -148,6 +164,10 @@ manifest = {
         "Contents/Resources/wechat-vision-ax",
         "Contents/Resources/wechat_control/*.py",
         "Contents/Resources/wechat_control/workbench.html",
+        "Contents/Resources/config_templates/sales_packs/*.json",
+        "Contents/Resources/docs/USER_GUIDE.md",
+        "Contents/Resources/docs/user-guide.html",
+        "Contents/Resources/docs/DEVELOPER_GUIDE.md",
         "Contents/Resources/vendor/salescrm/",
         "Contents/Resources/dsh.plugin.json",
         "Contents/Resources/plugin.manifest.json",

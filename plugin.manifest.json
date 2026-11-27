@@ -4,7 +4,7 @@
   "dshPluginId": "dsh-plugin-wechat-ecosystem",
   "packageName": "@openbot/wechat-rpa-plugin",
   "dshPackageName": "@dsh-market/wechat-ecosystem",
-  "version": "2.9.0",
+  "version": "3.0.0",
   "title": "WeChat Ecosystem Studio (macOS RPA + Vision OCR + Bridge + Exporter)",
   "description": "Standalone software (.app + Web + CLI), DSH plugin (openbot.dsh-plugin/1), and Bot Studio 1.0.33 plugin for macOS WeChat desktop control, media export (articles/accounts/channels), and WeChatBridge Soul profiling under explicit Studio authorization.",
   "platform": "darwin",
@@ -63,7 +63,8 @@
           "wechat_inspect_live",
           "wechat_kb_search",
           "wechat_kb_upsert",
-          "wechat_kb_withdraw"
+          "wechat_kb_withdraw",
+          "wechat_call_brief"
         ]
       },
       {
@@ -89,6 +90,19 @@
         ]
       },
       {
+        "id": "read_moments",
+        "title": "Scroll and store friends' Moments (朋友圈) feed and read per-contact Moments statistics",
+        "risk": "read",
+        "tools": [
+          "wechat_moments_read",
+          "wechat_moments_posts",
+          "wechat_moments_stats",
+          "wechat_moments_policy",
+          "wechat_moments_plan",
+          "wechat_moments_suggest_comment"
+        ]
+      },
+      {
         "id": "send_text_dry_run",
         "title": "Dry-run UI navigation or verified send pipeline without pressing Return",
         "risk": "confirm",
@@ -99,12 +113,28 @@
         ]
       },
       {
+        "id": "moments_interact_dry_run",
+        "title": "Open and verify a Moments post's like/comment menu without clicking, or paste-and-read-back a comment without sending",
+        "risk": "confirm",
+        "tools": [
+          "wechat_moments_interact"
+        ]
+      },
+      {
         "id": "send_text_live",
         "title": "Dispatch live WeChat message after frontmost + HID guard + 3x readback verification",
         "risk": "high",
         "tools": [
           "wechat_send_text",
           "wechat_watch_once"
+        ]
+      },
+      {
+        "id": "moments_interact_live",
+        "title": "Actually like / comment on a Moments post after verifying the popover position (visible to all friends)",
+        "risk": "high",
+        "tools": [
+          "wechat_moments_interact"
         ]
       }
     ]

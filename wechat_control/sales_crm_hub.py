@@ -90,7 +90,7 @@ METRIC_15D_SPECS: Tuple[Tuple[str, str, str], ...] = (
     ("recent", "距最后互动新鲜度", "近期活跃衰减得分"),
     ("active_days", "30 天活跃天数", "窗口期有效互动天数"),
     ("msg_count", "有效消息总量", "累计沉淀消息密度"),
-    ("moments", "朋友圈/媒体互动", "链接/图文/视频/朋友圈交互"),
+    ("moments", "朋友圈互动", "好友与我在朋友圈的点赞、评论往来（读取朋友圈后才有数据）"),
     ("trend", "周综合变化趋势", "相对前周期的分数变化"),
     ("msg_volume_trend", "消息量变化趋势", "近期对话量环比变化"),
     ("latency_trend", "响应速度趋势", "近期回复响应提速变化"),
@@ -244,6 +244,15 @@ class WeChatSalesCRMHub:
             except OSError:
                 pass
         return conn
+
+    def _is_test_contact(self, name: str) -> bool:
+        se = getattr(self.engine, "supervisor_eval", None)
+        if se is None or not hasattr(se, "is_test_contact"):
+            return False
+        try:
+            return bool(se.is_test_contact(str(name or "")))
+        except Exception:
+            return False
 
     def _ensure_schema(self) -> None:
         with closing(self._connect()) as conn, conn:
@@ -683,10 +692,25 @@ class WeChatSalesCRMHub:
         return inserted
 
     def sync_from_wechat(self) -> Dict[str, Any]:
-        """Incrementally sync contacts, bindings, histories, media analyses, and Soul memories."""
+        """Incrementally sync contacts, bindings, histories, Moments interactions, and Soul memories."""
         synced_people = 0
         ingested_messages = 0
-        media_events = 0
+        moments_events = 0
+        excluded_test_contacts: List[str] = []
+        excluded_test_seen: set[str] = set()
+
+        def _skip_if_test(name: str) -> bool:
+            clean = str(name or "").strip()
+            if not clean:
+                return False
+            if self._is_test_contact(clean):
+                key = clean.casefold()
+                if key not in excluded_test_seen:
+                    excluded_test_seen.add(key)
+                    excluded_test_contacts.append(clean)
+                return True
+            return False
+
         reports_dir = Path(self.engine.inspector.reports_dir)
         contacts_dir = reports_dir / "contacts"
         mgmt_path = reports_dir / "wechat_management_report.json"
@@ -695,7 +719,7 @@ class WeChatSalesCRMHub:
             # 1. Sync bound contacts
             for b in self.engine.bindings.list_bindings():
                 target = str(b.get("target") or "").strip()
-                if not target:
+                if not target or _skip_if_test(target):
                     continue
                 tags = list(b.get("careTags") or [])
                 if b.get("specialCare") and "特别关心" not in tags:
@@ -725,7 +749,7 @@ class WeChatSalesCRMHub:
                 cname = str(prof.get("matchedTitle") or prof.get("target") or prof.get("displayName") or "").strip()
                 if not cname and isinstance(raw_cp, dict):
                     cname = str(list(raw_cp.keys())[idx_cp]).strip()
-                if not cname:
+                if not cname or _skip_if_test(cname):
                     continue
                 pid = self._ensure_person_conn(conn, cname)
                 ident = self._get_identity_person_conn(conn, pid)
@@ -769,7 +793,7 @@ class WeChatSalesCRMHub:
                     except Exception:
                         continue
                     target = str(doc.get("matchedTitle") or doc.get("target") or doc.get("contact") or "").strip()
-                    if not target:
+                    if not target or _skip_if_test(target):
                         continue
                     pid = self._ensure_person_conn(conn, target)
                     ident = self._get_identity_person_conn(conn, pid)
@@ -790,7 +814,7 @@ class WeChatSalesCRMHub:
                     if not isinstance(sess, dict):
                         continue
                     title = str(sess.get("fullTitle") or sess.get("listTitleSnippet") or "").strip()
-                    if not title or sess.get("isFoldedFolder"):
+                    if not title or sess.get("isFoldedFolder") or _skip_if_test(title):
                         continue
                     pid = self._ensure_person_conn(conn, title)
                     ident = self._get_identity_person_conn(conn, pid)
@@ -813,7 +837,7 @@ class WeChatSalesCRMHub:
                         snippet = str(c_item.get("latestSnippet") or "").strip()
                     else:
                         continue
-                    if not cname:
+                    if not cname or _skip_if_test(cname):
                         continue
                     pid = self._ensure_person_conn(conn, cname)
                     ident = self._get_identity_person_conn(conn, pid)
@@ -824,24 +848,33 @@ class WeChatSalesCRMHub:
                         )
                     synced_people += 1
 
-            # 5. Sync media/link analyses into upstream moment_interactions table
-            try:
-                media_items = self.engine.media_analyzer.list_recent_analyses(limit=60)
-            except Exception:
-                media_items = []
-            for idx, item in enumerate(media_items):
-                contact = str(item.get("contact") or "").strip()
-                if not contact:
+            # 5. 真实的朋友圈互动 → 上游 moment_interactions 表：
+            #    好友点赞/评论了我的帖子、我点赞/评论了好友的帖子，一条帖子 × 一个人记一行。
+            #    旧版本把聊天里的链接/图片分析写进这张表冒充朋友圈互动；读到真实数据后把这些替身清掉。
+            moments_rows: List[Dict[str, Any]] = []
+            moments_hub = getattr(self.engine, "moments", None)
+            if moments_hub is not None:
+                try:
+                    moments_rows = list(moments_hub.crm_interactions() or [])
+                except Exception:
+                    moments_rows = []
+            for item in moments_rows:
+                person = str(item.get("person") or "").strip()
+                if not person or _skip_if_test(person):
                     continue
-                pid = self._ensure_person_conn(conn, contact)
+                pid = self._ensure_person_conn(conn, person)
                 ident = self._get_identity_person_conn(conn, pid)
-                wxid = ident.accounts[0].wxid if ident and ident.accounts else _stable_wxid(contact)
-                aid = str(item.get("analysisId") or f"ma_{idx}")
+                wxid = ident.accounts[0].wxid if ident and ident.accounts else _stable_wxid(person)
                 cur = conn.execute(
                     "INSERT OR IGNORE INTO moment_interactions (id, user_id, timestamp, kind) VALUES (?, ?, ?, ?)",
-                    (f"mi_{aid}", wxid, int(self.clock()) - idx * 60, str(item.get("kind") or "link")),
+                    (str(item["id"]), wxid, int(item["timestamp"]), str(item.get("kind") or "")),
                 )
-                media_events += int(cur.rowcount or 0)
+                moments_events += int(cur.rowcount or 0)
+            legacy_removed = 0
+            if moments_rows:
+                legacy_removed = int(conn.execute(
+                    "DELETE FROM moment_interactions WHERE id LIKE 'mi\\_%' ESCAPE '\\'"
+                ).rowcount or 0)
 
         return {
             "ok": True,
@@ -849,7 +882,10 @@ class WeChatSalesCRMHub:
             "syncedContacts": synced_people,
             "syncedSources": synced_people,
             "ingestedMessages": ingested_messages,
-            "mediaInteractions": media_events,
+            "momentsInteractions": moments_events,
+            "legacyMediaInteractionsRemoved": legacy_removed,
+            "excludedTestContacts": excluded_test_contacts,
+            "excludedTestContactsCount": len(excluded_test_contacts),
             "dbPath": str(self.db_path),
         }
 
@@ -1563,10 +1599,19 @@ class WeChatSalesCRMHub:
         total_pipeline_pv = 0.0
         strong_count = 0
         medium_count = 0
+        excluded_test_names: set[str] = {
+            str(n).strip().casefold()
+            for n in ((sync_info or {}).get("excludedTestContacts") or [])
+            if str(n).strip()
+        }
 
         with closing(self._connect()) as conn:
             people_rows = conn.execute("SELECT * FROM crm_people ORDER BY updated_at DESC").fetchall()
             for prow in people_rows:
+                display_name = str(prow["display_name"] or "")
+                if self._is_test_contact(display_name):
+                    excluded_test_names.add(display_name.strip().casefold())
+                    continue
                 pid = str(prow["person_id"])
                 metrics_data = self._compute_metrics_conn(conn, pid)
                 metrics_data.pop("_metricsObj", None)
@@ -1638,6 +1683,7 @@ class WeChatSalesCRMHub:
                 "dueRemindersCount": reminders["dueCount"],
                 "upcomingRemindersCount": reminders["upcomingCount"],
                 "totalPipelineExpectedValue": round(total_pipeline_pv, 2),
+                "excludedTestContactsCount": len(excluded_test_names),
                 "stageCounts": stage_counts,
             },
             "reminders": reminders,

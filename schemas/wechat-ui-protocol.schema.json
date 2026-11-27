@@ -31,7 +31,9 @@
               "more_menu_popup",
               "settings_window",
               "chat_info_drawer",
-              "standalone_article_window"
+              "standalone_article_window",
+              "discover_list",
+              "moments_feed"
             ]
           },
           "title": { "type": "string" },
@@ -66,7 +68,7 @@
           "title": { "type": "string" },
           "view": { "type": "string" },
           "region": { "type": "string" },
-          "category": { "type": "string", "enum": ["navigation", "settings", "chat_window", "article_reader"] },
+          "category": { "type": "string", "enum": ["navigation", "settings", "chat_window", "article_reader", "moments"] },
           "description": { "type": "string" },
           "anchor": { "type": "object" },
           "expectedView": { "type": "string" },

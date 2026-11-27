@@ -1,22 +1,35 @@
-# App-Use Studio
+# App-Use Studio (`v3.0.0`)
 
-[![Version](https://img.shields.io/badge/version-v2.9.0-black?style=flat-square)](https://github.com/Harzva/app-use)
+[![Version](https://img.shields.io/badge/version-v3.0.0-black?style=flat-square)](https://github.com/Harzva/app-use/releases/tag/v3.0.0)
+[![User Guide](https://img.shields.io/badge/guide-零黑话用户手册-black?style=flat-square)](https://harzva.github.io/app-use/user-guide.html)
 [![Website](https://img.shields.io/badge/pages-harzva.github.io%2Fapp--use-black?style=flat-square)](https://harzva.github.io/app-use/)
 [![Platform](https://img.shields.io/badge/platform-macOS%2014%2B%20Apple%20Silicon-black?style=flat-square)](https://github.com/Harzva/app-use)
 [![Runtime](https://img.shields.io/badge/python-3.9%2B%20stdlib%20zero--dep-black?style=flat-square)](https://github.com/Harzva/app-use)
 
 > **Completing the Agent Action Trilogy: `Browser-Use` → `Computer-Use` → `App-Use`.**
 >
-> **App-Use Studio**（原 `WeChat Bot` 演进而来）是一个专为 macOS 设计的**窗口级桌面 App-Use 与 Meta-RPA 元能力引擎**——不依赖浏览器 DOM，也不用全屏截图瞎猜，直接锁定目标应用窗口的 `AXUIElement` + `Apple Vision OCR` 双通道感知，实现**安全原生 App 后台无焦点真并发**与**高风控社交客户端（微信、企微、钉钉、飞书、小红书、抖音等）硬隔离防封调度**。
+> **App-Use Studio**（`WeChat Bot.app` v3.0.0）是一个专为 macOS 设计的**窗口级桌面 App-Use 与 Meta-RPA 元能力引擎**，并在 v3.0.0 全面升级为**零配置（Zero-FDE）客户自助闭环版本**：不依赖浏览器 DOM，也不用全屏截图瞎猜，直接锁定目标应用窗口的 `AXUIElement` + `Apple Vision OCR` 双通道感知，实现**安全原生 App 后台无焦点真并发**、**高风控社交客户端硬隔离防封调度**，以及**开箱 4 步自学习、测试小号 `#` 指令调优与 1–5★ 双轨质量闭环**。
 
-🌐 **项目主页 (GitHub Pages)**: [https://harzva.github.io/app-use/](https://harzva.github.io/app-use/)
+📖 **零黑话用户手册（网页版）**: [https://harzva.github.io/app-use/user-guide.html](https://harzva.github.io/app-use/user-guide.html)（含安装权限指引、4 步向导、可复制 `#` 指令速查表与 10 大常见问题排查）  
+⬇️ **v3.0.0 macOS 安装包下载**: [https://github.com/Harzva/app-use/releases/tag/v3.0.0](https://github.com/Harzva/app-use/releases/tag/v3.0.0)  
+🛠️ **开发者架构文档**: [`docs/DEVELOPER_GUIDE.md`](docs/DEVELOPER_GUIDE.md)（v3.0 子系统设计、SQLite Schema、HTTP/MCP/CLI 全接口参考）  
+🌐 **项目主页 (GitHub Pages)**: [https://harzva.github.io/app-use/](https://harzva.github.io/app-use/)  
 📦 **GitHub 仓库**: [https://github.com/Harzva/app-use](https://github.com/Harzva/app-use)（原 `Harzva/wechat-bot` 仓库平滑升级更名）
+
+---
+
+## v3.0.0 零配置客户自助闭环亮点
+
+- **4 步开箱初始化 & 内置聊天归档解析（零 FDE / 无需额外 WeChatBridge）**：首次打开即引导配置身份、业务简介、L1 `general_sales` 通用私域销售包与测试小号；内置微信活跃高价值会话自动发现（自动过滤公众号/系统号/测试号）以及本地 `.zip` / `*聊天记录*.txt` 导出包解析与跨会话号主推断，无需额外安装第三方插件。
+- **离线词汇挖掘、PII 自动脱敏与高风险草稿门禁**：导入前自动脱敏手机号、身份证号、邮箱、微信号与详细地址；通过多气泡归并、离线 n-gram/PMI 词汇挖掘与 L1×L2 话术合成提炼专属知识库，凡命中价格、折扣、退款、交付承诺的条目强制进入 `draft` 审阅发布门禁。
+- **测试小号沙盒 + `#` 指令当场纠偏 + 1–5★ 双轨评分闭环**：支持测试好友三层隔离与模拟客户压测窗口；仅授权管理员/测试好友可执行 `#` / `＃` 纠偏指令（防外泄防注入），结合 5 维自动体检（`autoScore`）、1–5★ 人工权重闭环（`[0.35, 1.45]`）、金牌范例库与「一键回归验证」持续提分。
+- **干净客户构建 (`WECHAT_CLEAN_CUSTOMER_BUILD=1`)**：通过 `customer_build.marker` 彻底剥离开发态种子数据，外置运行态数据至 `~/Library/Application Support/WeChatBot/`，覆盖安装保留用户配置与历史资产，延续本地叶证书签名以保持 macOS TCC 权限不掉线。
 
 ---
 
 ## 为什么需要独立的 Window-Scoped App-Use？
 
-| 对比维度 | Browser-Use | 传统 Computer-Use | **App-Use Studio (`v2.9.0`)** |
+| 对比维度 | Browser-Use | 传统 Computer-Use | **App-Use Studio (`v3.0.0`)** |
 | :--- | :--- | :--- | :--- |
 | **覆盖软件范围** | 仅限浏览器网页 DOM | 全桌面截图，易受无关弹窗/多屏干扰 | **精确锁定 `bundleID + windowID`**，覆盖微信/钉钉/飞书/小红书与任意本地原生 App |
 | **控件定位精度** | 依赖 HTML DOM（原生客户端无 DOM） | 全屏纯视觉像素点击，窗口一移动即偏移 | **5 信号语义锚点**（`identifier` / 中英双语词法 / `role` / 相对坐标 / 邻域文本）+ 自动重试自愈 |
@@ -58,7 +71,7 @@
 ## 实机验收基准与工程证据
 
 以下数据均为在本机（macOS 14+ Apple Silicon）真机实测所得，非估算值：
-- **全量单元测试**：`174 / 174` 全部通过（覆盖元算法、双通道无焦点 AX、三级风控硬拦截、MCP/HTTP 接口、DSH `dsh2codex` 编排与侧栏 UI）。
+- **自动化测试套件**：全库共 **270+ 项测试**（总计 `275` 项用例，含 **31 项 `v3.0.0` 零配置自训练与督导闭环专项测试**），覆盖租户隔离、PII 脱敏、离线词矿、风险门禁、`#` 指令安全闭环、1–5★ 双轨评分、元算法、无焦点 AX 与 DSH 编排。
 - **真机“零抢焦点 + 零碰剪贴板”多窗并发实测**：在刻意将系统焦点留在 `Finder`、剪贴板写入哨兵字符串的前提下，后台同时并发操作 `TextEdit`（`AXSetValue`）与 `Calculator`（`AXPress` `AllClear` + `9`）：
   - 前台全程保持 `com.apple.finder`，剪贴板哨兵保持原样未改；
   - `jobCount = 2` / `succeededCount = 2`，实测并行加速比 **`1.86x`**，`hidLeaseStats.totalAcquisitions = 0`，`headlessSharePct = 100.0%`。
@@ -117,5 +130,9 @@ WECHAT_BOT_DATA_DIR = "/Users/<your-user>/Library/Application Support/WeChatBot"
 - `native/wechat_vision_ax.swift` & `native/wechat_studio_app.swift`：原生 macOS AXUIElement + Vision OCR + 无焦点 AX 直调 + WKWebView 宿主外壳
 - `skills/app-use-meta-builder/SKILL.md`：通用未知新 App RPA 元能力技能文档
 - `dsh.plugin.json`：Bot Studio 原生 DSH 插件声明（20 Tools / 5 Panels）
+- `wechat_control/{tenant_profile,corpus_discovery,playbook_trainer,supervisor_eval}.py`：v3.0.0 零 FDE 租户模式、语料自动发现、PII 脱敏、离线词汇挖掘、风险门禁、`#` 指令沙盒与 1–5★ 双轨评分闭环
+- `config_templates/sales_packs/general_sales.json`：L1 通用私域与顾问式销售 9 阶段策略包
+- `docs/user-guide.html` & `docs/USER_GUIDE.md`：零工程黑话网页版/Markdown 用户操作手册（[在线阅读](https://harzva.github.io/app-use/user-guide.html)）
+- `docs/DEVELOPER_GUIDE.md`：v3.0.0 开发者架构、SQLite Schema 与 HTTP/MCP/CLI 接口文档
 - `docs/index.html`：项目 GitHub Pages 文档页（[https://harzva.github.io/app-use/](https://harzva.github.io/app-use/)）
-- `tests/`：174 项自动化单元测试套件
+- `tests/`：270+ 项自动化单元测试套件（含 31 项 `test_38_*` / `test_39_*` / `test_40_*` v3.0 专项测试）

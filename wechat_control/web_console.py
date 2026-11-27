@@ -1238,6 +1238,9 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       color: var(--text-secondary); white-space: nowrap;
     }
     .hosting-badge.on { background: #dcfce7; border-color: #86efac; color: #166534; }
+    .hosting-badge.guard-ready { cursor: pointer; background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; font-weight: 600; }
+    .hosting-badge.guard-paused { cursor: pointer; background: #fef3c7; border-color: #fcd34d; color: #92400e; font-weight: 700; }
+    .hosting-badge.guard-off { cursor: pointer; background: #fee2e2; border-color: #fca5a5; color: #991b1b; font-weight: 600; }
     .hosting-meta { color: var(--text-secondary); font-size: 12px; }
     .hosting-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
     .hosting-btn { font-size: 13px !important; padding: 6px 14px !important; font-weight: 600 !important; }
@@ -2129,7 +2132,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       padding: 0;
     }
     #tab-monitor .conversation-heading { font-size: 15.5px; }
-    #tab-monitor .conversation-recipient { flex: 0 1 280px; max-width: 300px; gap: 6px; }
+    #tab-monitor .conversation-recipient { flex: 0 1 380px; max-width: 420px; gap: 6px; }
     #tab-monitor #previewTarget { padding: 4px 9px !important; font-size: 13px !important; }
     #tab-monitor .chat-stream-card {
       flex: 1 1 auto;
@@ -2272,6 +2275,228 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
     }
     .settings-card h3 { margin: 0; font-size: 13.5px; }
     .settings-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 10px; font-size: 13px; }
+
+    /* Call Brief Pre-Call Advisor Modal (#callBriefOverlay) */
+    .call-brief-modal {
+      width: min(920px, calc(100vw - 32px)) !important;
+      max-height: min(88vh, 840px) !important;
+      padding: 0 !important;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden !important;
+    }
+    .call-brief-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 18px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    .call-brief-goals {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 5px;
+    }
+    .call-brief-goal-pill {
+      padding: 4px 10px !important;
+      min-height: 27px !important;
+      font-size: 12px !important;
+      border-radius: 999px !important;
+      border: 1px solid var(--border-strong) !important;
+      background: var(--surface-soft) !important;
+      color: var(--text-secondary) !important;
+      cursor: pointer;
+    }
+    .call-brief-goal-pill.active {
+      background: var(--primary) !important;
+      color: var(--primary-fg) !important;
+      border-color: var(--primary) !important;
+      font-weight: 600 !important;
+    }
+    .call-brief-custom-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      margin-top: 2px;
+    }
+    .call-brief-custom-row input {
+      flex: 1 1 auto;
+      padding: 5px 10px !important;
+      font-size: 12.5px !important;
+      min-height: 30px !important;
+    }
+    .call-brief-coverage {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 18px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface-soft);
+      font-size: 12px;
+      color: var(--text-secondary);
+      flex-shrink: 0;
+    }
+    .call-brief-stat-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 9px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 11.5px;
+    }
+    .call-brief-moments-nudge {
+      margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--vip, #d97706);
+      font-weight: 500;
+    }
+    .call-brief-body {
+      padding: 14px 18px 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      background: var(--bg);
+    }
+    .cb-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 13px 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+    }
+    .cb-card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .cb-card-title {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--text);
+      margin: 0;
+    }
+    .cb-oneliner {
+      padding: 9px 12px;
+      border-radius: 9px;
+      background: var(--surface-soft);
+      border-left: 3px solid var(--ok, #10b981);
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.55;
+    }
+    .cb-grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    @media (max-width: 700px) { .cb-grid-2 { grid-template-columns: 1fr; } }
+    .cb-subbox {
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 9px 11px;
+      font-size: 12.5px;
+      line-height: 1.55;
+    }
+    .cb-subbox h4 {
+      margin: 0 0 5px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-secondary);
+    }
+    .cb-list {
+      margin: 0;
+      padding-left: 17px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 12.5px;
+      color: var(--text);
+    }
+    .cb-script-card {
+      border-color: color-mix(in srgb, var(--ok, #10b981) 45%, var(--border));
+      box-shadow: var(--shadow-sm);
+    }
+    .cb-script-block {
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .cb-script-block-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-secondary);
+    }
+    .cb-script-quote {
+      font-size: 13.5px;
+      line-height: 1.6;
+      color: var(--text);
+      white-space: pre-wrap;
+    }
+    .cb-obj-item {
+      padding: 7px 10px;
+      border-radius: 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 12.5px;
+    }
+    .cb-post-item {
+      padding: 7px 10px;
+      border-radius: 8px;
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      font-size: 12.5px;
+      line-height: 1.5;
+    }
+    .moments-suggest-hint {
+      width: 100%;
+      margin-top: 4px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--text-secondary);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+    .moments-alt-chip {
+      padding: 2px 8px !important;
+      min-height: 24px !important;
+      font-size: 11.5px !important;
+      border-radius: 999px !important;
+    }
     /* Thiflow See-Think-Act & Yingdao AI WorkOS Extensions (v2.4.71) */
     #tab-monitor .workos-goal-bar {
       flex-shrink: 0;
@@ -2762,6 +2987,101 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
     .doc-confirm-summary { font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; }
     .doc-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 
+    .supervisor-directive-banner {
+      margin: 0 0 6px;
+      padding: 7px 10px;
+      border-radius: 8px;
+      border: 1px solid #f59e0b;
+      background: color-mix(in srgb, #f59e0b 12%, var(--surface));
+      color: #92400e;
+      font-size: 12.5px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    [data-theme="dark"] .supervisor-directive-banner { color: #fcd34d; }
+    .quality-feedback-bar {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface-soft);
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      font-size: 12px;
+    }
+    .star-rating-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .star-btn {
+      padding: 3px 8px;
+      font-size: 12px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+    }
+    .star-btn.active { background: #f59e0b; color: #fff; border-color: #d97706; }
+    .tag-chip {
+      padding: 2px 8px;
+      font-size: 11.5px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-secondary);
+      cursor: pointer;
+    }
+    .tag-chip.active { background: var(--work-pine); color: #fff; border-color: var(--work-pine); }
+    .wizard-steps {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+    .wizard-step-pill {
+      padding: 7px 9px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface-soft);
+      font-size: 12px;
+      text-align: center;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .wizard-step-pill.active {
+      border-color: var(--work-pine);
+      background: color-mix(in srgb, var(--work-pine) 12%, var(--surface));
+      color: var(--work-pine);
+    }
+    .wizard-step-pill.done {
+      border-color: #16a34a;
+      color: #15803d;
+    }
+    .sparring-grid { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 14px; }
+    @media (max-width: 980px) { .sparring-grid { grid-template-columns: 1fr; } }
+    .sparring-chat-box {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface-soft);
+      min-height: 240px;
+      max-height: 360px;
+      overflow-y: auto;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .sparring-msg { padding: 8px 10px; border-radius: 9px; font-size: 12.5px; line-height: 1.5; max-width: 92%; }
+    .sparring-msg.peer { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); }
+    .sparring-msg.self { align-self: flex-end; background: color-mix(in srgb, var(--work-pine) 11%, var(--surface)); border: 1px solid color-mix(in srgb, var(--work-pine) 30%, var(--border)); }
+    .sparring-msg.sys { align-self: center; background: color-mix(in srgb, #f59e0b 12%, var(--surface)); border: 1px solid #f59e0b; font-size: 12px; }
+    .md-doc-body { font-size: 13px; line-height: 1.65; color: var(--text); max-height: 62vh; overflow-y: auto; padding: 6px 4px; }
+    .md-doc-body h1, .md-doc-body h2, .md-doc-body h3 { margin: 14px 0 6px; color: var(--text); }
+    .md-doc-body pre { background: var(--surface-soft); padding: 8px 10px; border-radius: 8px; overflow-x: auto; font-size: 12px; }
+    .md-doc-body code { background: var(--surface-soft); padding: 1px 4px; border-radius: 4px; font-size: 12px; }
+
     @media (max-width: 1180px) {
       #tab-monitor .hosting-top-row { flex-wrap: wrap; }
       #tab-monitor .hosting-actions { flex-wrap: wrap; }
@@ -2794,7 +3114,9 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       <button type="button" class="tab-btn active" aria-current="page" data-tab="monitor" onclick="switchTab('monitor')">对话</button>
       <a id="reviewWorkbenchLink" class="tab-btn workspace-link" href="/workbench">待办审阅</a>
       <button type="button" class="tab-btn" data-tab="care" onclick="switchTab('care')">联系人</button>
+      <button type="button" class="tab-btn" data-tab="moments" onclick="switchTab('moments')">朋友圈</button>
       <button type="button" class="tab-btn" data-tab="knowledge" onclick="switchTab('knowledge')">知识库</button>
+      <button type="button" class="tab-btn" data-tab="sparring" onclick="switchTab('sparring')">🧪 测试与评分</button>
       <button type="button" class="tab-btn" data-tab="salescrm" onclick="switchTab('salescrm')">客户跟进</button>
       <button type="button" class="tab-btn" data-tab="omni" onclick="switchTab('omni')">全渠道矩阵</button>
       <button type="button" class="tab-btn" data-tab="appuse" onclick="switchTab('appuse')">App-Use 流程工厂</button>
@@ -2815,6 +3137,8 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
           <button type="button" id="homeRetry" class="btn-outline sm" onclick="loadOverview(true)" hidden>重连</button>
         </div>
         <div class="tb-right">
+          <button type="button" id="topOnboardingWizardBtn" class="btn-solid sm" onclick="openOnboardingWizard()" title="4 步零配置快速训练向导：设身份 → 扫记录 → 审草稿 → 模拟试跑">✨ 快速训练向导</button>
+          <button type="button" id="topUserGuideBtn" class="btn-outline sm" onclick="openUserGuideModal()" title="打开微信客服使用手册（含权限、快速训练、# 指令与打分指南）">📖 使用手册</button>
           <button type="button" id="topSettingsBtn" class="btn-outline sm" onclick="openSettingsModal()" title="打开 BotStudio 风格统一设置中心（模型、回复策略、防抢鼠标、权限与窗口）">⚙️ 设置</button>
           <details class="topbar-more" id="topbarMore">
             <summary>窗口 ▾</summary>
@@ -2846,19 +3170,19 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
     <div class="perm-overlay" id="permOverlay" role="dialog" aria-modal="true" aria-labelledby="permModalTitle">
       <div class="perm-modal">
         <h2 id="permModalTitle">需要授权以下权限才能正常使用 WeChat Bot</h2>
-        <p class="perm-sub">自动化读取与回复微信消息依赖这三项 macOS 权限，缺一不可</p>
+        <p class="perm-sub">需要两项 macOS 权限：<b>辅助功能</b>、<b>屏幕录制</b>（「系统事件控制」随辅助功能一起生效，没有单独的开关）</p>
         <details class="hosting-picker" style="margin:0 12px 8px;">
-          <summary style="font-size:12px;color:#888;">为什么之前授权过，现在又要授权？</summary>
+          <summary style="font-size:12px;color:#888;">为什么开关已经打开，这里还显示未授权？</summary>
           <div style="font-size:12px;color:#666;line-height:1.6;padding:6px 4px;">
-            App 每次更新后代码签名会变化，macOS 会把它视为<b>新的应用</b>，旧授权随之失效——这是系统安全机制，不是 bug。<br>
-            正确做法：打开系统设置 → 隐私与安全性 → 辅助功能 / 屏幕录制，先把列表里的<b>旧 WeChat Bot 条目「−」删除</b>，再点「+」重新添加当前安装的 WeChat Bot。
+            系统设置里那条开关，可能绑定的是<b>某个旧版本的 WeChat Bot</b>。macOS 只认绑定的那个版本，所以开关显示开着，当前版本却不被承认，再怎么点开关都没用。<br>
+            点下方<b>「重新登记授权」</b>：它只清除 WeChat Bot 自己的旧记录，并让 macOS 把<b>当前安装的版本</b>重新加进列表，然后打开开关即可，之后更新版本不会再失效。
           </div>
         </details>
         <div class="perm-steps" id="permModalSteps"></div>
         <div id="permWizard"></div>
         <div class="perm-items perm-modal-items" id="permModalItems"></div>
         <div class="perm-modal-actions">
-          <a id="permModalOpenSettings" class="btn-solid" href="x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" style="text-decoration:none;">⚙️ 打开系统设置去授权</a>
+          <a id="permModalOpenSettings" class="btn-solid" href="x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility" onclick="requestPermissionThenOpen(event, (permPendingSteps(PERM_WIZARD.items || [])[0] || {}).id || 'accessibility', this.href, this)" style="text-decoration:none;">⚙️ 打开系统设置去授权</a>
           <button type="button" class="btn-outline" onclick="window.PERM_MODAL_DISMISSED = false; loadPermissions(true)">🔄 我已勾选，重新检查</button>
         </div>
         <span class="perm-modal-later" onclick="hidePermModal()">稍后再说（首页会保留警示）</span>
@@ -2874,6 +3198,136 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
           <button type="button" class="btn-solid" onclick="loadDiagnostics(false, true)">🔍 深度检查（含权限/网关探测）</button>
           <button type="button" class="btn-outline" onclick="loadDiagnostics(true)">🔄 刷新</button>
           <button type="button" class="btn-outline" onclick="hideDiagModal()">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 📖 使用手册 Modal -->
+    <div class="perm-overlay" id="userGuideOverlay" role="dialog" aria-modal="true" aria-labelledby="userGuideTitle" onclick="if(event.target===this)hideUserGuideModal()">
+      <div class="perm-modal" style="max-width:780px; width:min(780px, 94vw); text-align:left;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+          <h2 id="userGuideTitle" style="margin:0;">📖 WeChat Bot 使用手册</h2>
+          <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px;">
+            <a href="/user-guide" target="_blank" rel="noopener" class="btn-outline sm" style="text-decoration:none; border-radius:var(--radius-sm); display:inline-flex; align-items:center; gap:4px;">🌐 在浏览器打开网页版手册</a>
+            <a href="https://harzva.github.io/app-use/user-guide.html" target="_blank" rel="noopener" class="btn-outline sm" style="text-decoration:none; border-radius:var(--radius-sm); display:inline-flex; align-items:center; gap:4px;">🔗 在线网页版</a>
+            <button type="button" class="btn-outline sm" onclick="hideUserGuideModal()">关闭</button>
+          </div>
+        </div>
+        <div id="userGuideBody" class="md-doc-body"><p class="hosting-empty">正在读取操作手册…</p></div>
+      </div>
+    </div>
+
+    <!-- ✨ 4 步零配置快速训练向导 Modal -->
+    <div class="perm-overlay" id="onboardingWizardOverlay" role="dialog" aria-modal="true" aria-labelledby="wizardModalTitle" onclick="if(event.target===this)hideOnboardingWizard()">
+      <div class="perm-modal" style="max-width:780px; width:min(780px, 94vw); max-height:88vh; overflow:auto; text-align:left;">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px;">
+          <h2 id="wizardModalTitle" style="margin:0;">✨ 快速训练向导（4 步打造你的专属销售助手）</h2>
+          <button type="button" class="btn-outline sm" onclick="hideOnboardingWizard()">稍后</button>
+        </div>
+        <div class="wizard-steps" id="wizardStepPills">
+          <div class="wizard-step-pill active" data-wstep="1">1 · 身份与行业包</div>
+          <div class="wizard-step-pill" data-wstep="2">2 · 发现聊天与资料</div>
+          <div class="wizard-step-pill" data-wstep="3">3 · 词汇与草稿验收</div>
+          <div class="wizard-step-pill" data-wstep="4">4 · 3 轮模拟试跑</div>
+        </div>
+
+        <div id="wizardStepPanel1">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+            <div>
+              <label style="font-size:12px; font-weight:600;">你的称呼 / 主账号名</label>
+              <input type="text" id="wizOwnerName" placeholder="例如：陈经理 / 小林" />
+            </div>
+            <div>
+              <label style="font-size:12px; font-weight:600;">企业 / 品牌名称</label>
+              <input type="text" id="wizBusinessName" placeholder="例如：星河定制家居" />
+            </div>
+          </div>
+          <div style="margin-bottom:10px;">
+            <label style="font-size:12px; font-weight:600;">历史聊天里的常用名/别名（逗号分隔，帮助识别哪句是你说的）</label>
+            <input type="text" id="wizOwnerAliases" placeholder="例如：Kevin-华东区, 小陈" />
+          </div>
+          <div style="margin-bottom:10px;">
+            <label style="font-size:12px; font-weight:600;">一句话主营产品 / 业务简介</label>
+            <textarea id="wizProductSummary" rows="2" placeholder="例如：主打全屋环保实木定制与上门量尺设计，主要服务新房业主"></textarea>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+            <div>
+              <label style="font-size:12px; font-weight:600;">行业销售场景包</label>
+              <select id="wizIndustryPack"></select>
+            </div>
+            <div>
+              <label style="font-size:12px; font-weight:600;">测试好友名称（用于私下试跑与 # 指令调优）</label>
+              <input type="text" id="wizTestContacts" placeholder="例如：测试小号（选填，逗号分隔）" />
+            </div>
+          </div>
+          <div style="display:flex; justify-content:flex-end; gap:8px;">
+            <button type="button" class="btn-solid" id="wizSaveStep1Btn" onclick="wizardSubmitStep1()">保存并进入第 2 步 →</button>
+          </div>
+        </div>
+
+        <div id="wizardStepPanel2" hidden>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+            <span style="font-size:12.5px; color:var(--text-secondary);">自动过滤公众号/系统通知与测试好友，按商机含金量排序推荐训练样本：</span>
+            <button type="button" class="btn-outline sm" onclick="wizardDiscoverCorpora()">🔍 重新扫描会话与导出包</button>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+            <div>
+              <strong style="font-size:12px;">活跃高价值微信会话</strong>
+              <div id="wizDiscoveredSessions" style="max-height:170px; overflow:auto; border:1px solid var(--border); border-radius:8px; padding:8px; margin-top:4px; font-size:12px;">正在扫描…</div>
+            </div>
+            <div>
+              <strong style="font-size:12px;">本地导出聊天包 (.zip / *聊天记录*.txt)</strong>
+              <div id="wizDiscoveredArchives" style="max-height:170px; overflow:auto; border:1px solid var(--border); border-radius:8px; padding:8px; margin-top:4px; font-size:12px;">正在扫描…</div>
+            </div>
+          </div>
+          <div style="margin-bottom:10px;">
+            <label style="font-size:12px; font-weight:600;">补充聊天记录路径（可选）或粘贴产品资料 / FAQ 文本</label>
+            <input type="text" id="wizExtraArchivePath" placeholder="可选：本地 .zip 或 聊天记录.txt 路径" style="margin-bottom:6px;" />
+            <textarea id="wizProductDocText" rows="3" placeholder="可选：粘贴产品介绍、常见问答或报价说明文本，系统将自动脱敏并提炼话术…"></textarea>
+          </div>
+          <div style="display:flex; justify-content:space-between; gap:8px;">
+            <button type="button" class="btn-outline" onclick="goWizardStep(1)">← 上一步</button>
+            <div style="display:flex; gap:8px;">
+              <button type="button" class="btn-outline" onclick="goWizardStep(3)">跳过训练直接看话术</button>
+              <button type="button" class="btn-solid" id="wizRunTrainBtn" onclick="wizardRunTraining()">⚡ 开始自训练并提炼话术 →</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="wizardStepPanel3" hidden>
+          <div id="wizTrainStatsBox" style="font-size:12.5px; color:var(--text-secondary); margin-bottom:8px;">尚未执行本次训练，可直接进入模拟测试。</div>
+          <div style="margin-bottom:10px;">
+            <strong style="font-size:12.5px;">提炼业务词汇表</strong>
+            <div id="wizMinedVocabBox" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;"></div>
+          </div>
+          <div style="margin-bottom:10px;">
+            <strong style="font-size:12.5px;">待审核发布草稿（含价格/折扣/承诺等高风险条款，需勾选取舍后发布）</strong>
+            <div id="wizDraftsList" style="max-height:200px; overflow:auto; display:flex; flex-direction:column; gap:8px; margin-top:6px;"></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; gap:8px;">
+            <button type="button" class="btn-outline" onclick="goWizardStep(2)">← 上一步</button>
+            <div style="display:flex; gap:8px;">
+              <button type="button" class="btn-solid" onclick="wizardApproveDraftsAndNext()">✅ 审核发布所选并试跑 →</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="wizardStepPanel4" hidden>
+          <p style="font-size:12.5px; color:var(--text-secondary); margin:0 0 8px;">无需打开微信，在这里先模拟 3 轮客户提问，看看 AI 回复是否准确自然：</p>
+          <div id="wizSimChatLog" class="sparring-chat-box" style="min-height:170px; max-height:220px; margin-bottom:8px;">
+            <div class="sparring-msg sys">试发一句客户常问的话，例如“你们这套方案多少钱？”或“能先看看案例吗？”</div>
+          </div>
+          <div style="display:flex; gap:8px; margin-bottom:10px;">
+            <input type="text" id="wizSimInput" placeholder="输入模拟客户提问…" onkeydown="if(event.key==='Enter'){event.preventDefault();wizardSendSimTurn();}" />
+            <button type="button" class="btn-solid sm" onclick="wizardSendSimTurn()">发送测试</button>
+          </div>
+          <div style="display:flex; justify-content:space-between; gap:8px; align-items:center;">
+            <button type="button" class="btn-outline" onclick="goWizardStep(3)">← 上一步</button>
+            <div style="display:flex; gap:8px;">
+              <button type="button" class="btn-outline" onclick="hideOnboardingWizard(); switchTab('sparring');">前往「🧪 测试与评分」工作区</button>
+              <button type="button" class="btn-solid" onclick="hideOnboardingWizard(); loadOverview(true);">🎉 完成初始化</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -3048,6 +3502,52 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       </div>
     </div>
 
+    <!-- Pre-Call Brief & Spoken Phone Script Advisor Modal (#callBriefOverlay) -->
+    <div class="perm-overlay" id="callBriefOverlay" role="dialog" aria-modal="true" aria-labelledby="callBriefModalTitle" onclick="if(event.target===this)hideCallBriefModal()">
+      <div class="perm-modal settings-modal call-brief-modal">
+        <div class="settings-head">
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-width:0;">
+            <h2 id="callBriefModalTitle">📋 电话前速览 · 话术参谋</h2>
+            <span id="callBriefModelBadge" class="call-brief-stat-chip">准备就绪</span>
+          </div>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <button type="button" id="callBriefCopyAllBtn" class="btn-outline sm" onclick="copyFullCallBrief()">📋 复制整张话术卡</button>
+            <button type="button" class="btn-outline sm" onclick="hideCallBriefModal()">关闭</button>
+          </div>
+        </div>
+        <div class="call-brief-toolbar">
+          <div class="call-brief-goals" id="callBriefGoalPills" role="group" aria-label="通话沟通目标">
+            <button type="button" class="call-brief-goal-pill active" data-cb-goal="general" onclick="switchCallBriefGoal('general')">综合沟通</button>
+            <button type="button" class="call-brief-goal-pill" data-cb-goal="followup" onclick="switchCallBriefGoal('followup')">日常破冰</button>
+            <button type="button" class="call-brief-goal-pill" data-cb-goal="quote" onclick="switchCallBriefGoal('quote')">推进报价</button>
+            <button type="button" class="call-brief-goal-pill" data-cb-goal="care" onclick="switchCallBriefGoal('care')">客情关怀</button>
+            <button type="button" class="call-brief-goal-pill" data-cb-goal="recovery" onclick="switchCallBriefGoal('recovery')">异议安抚</button>
+            <button type="button" class="call-brief-goal-pill" data-cb-goal="custom" onclick="switchCallBriefGoal('custom')">自定义</button>
+            <select id="callBriefGoalSelect" aria-label="选择通话目标" onchange="switchCallBriefGoal(this.value)" style="width:auto; padding:3px 8px; font-size:12px;">
+              <option value="general">综合沟通</option>
+              <option value="followup">日常破冰</option>
+              <option value="quote">推进报价</option>
+              <option value="care">客情关怀</option>
+              <option value="recovery">异议安抚</option>
+              <option value="custom">自定义目标</option>
+            </select>
+          </div>
+          <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+            <button type="button" id="callBriefAiBtn" class="btn-solid sm" onclick="refreshCallBrief(true)">✨ AI 深度研判</button>
+            <button type="button" id="callBriefFastBtn" class="btn-outline sm" onclick="refreshCallBrief(false)">⚡ 快速汇总</button>
+          </div>
+          <div id="callBriefCustomWrap" class="call-brief-custom-row" hidden>
+            <input type="text" id="callBriefCustomGoalInput" placeholder="输入本次通话目标（如：确认下周现场演示时间与预算范围）" onkeydown="if(event.key==='Enter'){event.preventDefault();refreshCallBrief(CALL_BRIEF_STATE.useLlm);}" />
+            <button type="button" class="btn-solid sm" onclick="refreshCallBrief(CALL_BRIEF_STATE.useLlm)">应用目标</button>
+          </div>
+        </div>
+        <div id="callBriefCoverageBar" class="call-brief-coverage"></div>
+        <div id="callBriefContent" class="call-brief-body">
+          <div class="cb-card"><div style="color:var(--text-muted); font-size:13px;">正在聚合聊天记录、Soul 记忆、朋友圈动态与 CRM 信息…</div></div>
+        </div>
+      </div>
+    </div>
+
     <!-- Conversational Document & PDF Knowledge Ingest Dialog (#docIngestOverlay) -->
     <dialog id="docIngestOverlay" class="doc-ingest-dialog" closedby="any" aria-labelledby="docIngestModalTitle">
       <div class="doc-ingest-head">
@@ -3181,6 +3681,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
             <div class="hosting-top-row">
               <div class="hosting-status">
                 <span id="hostingBadge" class="hosting-badge off">⚪ 托管未开启</span>
+                <button type="button" id="hostingGuardPill" class="hosting-badge guard-ready" onclick="openSettingsModal('guard')" title="防抢鼠标/键盘自动让路守卫：点击可调整等待与空窗参数">🛡️ 防抢鼠标护航中</button>
                 <span id="hostingMeta" class="hosting-meta">加载中…</span>
               </div>
               <div class="hosting-actions">
@@ -3261,6 +3762,8 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
             <div class="conversation-recipient">
               <label for="previewTarget">回复对象</label>
               <input type="text" id="previewTarget" placeholder="选择最近会话，或输入会话名称" oninput="syncChatRecipient(this.value)" />
+              <button type="button" id="chatTestContactBtn" class="btn-outline sm" style="white-space:nowrap; flex-shrink:0;" onclick="toggleActiveChatTestContact()" title="将该联系人标记为内部测试好友（允许 # 纠偏指令并从客户 CRM 统计中剔除）">🧪 设为测试好友</button>
+              <button type="button" id="chatHeadCallBriefBtn" class="btn-outline sm" style="white-space:nowrap; flex-shrink:0;" onclick="openCallBriefFromChat()" title="电话前一键速览：聚合历史聊天、Soul 记忆、朋友圈近况与话术提词卡">📋 电话前速览</button>
             </div>
           </div>
 
@@ -3303,11 +3806,16 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
               <button type="button" class="btn-outline sm" onclick="searchAndSendWebImageQuick()" title="联网搜图并发送给当前好友">🔍 搜图发送</button>
               <button type="button" class="btn-outline sm" onclick="annotateAndSendImageQuick()" title="对好友发来的图片画红框编号标注重点并回传">🖍️ 标注图片回传</button>
               <button type="button" class="btn-outline sm" onclick="joinTencentMeetingQuick()" title="点击微信里的腾讯会议卡片入会并拉起 Bot Studio 语音参会发言">🎧 点卡片入会+Bot发言</button>
+              <button type="button" id="chatBarCallBriefBtn" class="btn-solid sm" onclick="openCallBriefFromChat()" title="打电话前先看速览：聚合并提炼近期聊天、朋友圈近况与口语通话话术">📋 电话前速览</button>
               <button type="button" class="btn-outline sm" onclick="voiceCallQuick('dial')" title="向当前好友拨打微信/企微语音电话并用 AI 语音实时对话">📞 打语音电话</button>
               <button type="button" class="btn-outline sm" onclick="voiceCallQuick('answer')" title="一键接听微信/企微来电并连入 AI 语音对话">📲 接听来电</button>
               <button type="button" class="btn-outline sm" onclick="voiceCallQuick('hangup')" title="挂断当前通话并自动恢复本机麦克风">📴 挂断</button>
             </div>
-            <textarea id="sendText" placeholder="输入回复，或点下方「生成草稿」/「@元宝 解析」自动起草"></textarea>
+            <div id="supervisorDirectiveBanner" class="supervisor-directive-banner" hidden>
+              <span>🛡️ 管理员指令模式：仅指导 AI 改写，不直接发给客户</span>
+              <button type="button" class="btn-outline sm" onclick="executeSupervisorDirectiveFromComposer()">立即按指令改写</button>
+            </div>
+            <textarea id="sendText" placeholder="输入回复，或点下方「生成草稿」/「@元宝 解析」自动起草（以 # 开头进入管理员纠偏指令模式）" oninput="onComposerTextInput()"></textarea>
             <div class="chat-composer-bar">
               <div class="composer-actions">
                 <button type="button" id="generateDraftBtn" class="btn-solid" onclick="runReplyPreview()">生成草稿</button>
@@ -3326,6 +3834,7 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
             </div>
             <div id="quickAiAssistResult" class="chat-ai-answer" hidden></div>
             <div id="replyPreviewResult" class="chat-ai-answer" hidden></div>
+            <div id="draftQualityFeedbackBar" class="quality-feedback-bar" hidden></div>
             <details class="reply-settings">
               <summary>回复设置</summary>
               <div class="chat-context-bar">
@@ -4034,6 +4543,75 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       </div>
     </section>
 
+    <section id="tab-moments" class="tab-panel">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-title">◎ 朋友圈 · 好友动态与往来</div>
+            <div class="panel-meta" id="momentsMeta">读取朋友圈后，这里按联系人汇总点赞、评论往来。</div>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn btn-primary btn-sm" id="momentsReadBtn" onclick="readMoments()">📖 读取朋友圈</button>
+            <button class="btn btn-ghost btn-sm" onclick="loadMoments(true)">刷新</button>
+          </div>
+        </div>
+        <p class="panel-meta" style="margin:0 0 10px;">读取会在微信里打开「发现 → 朋友圈」并向下滚动，结束后切回聊天页；你正在用鼠标键盘时不会开始。点赞和评论默认只是演练——打开菜单、核对位置，不点击。</p>
+        <div class="kpi-grid" id="momentsKpiGrid"></div>
+      </div>
+
+      <div class="grid-2">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">按联系人的朋友圈往来</div>
+            <div class="panel-meta">「待点赞」是最近 30 天里还没赞过的帖子</div>
+          </div>
+          <div id="momentsContactsBox"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">自动互动策略</div>
+            <div class="panel-meta">先读朋友圈，再按策略生成清单，过目后执行</div>
+          </div>
+          <div style="display:grid; gap:8px; font-size:13px;">
+            <label><input type="checkbox" id="momentsPolicyAutoLike" onchange="saveMomentsPolicy()" /> 自动点赞：近期还没赞过的帖子</label>
+            <label><input type="checkbox" id="momentsPolicyComments" onchange="saveMomentsPolicy()" /> 自动评论：按下面的模板轮换</label>
+            <input id="momentsPolicyTemplates" class="input" placeholder="评论模板，多条用 | 分隔，例如：真不错！| 学习了" onchange="saveMomentsPolicy()" />
+            <label style="font-size:12px; color:var(--text-muted);">只看最近
+              <input id="momentsPolicyDays" type="number" min="1" max="365" class="input" style="width:76px; display:inline-block;" onchange="saveMomentsPolicy()" /> 天的帖子
+            </label>
+          </div>
+          <div id="momentsPlanBox" style="margin-top:10px;"></div>
+          <div style="margin-top:10px;">
+            <button class="btn btn-ghost btn-sm" onclick="loadMomentsPlan()">查看互动清单</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">帖子</div>
+          <div class="panel-meta" id="momentsPostsMeta">新 → 旧</div>
+          <label style="font-size:12px; color:var(--text-muted); display:flex; gap:6px; align-items:center;">操作方式
+            <select id="momentsMode" class="input" style="width:auto;">
+              <option value="dry_run">演练（不点击）</option>
+              <option value="silent_verify">评论演练（粘贴后读回，不发送）</option>
+              <option value="live">正式发出</option>
+            </select>
+          </label>
+        </div>
+        <input id="momentsAuthorFilter" class="input" placeholder="按昵称筛选" oninput="renderMomentsPosts()" style="margin-bottom:8px;" />
+        <div id="momentsPostsBox"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">互动记录</div>
+          <div class="panel-meta">每一次演练与正式互动都有记录；不保存评论正文，只记字数</div>
+        </div>
+        <div id="momentsLogBox"></div>
+      </div>
+    </section>
+
     <section id="tab-salescrm" class="tab-panel">
       <div class="panel">
         <div class="panel-header">
@@ -4130,8 +4708,11 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       <div class="grid-2">
         <div class="panel">
           <div class="panel-header">
-            <div class="panel-title">📊 15 维定量特征雷达 (<span id="crmSelectedNameBadge">未选择</span>)</div>
-            <div class="panel-meta">源自 vendor/salescrm 15 维特征引擎与置信度计算</div>
+            <div>
+              <div class="panel-title">📊 15 维定量特征雷达 (<span id="crmSelectedNameBadge">未选择</span>)</div>
+              <div class="panel-meta">源自 vendor/salescrm 15 维特征引擎与置信度计算</div>
+            </div>
+            <button type="button" id="crmCallBriefBtn" class="btn btn-primary btn-sm" onclick="openCallBriefFromCrm()" title="聚合该客户的聊天、Soul、朋友圈与 CRM 阶段，生成电话前速览与话术提词卡">📞 电话前速览</button>
           </div>
           <div id="crmMetrics15Grid" style="display:grid; grid-template-columns:1fr; gap:8px;"></div>
         </div>
@@ -4505,6 +5086,78 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         </div>
       </div>
     </section>
+
+    <!-- Tab: 🧪 测试与评分工作区 -->
+    <section id="tab-sparring" class="tab-panel" aria-labelledby="sparringWorkspaceTitle">
+      <div class="stats-heading">
+        <div>
+          <h1 id="sparringWorkspaceTitle" class="contact-heading" tabindex="-1">🧪 测试与评分</h1>
+          <p class="chat-feedback" style="margin:2px 0 0;">无需打开微信即可模拟客户压测、查看测试好友对练日志、执行回归验证并追踪 1-5 星质量趋势</p>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" class="btn-outline sm" onclick="loadSparringWorkspace(true)">🔄 刷新数据</button>
+          <button type="button" class="btn-solid sm" id="sparringRegressionBtn" onclick="runSparringRegressionSuite()">🧪 一键回归验证</button>
+        </div>
+      </div>
+
+      <div class="sparring-grid" style="margin-top:10px;">
+        <div class="panel-card">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">1 · 模拟客户对练窗口（本地零风险试跑）</h2>
+              <div class="section-desc">支持普通客户提问，或以 <code>#</code> 开头发送管理员纠偏指令（如 <code>#别一上来报底价，先问需求</code>）</div>
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr auto; gap:8px; margin-bottom:8px;">
+            <input type="text" id="simContactInput" value="模拟测试客户" placeholder="测试好友/模拟客户名" />
+            <select id="simPersonaSelect" aria-label="模拟测试性格"></select>
+            <button type="button" class="btn-outline sm" onclick="clearSimChatLog()">清空窗口</button>
+          </div>
+          <div id="simChatLogBox" class="sparring-chat-box">
+            <div class="sparring-msg sys">输入客户消息试测知识库与话术；以 <code>#</code> 开头则按管理员指令即时纠偏并沉淀约束。</div>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <input type="text" id="simMessageInput" placeholder="输入客户提问或 #纠偏指令…" onkeydown="if(event.key==='Enter'){event.preventDefault();sendSparringSimMessage();}" />
+            <button type="button" class="btn-solid" id="simSendBtn" onclick="sendSparringSimMessage()">发送试跑</button>
+          </div>
+          <div id="simRegressionBox" style="margin-top:10px;" hidden></div>
+        </div>
+
+        <div class="panel-card">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">2 · 1-5 星质量仪表盘 &amp; 低分改进清单</h2>
+              <div class="section-desc">双轨质量统计（5 维自动分 + 主管 1-5 星人工评分）</div>
+            </div>
+          </div>
+          <div id="qualityKpiGrid" class="metrics-row" style="grid-template-columns:repeat(3, minmax(0,1fr)); margin-bottom:10px;"></div>
+          <div id="qualityStarDistBox" style="margin-bottom:10px;"></div>
+          <div style="margin-bottom:10px;">
+            <strong style="font-size:12.5px;">高频问题标签</strong>
+            <div id="qualityIssueTagsBox" class="chip-row" style="margin-top:4px;"></div>
+          </div>
+          <div>
+            <strong style="font-size:12.5px;">低分 / 需关注改进项</strong>
+            <div id="qualityLowScoreList" style="max-height:190px; overflow:auto; display:flex; flex-direction:column; gap:6px; margin-top:6px;"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel-card" style="margin-top:14px;">
+        <div class="section-header">
+          <div>
+            <h2 class="section-title">3 · 测试好友管理 &amp; 对练日志打分</h2>
+            <div class="section-desc">测试好友拥有 <code>#</code> 指令纠偏权限，且自动从客户 CRM 漏斗与成单统计中剔除</div>
+          </div>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <input type="text" id="newTestContactInput" placeholder="新增测试好友微信名…" style="width:180px;" onkeydown="if(event.key==='Enter'){event.preventDefault();addTestContactFromWorkspace();}" />
+            <button type="button" class="btn-outline sm" onclick="addTestContactFromWorkspace()">＋ 添加测试好友</button>
+          </div>
+        </div>
+        <div id="testContactsChipsBox" class="chip-row" style="margin-bottom:10px;"></div>
+        <div id="sparringTurnsLogBox" style="display:flex; flex-direction:column; gap:8px; max-height:380px; overflow:auto;"></div>
+      </div>
+    </section>
   </div>
 
   <div id="toast" class="toast"></div>
@@ -4555,6 +5208,262 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       } catch (e) {}
     })();
 
+    /* ---------- 朋友圈：读取好友动态、按联系人统计往来、点赞评论（默认演练） ---------- */
+    let MOMENTS_STATE = { stats: null, posts: [], log: [] };
+    const MOMENTS_TH = 'style="text-align:left; padding:6px 4px; border-bottom:1px solid var(--border);"';
+    const MOMENTS_THR = MOMENTS_TH.replace("left", "right");
+    const MOMENTS_TD = 'style="padding:6px 4px; border-bottom:1px solid var(--border);"';
+    const MOMENTS_TDR = MOMENTS_TD.replace("padding", "text-align:right; padding");
+
+    function momentsMode() {
+      return (document.getElementById("momentsMode") || {}).value || "dry_run";
+    }
+
+    async function readMoments() {
+      const btn = document.getElementById("momentsReadBtn");
+      const meta = document.getElementById("momentsMeta");
+      if (btn) { btn.disabled = true; btn.textContent = "⏳ 正在读取朋友圈…"; }
+      if (meta) meta.textContent = "正在微信里打开朋友圈并向下滚动，这期间请不要操作鼠标键盘…";
+      try {
+        const { status, data } = await apiJson("/api/moments/read", { method: "POST", body: JSON.stringify({}) });
+        if (status === 403 || !data.ok) {
+          showToast(data.blockedByHumanGuard ? "检测到你正在操作鼠标键盘，稍后再试" : ("读取朋友圈失败：" + (data.error || "需要授权")));
+          if (meta) meta.textContent = data.error || "读取失败";
+          return;
+        }
+        const why = {
+          end_of_feed: "已经到底", reached_known: "读到了之前读过的帖子", max_posts: "读够了设定条数",
+          max_pages: "达到滚动上限", view_lost: "中途没有再认出朋友圈视图",
+        }[data.stoppedBecause] || data.stoppedBecause;
+        if (meta) meta.textContent = "读到 " + data.postsRead + " 条，新入库 " + ((data.store || {}).newPosts || 0) + " 条（" + why + "）";
+        showToast("读取完成：" + data.postsRead + " 条，新入库 " + ((data.store || {}).newPosts || 0) + " 条");
+      } catch (err) {
+        showToast("读取朋友圈失败：" + ((err && err.message) || err));
+        if (meta) meta.textContent = String((err && err.message) || err);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "📖 读取朋友圈"; }
+        await loadMoments(false);
+      }
+    }
+
+    async function loadMoments(notify) {
+      try {
+        const [statsRes, postsRes, logRes, policyRes] = await Promise.all([
+          apiJson("/api/moments/stats"), apiJson("/api/moments/posts?limit=60"),
+          apiJson("/api/moments/log?limit=30"), apiJson("/api/moments/policy"),
+        ]);
+        if (statsRes.status === 403) return;
+        MOMENTS_STATE.stats = statsRes.data || null;
+        MOMENTS_STATE.posts = (postsRes.data && postsRes.data.posts) || [];
+        MOMENTS_STATE.log = (logRes.data && logRes.data.items) || [];
+        renderMomentsKpi();
+        renderMomentsContacts();
+        renderMomentsPosts();
+        renderMomentsLog();
+        if (policyRes.data && policyRes.data.policy) renderMomentsPolicy(policyRes.data.policy);
+        if (notify) showToast("朋友圈数据已刷新");
+      } catch (err) { /* 页面还没就绪时静默 */ }
+    }
+
+    function momentsCard(label, value, sub) {
+      return '<div class="kpi-card"><div class="kpi-label">' + escapeHtml(label) + '</div><div class="kpi-value">' +
+        escapeHtml(value) + '</div><div class="kpi-sub">' + escapeHtml(sub) + "</div></div>";
+    }
+
+    function renderMomentsKpi() {
+      const el = document.getElementById("momentsKpiGrid");
+      const s = MOMENTS_STATE.stats;
+      if (!el || !s) return;
+      const mine = s.myInteractions || {};
+      const got = s.received || {};
+      const limiter = s.rateLimiter || {};
+      const contacts = s.contacts || [];
+      const pending = contacts.reduce((sum, c) => sum + (c.pendingLike || 0), 0);
+      const lastRead = s.lastReadAt ? "上次读取 " + String(s.lastReadAt).slice(0, 16).replace("T", " ") : "还没读取过";
+      el.innerHTML = [
+        momentsCard("已入库的帖子", s.completePosts || 0, (s.ownerName ? "号主 " + s.ownerName + " · " : "") + lastRead),
+        momentsCard("发过帖子的联系人", contacts.length, "只统计完整读到的帖子"),
+        momentsCard("我赞过 / 评论过", (mine.likes || 0) + " / " + (mine.comments || 0), "正式发出的互动"),
+        momentsCard("收到的赞 / 评论", (got.likes || 0) + " / " + (got.comments || 0), "别人在我帖子上的互动"),
+        momentsCard("待点赞", pending, "最近 30 天里还没赞过的"),
+        momentsCard("今日正式互动", (limiter.dailyUsed || 0) + " / " + (limiter.dailyLimit || 0), "超出上限会自动停下"),
+      ].join("");
+    }
+
+    function renderMomentsContacts() {
+      const el = document.getElementById("momentsContactsBox");
+      if (!el) return;
+      const rows = (MOMENTS_STATE.stats && MOMENTS_STATE.stats.contacts) || [];
+      if (!rows.length) {
+        el.innerHTML = '<p class="hosting-empty">还没有数据，点上方「读取朋友圈」开始。</p>';
+        return;
+      }
+      const head = ["联系人", "帖子", "我赞过", "我评论过", "赞过我", "评论过我", "待点赞", "最近一条", "操作"]
+        .map((title, index) => "<th " + (index === 0 || index === 7 || index === 8 ? MOMENTS_TH : MOMENTS_THR) + ">" + title + "</th>").join("");
+      el.innerHTML = '<div style="overflow-x:auto;"><table style="width:100%; border-collapse:collapse; font-size:13px;"><thead><tr>' + head +
+        "</tr></thead><tbody>" + rows.map((c) => {
+          const authorEnc = encArg(c.author || "");
+          return "<tr>" +
+            "<td " + MOMENTS_TD + ">" + escapeHtml(c.author) + "</td>" +
+            [c.posts, c.likedByMe, c.commentedByMe, c.likedMyPosts, c.commentedMyPosts, c.pendingLike]
+              .map((n) => "<td " + MOMENTS_TDR + ">" + (n || 0) + "</td>").join("") +
+            '<td ' + MOMENTS_TD + ' style="color:var(--text-secondary);">' + escapeHtml(c.lastPostText || "") + "</td>" +
+            '<td ' + MOMENTS_TD + ' style="white-space:nowrap;"><button type="button" class="btn btn-ghost btn-sm" onclick="openCallBrief(decodeURIComponent(\'' + authorEnc + '\'))">📞 通话建议</button></td>' +
+          "</tr>";
+        }).join("") + "</tbody></table></div>";
+    }
+
+    function renderMomentsPosts() {
+      const el = document.getElementById("momentsPostsBox");
+      if (!el) return;
+      const filter = ((document.getElementById("momentsAuthorFilter") || {}).value || "").trim();
+      const posts = MOMENTS_STATE.posts.filter((p) => !filter || String(p.author || "").includes(filter));
+      const meta = document.getElementById("momentsPostsMeta");
+      if (meta) meta.textContent = "新 → 旧 · " + posts.length + " 条" + (filter ? "（已按昵称筛选）" : "");
+      if (!posts.length) {
+        el.innerHTML = '<p class="hosting-empty">' + (MOMENTS_STATE.posts.length ? "没有匹配的帖子。" : "还没有帖子，点上方「读取朋友圈」开始。") + "</p>";
+        return;
+      }
+      el.innerHTML = posts.map((p, idx) => {
+        const key = escapeHtml(p.key);
+        const keyEnc = encArg(p.key || "");
+        const body = String(p.text || (p.attachments || [])[0] || "").split("\n").join(" ").slice(0, 60);
+        const like = p.isOwn ? '<span class="kpi-sub">自己的帖子</span>'
+          : (p.likedByMe ? "✅ 已赞" : '<button class="btn btn-ghost btn-sm" onclick="momentsInteract(\'' + key + "', 'like')\">👍 点赞</button>");
+        const comment = p.commentedByMe ? "✅ 已评论"
+          : '<input class="input" id="momentsComment_' + key + '" placeholder="评论内容" style="height:30px; display:inline-block; width:170px;" ' +
+            'onkeydown="if(event.key===\'Enter\'){momentsInteract(\'' + key + "', 'comment');}\" /> " +
+            '<button type="button" class="btn btn-ghost btn-sm" id="momentsSuggestBtn_' + idx + '" onclick="momentsSuggestComment(\'' + keyEnc + "', " + idx + ')" title="结合好友画像与帖子内容拟写一句自然口语评论">✨ AI 拟评</button> ' +
+            '<button class="btn btn-ghost btn-sm" onclick="momentsInteract(\'' + key + "', 'comment')\">💬 评论</button>";
+        const counts = (p.likes && p.likes.length ? " · 👍 " + p.likes.length : "") + (p.comments && p.comments.length ? " · 💬 " + p.comments.length : "");
+        return '<div style="display:flex; gap:10px; align-items:center; padding:8px 4px; border-bottom:1px solid var(--border); flex-wrap:wrap;">' +
+          '<div style="min-width:150px; max-width:230px;"><div>' + (p.isAd ? '<span class="kpi-sub">广告</span> ' : "") +
+          "<strong>" + escapeHtml(p.author || "") + "</strong></div>" +
+          '<div class="kpi-sub">' + escapeHtml(p.timeText || "") + counts + "</div></div>" +
+          '<div style="flex:1; min-width:200px; font-size:13px; color:var(--text-secondary);">' + escapeHtml(body) + "</div>" +
+          '<div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">' + like + comment + "</div>" +
+          '<div id="momentsSuggestHint_' + idx + '" class="moments-suggest-hint" style="display:none;"></div>' +
+          "</div>";
+      }).join("");
+    }
+
+    function renderMomentsLog() {
+      const el = document.getElementById("momentsLogBox");
+      if (!el) return;
+      const items = MOMENTS_STATE.log || [];
+      if (!items.length) {
+        el.innerHTML = '<p class="hosting-empty">还没有互动记录。</p>';
+        return;
+      }
+      const statusText = {
+        verified: "✅ 已完成并核对", sent_unverified: "⚠️ 已发出，但没核对到结果", dry_run: "演练通过（没有点击）",
+        silent_verified: "评论已粘贴并读回（没有发送）", skipped: "跳过", blocked: "被人工操作打断", failed: "失败",
+      };
+      const modeText = { live: "正式", dry_run: "演练", silent_verify: "评论演练" };
+      const actionText = { like: "点赞", unlike: "取消点赞", comment: "评论" };
+      el.innerHTML = '<table style="width:100%; border-collapse:collapse; font-size:13px;"><tbody>' + items.map((it) => "<tr>" +
+        "<td " + MOMENTS_TD + ' style="white-space:nowrap; color:var(--text-secondary);">' + escapeHtml(String(it.at || "").slice(0, 19).replace("T", " ")) + "</td>" +
+        "<td " + MOMENTS_TD + ">" + escapeHtml(it.author || "") + "</td>" +
+        "<td " + MOMENTS_TD + ">" + escapeHtml(actionText[it.action] || it.action || "") + (it.textLength ? "（" + it.textLength + " 字）" : "") + "</td>" +
+        "<td " + MOMENTS_TD + ">" + escapeHtml(modeText[it.mode] || it.mode || "") + "</td>" +
+        "<td " + MOMENTS_TD + ">" + escapeHtml(statusText[it.status] || it.status || "") +
+        (it.errorCode ? '<span class="kpi-sub"> ' + escapeHtml(it.errorCode) + "</span>" : "") + "</td></tr>").join("") + "</tbody></table>";
+    }
+
+    async function momentsInteract(key, action) {
+      const mode = momentsMode();
+      const input = document.getElementById("momentsComment_" + key);
+      const text = action === "comment" ? ((input && input.value) || "").trim() : "";
+      const label = action === "comment" ? "评论" : "点赞";
+      if (action === "comment" && !text) { showToast("请先填写评论内容"); return; }
+      showToast(mode === "live" ? "正在正式" + label + "…" : "演练：核对「" + label + "」菜单的位置，不点击…");
+      let status = 0;
+      let data = {};
+      try {
+        ({ status, data } = await apiJson("/api/moments/interact", { method: "POST", body: JSON.stringify({ postKey: key, action, text, mode }) }));
+      } catch (err) {
+        showToast(label + "失败：" + ((err && err.message) || err));
+        return;
+      }
+      if (status === 403) { showToast("需要授权：" + (data.error || "")); return; }
+      const r = (data.results || [])[0] || {};
+      const note = {
+        verified: "已完成并核对", sent_unverified: "已发出，但没能核对到结果，请到微信里确认", dry_run: "演练通过，没有点击",
+        silent_verified: "评论已粘贴并读回一致，没有发送", skipped: "跳过", blocked: "检测到有人在操作，已停下", failed: "失败",
+      }[r.status] || r.status || data.error || "";
+      showToast(label + "：" + note + (r.error ? "（" + r.error + "）" : ""));
+      await loadMoments(false);
+    }
+
+    function renderMomentsPolicy(policy) {
+      const autoLike = (policy && policy.autoLike) || {};
+      const comment = (policy && policy.comment) || {};
+      const box = (id, checked) => { const el = document.getElementById(id); if (el) el.checked = !!checked; };
+      const field = (id, value) => { const el = document.getElementById(id); if (el) el.value = value; };
+      box("momentsPolicyAutoLike", autoLike.enabled);
+      box("momentsPolicyComments", comment.enabled);
+      field("momentsPolicyTemplates", ((comment.templates || {}).default || []).join(" | "));
+      field("momentsPolicyDays", autoLike.maxAgeDays || 30);
+    }
+
+    async function saveMomentsPolicy() {
+      const val = (id) => document.getElementById(id) || {};
+      const updates = {
+        autoLike: {
+          enabled: !!val("momentsPolicyAutoLike").checked,
+          maxAgeDays: Math.max(1, parseInt(val("momentsPolicyDays").value, 10) || 30),
+        },
+        comment: {
+          enabled: !!val("momentsPolicyComments").checked,
+          templates: { default: String(val("momentsPolicyTemplates").value || "").split("|").map((s) => s.trim()).filter(Boolean) },
+        },
+      };
+      let status = 0;
+      let data = {};
+      try {
+        ({ status, data } = await apiJson("/api/moments/policy", { method: "POST", body: JSON.stringify({ updates }) }));
+      } catch (err) {
+        showToast("策略没有保存：" + ((err && err.message) || err));
+        return;
+      }
+      if (status === 403) { showToast("需要授权"); return; }
+      if (!data.ok) { showToast("策略没有保存：" + (data.error || "")); return; }
+      showToast("策略已保存");
+      loadMomentsPlan();
+    }
+
+    async function loadMomentsPlan() {
+      const el = document.getElementById("momentsPlanBox");
+      if (!el) return;
+      let status = 0;
+      let data = {};
+      try {
+        ({ status, data } = await apiJson("/api/moments/plan?limit=12"));
+      } catch (err) {
+        el.textContent = "读取清单失败：" + ((err && err.message) || err);
+        return;
+      }
+      if (status === 403) { el.innerHTML = '<p class="hosting-empty">需要授权</p>'; return; }
+      const items = data.items || [];
+      if (!items.length) {
+        el.innerHTML = '<p class="hosting-empty">策略当前不产生任何互动项目。勾选自动点赞或填写评论模板后，清单会列在这里。</p>';
+        return;
+      }
+      el.innerHTML = '<p class="panel-meta">共 ' + (data.total || items.length) + " 项，下面显示前 " + items.length + " 项：</p>" +
+        items.map((it) => '<div style="font-size:13px; padding:4px 0; border-bottom:1px solid var(--border);"><strong>' + escapeHtml(it.author) +
+          "</strong> · " + (it.action === "comment" ? "评论「" + escapeHtml(it.text) + "」" : "点赞") + " · " + escapeHtml(it.snippet || "") + "</div>").join("") +
+        '<div style="margin-top:8px;"><button class="btn btn-ghost btn-sm" onclick="runMomentsPlan()">按上方「操作方式」执行前 5 项</button></div>';
+    }
+
+    async function runMomentsPlan() {
+      const { status, data } = await apiJson("/api/moments/run-plan", { method: "POST", body: JSON.stringify({ mode: momentsMode(), limit: 5 }) });
+      if (status === 403) { showToast("需要授权"); return; }
+      const results = data.results || [];
+      const done = results.filter((r) => ["verified", "dry_run", "silent_verified", "skipped"].includes(r.status)).length;
+      showToast("清单执行完毕：" + done + "/" + results.length + " 项完成" + (data.error ? "（" + data.error + "）" : ""));
+      await loadMoments(false);
+    }
+
     function switchTab(tab) {
       ACTIVE_TAB = tab;
       document.getElementById("toast")?.classList.remove("show");
@@ -4578,6 +5487,8 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       if (tab === "stats") loadBackgroundObservation();
       if (tab === "omni") loadOmniChannels(false);
       if (tab === "appuse") loadAppUseStudio(false);
+      if (tab === "moments") loadMoments(false);
+      if (tab === "sparring") loadSparringWorkspace(false);
     }
 
     function contactKey(profile) {
@@ -5024,7 +5935,31 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       return { paused, agoMs: ts ? Date.now() - ts : 0, ts };
     }
 
+    function updateHostingGuardPill() {
+      const pill = document.getElementById("hostingGuardPill");
+      if (!pill) return;
+      const hg = (typeof STATE !== "undefined" && STATE && STATE.humanGuard) ? STATE.humanGuard : {};
+      pill.classList.remove("guard-ready", "guard-paused", "guard-off");
+      if (hg.enabled === false) {
+        pill.classList.add("guard-off");
+        pill.textContent = "⚠️ 防抢鼠标已关闭";
+        pill.title = "点击前往设置重新开启防抢鼠标与键盘避让守卫";
+        return;
+      }
+      if (hg.status === "human_active_cooldown" || hg.canOperate === false) {
+        const rem = Math.max(0, Math.round(Number(hg.remainingCooldownSeconds || 0)));
+        pill.classList.add("guard-paused");
+        pill.textContent = `🛡️ 人工操作中 · 自动聊天已暂停让路（剩 ${rem}s）`;
+        pill.title = hg.triggerReason ? `让路原因：${hg.triggerReason}（点击查看防抢鼠标设置）` : "人工正在操作电脑，自动聊天已完全让路";
+        return;
+      }
+      pill.classList.add("guard-ready");
+      pill.textContent = "🛡️ 防抢鼠标护航中";
+      pill.title = "检测到您的鼠标或键盘输入时，自动聊天会立刻让路并暂停抢鼠标";
+    }
+
     function renderHosting() {
+      updateHostingGuardPill();
       const h = HOSTING_STATE.hosting || {};
       const badge = document.getElementById("hostingBadge");
       const meta = document.getElementById("hostingMeta");
@@ -5319,42 +6254,159 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
 
     /* ---------- 启动权限引导 ---------- */
     const PERM_GUIDE_STEPS = [
-      "1. 点上方「打开系统设置 · 隐私与安全性」；",
-      "2. 辅助功能 / 屏幕录制 两个面板里，把 <b>WeChat Bot</b> 加进去并打开开关（若列表里有旧条目，先「−」删除再加新的——旧授权对新版本无效）；",
-      "3. 授权后点「🔄 重新检查」，无需重启应用。",
+      "1. 点上方按钮：打开对应的系统设置面板，设置窗口右下角会出现一张小卡片；",
+      "2. 列表里已有 <b>WeChat Bot</b> → 直接打开它的开关；没有 → 把卡片里的 <b>WeChat Bot</b> 拖进列表，再打开开关（不用点「+」找路径）；",
+      "3. 屏幕录制打开后若系统提示「退出并重新打开」，点它——这一项要重启应用才生效；",
+      "4. 开关已经打开却仍显示未授权：在弹出的授权窗口里点「重新登记」，它会清掉绑在旧版本上的记录。",
     ];
 
     const PERM_PANE_BY_ID = { accessibility: "Privacy_Accessibility", post_event: "Privacy_Accessibility", screen_capture: "Privacy_ScreenCapture" };
 
     /* ---------- 分步授权向导：一次聚焦一个权限，点击去授权，回来自动检测并进入下一项 ---------- */
-    const PERM_WIZARD = { active: false, timer: null, stepId: null, items: [] };
+    const PERM_WIZARD = { active: false, timer: null, stepId: null, focusId: null, items: [] };
+
+    /* 可独立操作的步骤只有「辅助功能」「屏幕录制」。「系统事件控制」没有独立开关、跟随辅助功能，
+       只有辅助功能已授权而它仍未通过时，才单独列出来提示。 */
+    function permPendingSteps(items) {
+      const axGranted = items.some(p => p.id === "accessibility" && p.granted);
+      return items.filter(p => !p.granted && (p.id !== "post_event" || axGranted));
+    }
+    function permStepTotal(items) {
+      return permPendingSteps(items.map(p => ({ ...p, granted: false }))).length;
+    }
 
     function stopWizardPolling() {
       PERM_WIZARD.active = false;
       if (PERM_WIZARD.timer) { clearInterval(PERM_WIZARD.timer); PERM_WIZARD.timer = null; }
     }
 
-    function renderPermWizard() {
+    /* 重新登记授权：清除绑在旧构建上的失效记录，并让 macOS 把当前版本重新加进列表。
+       会改动系统隐私设置，所以用两段式确认（控制台约定不用 window.confirm）。 */
+    let PERM_REPAIR_ARMED_AT = 0;
+
+    function repairPermissions(btn) {
+      const now = Date.now();
+      if (now - PERM_REPAIR_ARMED_AT > 8000) {
+        PERM_REPAIR_ARMED_AT = now;
+        if (btn) {
+          btn.dataset.label = btn.textContent;
+          btn.textContent = "⚠️ 只清除 WeChat Bot 自己的旧授权记录，再点一次确认";
+          btn.style.background = "#c0392b";
+          setTimeout(repairPermissionsDisarm, 8000);
+        }
+        return;
+      }
+      PERM_REPAIR_ARMED_AT = 0;
+      stopWizardPolling();
+      if (btn) btn.textContent = "正在清除并重新登记…";
+      // 只重登记当前这一项：修屏幕录制时不连已经正常的辅助功能一起清掉
+      const repairStepId = PERM_WIZARD.stepId;
+      apiJson("/api/permissions/repair", { method: "POST", body: JSON.stringify({ confirm: true, services: repairStepId ? [repairStepId] : [] }) })
+        .then(({ status, data }) => {
+          const failed = (data.reset || []).filter(r => r.returncode !== 0);
+          if (status === 200 && data.ok) {
+            showToast("已清除旧记录，系统已重新登记当前版本——请在系统提示或系统设置里打开开关");
+          } else {
+            showToast("部分旧记录未能清除：" + (failed.map(r => r.service + "：" + (r.output || r.returncode)).join("；") || data.error || "未知原因"));
+          }
+        })
+        .catch(err => showToast("重新登记失败：" + (err && err.message || err)))
+        .then(() => new Promise(resolve => setTimeout(resolve, 1200)))
+        .then(() => apiJson("/api/permissions"))
+        .then(({ data }) => {
+          if (!data || !data.items) return;
+          PERM_WIZARD.items = data.items;
+          renderPermWizard();
+        })
+        .catch(() => { /* 重新读取失败：下一次轮询会再试 */ });
+    }
+
+    function repairPermissionsDisarm() {
+      if (Date.now() - PERM_REPAIR_ARMED_AT >= 7900) renderPermWizard();
+    }
+
+    /* 「去授权」先让 App 向 macOS 申请登记（系统弹出授权提示，并把 WeChat Bot 加进对应面板的列表），
+       再打开系统设置。只跳转不申请的话，列表里没有 WeChat Bot，用户只能手动「+」添加。
+       跑在 App 外壳里时交给外壳处理：它打开面板，并在设置窗口右下角浮出一张带可拖拽「WeChat Bot」
+       的小卡片——列表里已有就直接打开开关，没有就把卡片拖进列表。浏览器里打开控制台则直接跳转。
+       申请失败也照常进行（旧版后端没有该接口）。 */
+    function permissionCardBridge() {
+      return (typeof window !== "undefined" && window.webkit && window.webkit.messageHandlers)
+        ? window.webkit.messageHandlers.permissionCard : null;
+    }
+    function requestPermissionThenOpen(event, stepId, deepLink, el) {
+      if (event && event.preventDefault) event.preventDefault();
+      const service = stepId === "screen_capture" ? "screen_capture" : "accessibility";
+      const label = el && (el.dataset.label || el.textContent);
+      if (el) {
+        el.dataset.label = label;
+        el.textContent = "⏳ 正在向系统申请登记…";
+        el.style.pointerEvents = "none";
+      }
+      const restore = () => {
+        if (el) {
+          el.textContent = label;
+          el.style.pointerEvents = "";
+        }
+      };
+      const openPane = () => {
+        restore();
+        const a = document.createElement("a");
+        a.href = deepLink;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      };
+      apiJson("/api/permissions/request", { method: "POST", body: JSON.stringify({ service }) })
+        .catch(() => null)
+        .then(() => new Promise(resolve => setTimeout(resolve, 900)))
+        .then(() => {
+          const bridge = permissionCardBridge();
+          if (bridge) {
+            restore();
+            bridge.postMessage(stepId);
+            return;
+          }
+          openPane();
+        });
+    }
+
+    function renderPermWizard(focusId) {
       const wizardEl = document.getElementById("permWizard");
       if (!wizardEl) return;
       const items = PERM_WIZARD.items || [];
-      const pending = items.filter(p => !p.granted);
-      if (!pending.length) {
-        wizardEl.innerHTML = "<p class=\"hosting-empty\">三项权限全部就绪 ✅</p>";
+      let steps = permPendingSteps(items);
+      if (!steps.length) {
+        wizardEl.innerHTML = "<p class=\"hosting-empty\">权限全部就绪 ✅</p>";
+        stopWizardPolling();
         return;
       }
-      const current = pending[0];
+      // 点击某张卡片进入对应步骤：把该项排到最前，授权成功后恢复自然顺序
+      if (focusId && steps.some(p => p.id === focusId)) PERM_WIZARD.focusId = focusId;
+      if (PERM_WIZARD.focusId && steps.some(p => p.id === PERM_WIZARD.focusId)) {
+        steps = steps.filter(p => p.id === PERM_WIZARD.focusId).concat(steps.filter(p => p.id !== PERM_WIZARD.focusId));
+      } else {
+        PERM_WIZARD.focusId = null;
+      }
+      const current = steps[0];
       PERM_WIZARD.stepId = current.id;
-      const doneCount = items.length - pending.length;
+      const doneCount = Math.max(0, permStepTotal(items) - steps.length);
       const pane = PERM_PANE_BY_ID[current.id] || "Privacy_Accessibility";
       const deepLink = "x-apple.systempreferences:com.apple.preference.security?" + pane;
+      const extraHint = current.id === "screen_capture"
+        ? "打开开关后若系统提示「退出并重新打开」，请点它——屏幕录制要重启 WeChat Bot 才生效。"
+        : "";
       wizardEl.innerHTML = `
         <div style="text-align:center;padding:6px 8px 2px;">
-          <div style="font-size:13px;color:#888;margin-bottom:6px;">第 <b>${doneCount + 1}</b> 步 / 共 ${items.length} 步 · 当前授权项</div>
+          <div style="font-size:13px;color:#888;margin-bottom:6px;">第 <b>${doneCount + 1}</b> 步 / 共 ${permStepTotal(items)} 步 · 当前授权项</div>
           <div style="font-size:20px;font-weight:700;margin-bottom:4px;">${current.name}</div>
           <div style="font-size:13px;color:#666;margin-bottom:14px;">${current.purpose}</div>
-          <a class="btn-solid" href="${deepLink}" style="display:inline-block;padding:12px 28px;font-size:15px;text-decoration:none;cursor:pointer;">🔑 去授权「${current.name}」</a>
-          <div style="font-size:12px;color:#999;margin-top:12px;">在系统设置中打开开关后回到这里——我会自动检测并进入下一步（每 2 秒检查一次）</div>
+          <a class="btn-solid" href="${deepLink}" onclick="requestPermissionThenOpen(event, '${current.id}', this.href, this)" style="display:inline-block;padding:12px 28px;font-size:15px;text-decoration:none;cursor:pointer;">🔑 去授权「${current.name}」</a>
+          <div style="font-size:12px;color:#999;margin-top:12px;">点击后会打开系统设置，设置窗口右下角出现一张小卡片：列表里已有 WeChat Bot 就直接打开开关，没有就把卡片里的 WeChat Bot 拖进列表。回到这里我会自动检测并进入下一步（每 2 秒检查一次）</div>
+          ${extraHint ? `<div style="font-size:12px;color:#b25e00;margin-top:6px;">${extraHint}</div>` : ""}
+          <div style="margin-top:14px;padding-top:12px;border-top:1px dashed #e5e5e5;">
+            <button type="button" class="btn-outline" onclick="repairPermissions(this)" style="padding:9px 16px;font-size:13px;cursor:pointer;">🔁 开关已经打开，却还显示未授权？点这里重新登记</button>
+          </div>
         </div>`;
       startWizardPolling();
     }
@@ -5372,11 +6424,11 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
           if (current && current.granted) {
             showToast("✅ 「" + current.name + "」授权成功，检测到啦！");
             renderPermWizard(); // 检测到当前项成功 → 自动渲染下一步
-            const stillPending = (data.items || []).filter(p => !p.granted);
+            const stillPending = permPendingSteps(data.items || []);
             if (!stillPending.length) {
               stopWizardPolling();
               hidePermModal();
-              showToast("🎉 三项权限全部就绪，机器人功能全部可用！");
+              showToast("🎉 权限全部就绪，机器人功能全部可用！");
               loadPermissions(false);
             }
           }
@@ -5389,6 +6441,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
     }
     window.PERM_MODAL_DISMISSED = false; // 「稍后再说」后本轮会话不再自动弹窗（首页警示条仍保留；内联 onclick 需挂 window）
     function hidePermModal() {
+      stopWizardPolling(); // 关窗即停轮询：否则用户不再授权时，每 2 秒的原生探测会一直跑下去
       PERM_MODAL_DISMISSED = true;
       document.getElementById("permOverlay").classList.remove("visible");
     }
@@ -5400,23 +6453,27 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       try {
         const { status, data } = await apiJson("/api/permissions");
         if (status !== 200 || !data.ok) throw new Error(data.error || "检查失败");
+        const axGranted = data.items.some(p => p.id === "accessibility" && p.granted);
+        const pendingSteps = permPendingSteps(data.items);
 
-        // 弹窗步骤条：✅已授权 / ⚠未授权
+        // 弹窗步骤条：✅已授权 / ⚠未授权（「系统事件控制」不是独立步骤，跟随辅助功能）
         const steps = document.getElementById("permModalSteps");
         const modalItems = document.getElementById("permModalItems");
         if (steps && modalItems) {
-          steps.innerHTML = data.items.map((p, i) =>
+          const stepItems = data.items.filter(p => p.id !== "post_event" || axGranted);
+          steps.innerHTML = stepItems.map((p, i) =>
             `<span class="perm-step ${p.granted ? "done" : "todo"}"><span class="dot">${p.granted ? "✓" : i + 1}</span>${p.name}</span>`
           ).join('<span class="perm-arrow">≫</span>');
-          modalItems.innerHTML = data.items.filter((p) => !p.granted).map((p) => `
-            <div class="perm-item">
+          // 卡片可点击：点哪张就进入对应那一步
+          modalItems.innerHTML = pendingSteps.map((p) => `
+            <div class="perm-item" style="cursor:pointer;" onclick="renderPermWizard('${p.id}')" title="点击进入这一步">
               <div class="perm-item-head">⚠️ ${p.name}
                 <span class="perm-badge denied">未授权</span>
               </div>
-              <div class="perm-purpose">${p.purpose}</div>
+              <div class="perm-purpose">${p.purpose} <span style="color:#2a7;">点击进入这一步 →</span></div>
             </div>
-          `).join("") || `<p class="hosting-empty">三项权限全部就绪。</p>`;
-          const firstDenied = data.items.find((p) => !p.granted);
+          `).join("") || `<p class="hosting-empty">权限全部就绪。</p>`;
+          const firstDenied = pendingSteps[0];
           const link = document.getElementById("permModalOpenSettings");
           if (link && firstDenied) link.href = "x-apple.systempreferences:com.apple.preference.security?" + (PERM_PANE_BY_ID[firstDenied.id] || "Privacy_Accessibility");
         }
@@ -5424,14 +6481,15 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         itemsEl.innerHTML = data.items.map((p) => {
           const pane = PERM_PANE_BY_ID[p.id] || "Privacy_Accessibility";
           const deepLink = `x-apple.systempreferences:com.apple.preference.security?${pane}`;
+          const followsAx = p.id === "post_event" && !p.granted && !axGranted;
           return `
           <div class="perm-item">
-            <div class="perm-item-head">${p.granted ? "✅" : "⚠️"} ${p.name}
-              <span class="perm-badge ${p.granted ? "granted" : "denied"}">${p.granted ? "已授权" : "未授权"}</span>
+            <div class="perm-item-head">${p.granted ? "✅" : (followsAx ? "↪️" : "⚠️")} ${p.name}
+              <span class="perm-badge ${p.granted ? "granted" : (followsAx ? "" : "denied")}">${p.granted ? "已授权" : (followsAx ? "随辅助功能开通" : "未授权")}</span>
             </div>
             <div class="perm-purpose">${p.purpose}</div>
-            ${p.granted ? "" : `<div class="perm-guide">
-              <a class="btn-outline sm" href="${deepLink}" style="text-decoration:none;">⚙️ 一键打开「${p.name}」授权面板</a>
+            ${p.granted || followsAx ? "" : `<div class="perm-guide">
+              <a class="btn-outline sm" href="${deepLink}" onclick="requestPermissionThenOpen(event, '${p.id}', this.href, this)" style="text-decoration:none;">⚙️ 一键打开「${p.name}」授权面板</a>
               <div style="margin-top:6px;">${PERM_GUIDE_STEPS.join("<br>")}</div>
             </div>`}
           </div>`;
@@ -5449,9 +6507,9 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
           panel.classList.remove("ok");
           panel.classList.add("warn");
           panel.open = true;
-          const denied = data.items.filter((p) => !p.granted).map((p) => p.name).join(" / ");
+          const denied = pendingSteps.map((p) => p.name).join(" / ");
           summary.textContent = "🔐 系统权限未就绪：缺 " + denied + " ——机器人会“睁眼瞎”";
-          document.getElementById("permHint").textContent = "授权后点「重新检查」即可生效。";
+          document.getElementById("permHint").textContent = "打开开关即可，这里会自动检测；开关已开却仍显示未授权时，在弹出的授权窗口里点「重新登记」。";
           if (!window.PERM_MODAL_DISMISSED) {
             showPermModal();
             PERM_WIZARD.items = data.items || [];
@@ -5584,6 +6642,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       renderUiProtocolTab();
       renderSoulAndBenchmarkTab();
       renderSalesCrmTab();
+      if (typeof renderSparringFromState === "function") renderSparringFromState();
     }
 
     function setHomeConnection(state, message) {
@@ -5627,6 +6686,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       const doc = STATE.doctor || {};
       setStatText("kpiGuard", hg.enabled ? (hg.canOperate ? "可用" : "正在让位") : "—");
       setStatText("kpiGuardSub", Number.isFinite(doc.dedupWindowSeconds) ? `${doc.dedupWindowSeconds}s 去重` : "");
+      updateHostingGuardPill();
     }
 
     const statNumber = new Intl.NumberFormat("zh-CN");
@@ -5766,6 +6826,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       const monContacts = STATE.monitor?.contacts || {};
       const personas = STATE.personas?.personas || {};
       const contactOverrides = STATE.personas?.contactOverrides || {};
+      const testContactKeys = new Set((STATE.testContacts || []).map((tc) => String(tc.displayName || "").trim().toLowerCase()).filter(Boolean));
       const q = (document.getElementById("contactSearchInput").value || "").trim().toLowerCase();
 
       const filtered = CONTACT_DETAIL ? (detail ? [detail] : []) : profiles.filter((p) => {
@@ -5832,6 +6893,8 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         const titleEsc = escapeHtml(p.matchedTitle || p.target || "未命名会话");
         const draftAttr = encArg(p.proactiveCareDraft || "");
         const rawTargetEnc = encArg(p.target || p.matchedTitle);
+        const targetRawName = String(p.target || p.matchedTitle || "").trim();
+        const isTestContact = testContactKeys.has(targetRawName.toLowerCase()) || testContactKeys.has(String(p.matchedTitle || "").trim().toLowerCase());
 
         return `
           <article class="contact-card ${cardCls}" data-contact-key="${rawTargetEnc}">
@@ -5841,6 +6904,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
                   <span>${titleEsc}</span>
                   ${careBadge}
                   ${p.bound ? `<span class="pill ok">已绑定</span>` : ""}
+                  ${isTestContact ? `<span class="pill warn">🧪 测试好友</span>` : ""}
                   ${takenOver ? `<span class="pill danger">🤚 人工接管中</span>` : ""}
                 </div>
                 <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
@@ -5901,6 +6965,8 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
             </div>
 
             <div class="contact-actions">
+              <button type="button" class="sm accent" onclick="openCallBrief(decodeURIComponent('${rawTargetEnc}'))">📞 电话前建议</button>
+              <button type="button" class="sm ${isTestContact ? "primary" : ""}" onclick="toggleTestContact('${rawTargetEnc}', ${!isTestContact})">${isTestContact ? "🧪 取消测试好友" : "🧪 设为测试好友"}</button>
               ${p.careLevel !== "special_care"
                 ? `<button class="sm special" onclick="changeCareLevel('${rawTargetEnc}', 'special_care', true)">🌟 设为特别关心</button>`
                 : `<button class="sm" onclick="changeCareLevel('${rawTargetEnc}', 'normal', false)">取消特关</button>`}
@@ -6368,6 +7434,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       }
       recipient.value = value;
       markSelectedThread(value.trim());
+      syncChatTestContactBtn(value.trim());
     }
 
     // 相对时间：客服一眼看出「这条消息多久之前的」（刚刚/x分钟前/x小时前/x天前/日期）
@@ -6883,17 +7950,28 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       const modelMeta = data.generationMode === "llm_magpie"
         ? `${data.modelUsed || "Magpie"} · ${data.latencyMs ?? "-"}ms`
         : "知识库规则匹配";
+      const autoScore = data.autoScore || null;
+      const scoreBadge = autoScore
+        ? `<span class="pill ${Number(autoScore.overallScore || 0) >= 70 ? "ok" : "warn"}" style="margin-right:6px;">自评 ${escapeHtml(autoScore.overallScore)}分 · ${"★".repeat(Math.max(1, Number(autoScore.stars || 3)))}</span>`
+        : "";
       el.innerHTML = `
         <div>
           ${reviewBanner}
           ${staHtml}
           ${edited ? `<div class="draft-suggestion"><strong>新建议</strong><p>${escapeHtml(data.replyText)}</p></div>` : ""}
           <details class="chat-thinking-details">
-            <summary>草稿依据 · ${escapeHtml(personaMeta)} · ${escapeHtml(modelMeta)} · 引用 ${data.matchedCount ?? refs.length ?? 0} 条</summary>
+            <summary>${scoreBadge}草稿依据 · ${escapeHtml(personaMeta)} · ${escapeHtml(modelMeta)} · 引用 ${data.matchedCount ?? refs.length ?? 0} 条</summary>
             ${refs.length ? `<ul style="margin:8px 0 0; padding-left:18px;">${refs.map((r) => `<li>${escapeHtml(r.title)}</li>`).join("")}</ul>` : `<div style="margin-top:6px;">无额外知识条目命中（已自动记录至 WorkOS 反思队列）。</div>`}
           </details>
         </div>
       `;
+      renderDraftQualityFeedbackBar({
+        target,
+        incomingText: rawIncoming,
+        replyText: data.replyText || "",
+        turnId: data.turnId || null,
+        autoScore,
+      });
       if (!refs.length) loadWorkosHarness(false);
       setDraftStatus(edited ? "已保留手工修改，新建议显示在下方。" : "草稿已填入，可继续编辑；修改后可点「✨ 纠偏沉淀 SOP」。");
     }
@@ -6941,6 +8019,10 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         (target ? editor : document.getElementById("previewTarget")).focus();
         return;
       }
+      if (/^\s*[#＃]\s*\S/.test(text)) {
+        await executeSupervisorDirectiveFromComposer();
+        return;
+      }
       sendInFlight = true;
       try {
         if (mode === "confirm_send" && !(await confirmLiveSend(target, text))) return;
@@ -6963,6 +8045,14 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
           : "操作未确认成功，请查看回执。";
         document.getElementById("sendReceiptBox").innerHTML =
           `<div class="send-receipt"><p>${title}</p><details><summary>查看回执</summary><pre class="code-box">${escapeHtml(JSON.stringify(data, null, 2))}</pre></details></div>`;
+        const prevEl = document.getElementById("replyPreviewResult");
+        renderDraftQualityFeedbackBar({
+          target,
+          incomingText: (document.getElementById("previewIncoming")?.value || prevEl?.dataset.lastIncoming || "").trim(),
+          replyText: text,
+          turnId: data.turnId || null,
+          autoScore: null,
+        });
         await loadOverview();
       } catch (err) {
         setDraftStatus("没有收到操作回执。请核对微信后再决定是否重试。", "error");
@@ -7026,7 +8116,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       try {
         const { data } = await apiJson("/api/search-send-image", {
           method: "POST",
-          body: JSON.stringify({ target, query, dry_run: dryRun, confirm_send: !dryRun }),
+          body: JSON.stringify({ target, query, dry_run: dryRun, confirm_send: !dryRun, manualTrigger: true }),
         });
         document.getElementById("sendReceiptBox").innerHTML =
           `<div class="send-receipt"><p>${data.ok ? (dryRun ? "已搜图并完成发送预检（未实发）。" : "已搜图并发送给好友。") : "搜图发送未成功。"}</p><details><summary>查看回执</summary><pre class="code-box">${escapeHtml(JSON.stringify(data, null, 2))}</pre></details></div>`;
@@ -7048,7 +8138,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       try {
         const { data } = await apiJson("/api/annotate-send-image", {
           method: "POST",
-          body: JSON.stringify({ target, keywords: kwRaw, note, dry_run: dryRun, confirm_send: !dryRun }),
+          body: JSON.stringify({ target, keywords: kwRaw, note, dry_run: dryRun, confirm_send: !dryRun, manualTrigger: true }),
         });
         document.getElementById("sendReceiptBox").innerHTML =
           `<div class="send-receipt"><p>${data.ok ? (dryRun ? "已生成红框标注图并预检（未实发）。" : "已将标注图片回传给好友。") : "标注失败。"}</p><details><summary>查看回执</summary><pre class="code-box">${escapeHtml(JSON.stringify(data, null, 2))}</pre></details></div>`;
@@ -9727,7 +10817,9 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         const items = (rem.due || []).concat(rem.upcoming || []);
         remBox.innerHTML = items.length
           ? items.map((it, idx) => {
-              const enc = encodeURIComponent(it.displayName || it.personId || "");
+              const rawName = it.displayName || it.personId || "";
+              const enc = encodeURIComponent(rawName);
+              const safeNameEnc = encArg(rawName);
               return `
                 <div class="field-box" style="padding:8px 10px; margin-bottom:8px; border-left:3px solid ${it.isDue ? "var(--special)" : "var(--primary)"};">
                   <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -9736,6 +10828,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
                   </div>
                   <div style="font-size:12px; color:var(--text-secondary); margin:4px 0;">${escapeHtml(it.note || "暂无备注")}${it.isDue ? ` · 已逾期 ${it.overdueMinutes || 0} 分钟` : ""}</div>
                   <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                    <button type="button" class="btn btn-primary btn-sm" onclick="openCallBrief(decodeURIComponent('${safeNameEnc}'))">📞 电话前速览</button>
                     <button class="btn btn-success btn-sm" onclick="crmCompleteReminder('${enc}')">✅ 标记完成</button>
                     <input id="crmRemResched_${idx}" class="input" style="max-width:170px; padding:4px 6px; font-size:12px;" value="${escapeHtml(String(it.followUpBeijing || "2026-11-16T14:00").slice(0, 16))}" />
                     <button class="btn btn-ghost btn-sm" onclick="crmRescheduleReminder('${enc}', 'crmRemResched_${idx}')">📅 改期</button>
@@ -10011,6 +11104,10 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
           if (isWindowPickerOpen()) hideWindowPickerPopover();
           closedAny = true;
         }
+        if (document.getElementById("callBriefOverlay")?.classList.contains("visible")) {
+          hideCallBriefModal();
+          closedAny = true;
+        }
         if (document.getElementById("mobileRemoteOverlay")?.classList.contains("visible")) {
           hideMobileRemoteOverlay();
           closedAny = true;
@@ -10066,6 +11163,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.tagName === "SELECT")) return;
       if (document.getElementById("hostingPicker")?.open) return;
       if (document.getElementById("settingsOverlay")?.classList.contains("visible")) return;
+      if (document.getElementById("callBriefOverlay")?.classList.contains("visible")) return;
       loadOverview(false);
     }, 6000);
     document.addEventListener("visibilitychange", loadBackgroundObservation);
@@ -10073,7 +11171,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
     window.addEventListener("hashchange", resumeSavedDraft);
     resumeSavedDraft();
     const linkedTab = location.hash.slice(1);
-    if (["care", "monitor", "stats", "articles", "uiprotocol", "knowledge", "soul", "salescrm", "omni", "models", "open"].includes(linkedTab)) {
+    if (["care", "moments", "monitor", "stats", "articles", "uiprotocol", "knowledge", "soul", "salescrm", "omni", "models", "open"].includes(linkedTab)) {
       switchTab(linkedTab);
     }
 
@@ -11322,6 +12420,1073 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         }
       } finally {
         if (btn) { btn.disabled = false; btn.textContent = prev; }
+      }
+    }
+
+    /* ---------- 朋友圈 AI 拟评 & 电话前一键速览 / 话术提词卡 ---------- */
+    const MOMENTS_SUGGEST_ALT_POOL = {};
+
+    function applyMomentsAlt(rowIdx, altIdx) {
+      const entry = MOMENTS_SUGGEST_ALT_POOL[rowIdx];
+      if (!entry) return;
+      const alt = entry.alts && entry.alts[altIdx];
+      if (!alt) return;
+      const input = document.getElementById("momentsComment_" + entry.postKey);
+      if (input) {
+        input.value = alt;
+        input.focus();
+        showToast("已填入备选评论");
+      }
+    }
+
+    async function momentsSuggestComment(encodedKey, rowIdx) {
+      const postKey = decodeURIComponent(String(encodedKey || ""));
+      if (!postKey) return;
+      const btn = document.getElementById("momentsSuggestBtn_" + rowIdx);
+      const input = document.getElementById("momentsComment_" + postKey);
+      const hintEl = document.getElementById("momentsSuggestHint_" + rowIdx);
+      const prevText = btn ? btn.textContent : "✨ AI 拟评";
+      if (btn) { btn.disabled = true; btn.textContent = "⏳ 拟写中…"; }
+      try {
+        const { status, data } = await apiJson("/api/moments/suggest-comment", {
+          method: "POST",
+          body: JSON.stringify({ postKey, style: "natural" }),
+        });
+        if (status === 403) {
+          showToast("需要授权 read_moments：" + (data.error || ""));
+          return;
+        }
+        if (!data || !data.ok) {
+          showToast("AI 拟评失败：" + ((data && (data.error || data.error_code)) || "未知错误"));
+          return;
+        }
+        const suggested = String(data.suggestedText || "").trim();
+        if (input && suggested) {
+          input.value = suggested;
+          input.focus();
+        }
+        const alts = Array.isArray(data.alternatives) ? data.alternatives.filter(Boolean) : [];
+        MOMENTS_SUGGEST_ALT_POOL[rowIdx] = { postKey, alts };
+        if (hintEl) {
+          const sourceLabel = data.usedLlm
+            ? ("✨ AI 拟写" + (data.modelId ? " · " + data.modelId : ""))
+            : (data.source === "policy_template" ? "📋 策略模板" : "⚡ 规则短评");
+          const altHtml = alts.length
+            ? ('<span style="color:var(--text-muted);">备选：</span>' + alts.map((a, idx) =>
+                '<button type="button" class="btn-outline sm moments-alt-chip" onclick="applyMomentsAlt(' + rowIdx + ', ' + idx + ')">' + escapeHtml(a) + '</button>'
+              ).join(""))
+            : "";
+          hintEl.innerHTML = '<span class="call-brief-stat-chip">' + escapeHtml(sourceLabel) + '</span>' + altHtml;
+          hintEl.style.display = "flex";
+        }
+        showToast("已填入 AI 拟写评论");
+      } catch (err) {
+        showToast("AI 拟评失败：" + ((err && err.message) || err));
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = prevText; }
+      }
+    }
+
+    const CALL_BRIEF_STATE = {
+      target: "",
+      goal: "general",
+      customGoal: "",
+      useLlm: true,
+      loading: false,
+      lastData: null,
+      copyPool: [],
+    };
+
+    function copyCallBriefText(text, toastMsg) {
+      const str = String(text || "");
+      if (!str) { showToast("暂无可复制内容"); return; }
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        navigator.clipboard.writeText(str).then(
+          () => showToast(toastMsg || "已复制到剪贴板"),
+          () => _fallbackCopyCallBrief(str, toastMsg)
+        );
+      } else {
+        _fallbackCopyCallBrief(str, toastMsg);
+      }
+    }
+
+    function _fallbackCopyCallBrief(str, toastMsg) {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = str;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        showToast(toastMsg || "已复制到剪贴板");
+      } catch (e) {
+        showToast("复制失败，请手动选中复制");
+      }
+    }
+
+    function registerCallBriefCopy(text) {
+      const idx = CALL_BRIEF_STATE.copyPool.length;
+      CALL_BRIEF_STATE.copyPool.push(String(text || ""));
+      return idx;
+    }
+
+    function copyCallBriefItem(idx, toastMsg) {
+      if (idx < 0 || idx >= CALL_BRIEF_STATE.copyPool.length) return;
+      copyCallBriefText(CALL_BRIEF_STATE.copyPool[idx], toastMsg || "已复制到剪贴板");
+    }
+
+    function openCallBriefFromChat() {
+      const pt = document.getElementById("previewTarget");
+      const st = document.getElementById("sendTarget");
+      const target = String((pt && pt.value) || (st && st.value) || "").trim();
+      if (!target) {
+        showToast("请先选择左侧会话或填写回复对象");
+        if (pt) pt.focus();
+        return;
+      }
+      openCallBrief(target);
+    }
+
+    function openCallBriefFromCrm() {
+      const target = String(
+        (SALES_CRM_ANALYSIS && SALES_CRM_ANALYSIS.person && SALES_CRM_ANALYSIS.person.displayName) ||
+        (document.getElementById("crmTargetInput") && document.getElementById("crmTargetInput").value) ||
+        ""
+      ).trim();
+      if (!target) {
+        showToast("请先选择或输入客户名称");
+        const inp = document.getElementById("crmTargetInput");
+        if (inp) inp.focus();
+        return;
+      }
+      openCallBrief(target);
+    }
+
+    function _syncCallBriefGoalUi() {
+      const goal = CALL_BRIEF_STATE.goal || "general";
+      document.querySelectorAll("#callBriefGoalPills .call-brief-goal-pill").forEach((b) => {
+        b.classList.toggle("active", b.dataset.cbGoal === goal);
+      });
+      const sel = document.getElementById("callBriefGoalSelect");
+      if (sel && sel.value !== goal) sel.value = goal;
+      const customWrap = document.getElementById("callBriefCustomWrap");
+      if (customWrap) customWrap.hidden = (goal !== "custom");
+    }
+
+    function openCallBrief(target, opts) {
+      const cleanTarget = String(target || "").trim();
+      if (!cleanTarget) { showToast("请先指定联系人"); return; }
+      const options = opts || {};
+      CALL_BRIEF_STATE.target = cleanTarget;
+      if (options.goal) CALL_BRIEF_STATE.goal = String(options.goal);
+      if (typeof options.useLlm === "boolean") CALL_BRIEF_STATE.useLlm = options.useLlm;
+      _syncCallBriefGoalUi();
+      const titleEl = document.getElementById("callBriefModalTitle");
+      if (titleEl) titleEl.textContent = "📋 电话前速览 · " + cleanTarget;
+      const overlay = document.getElementById("callBriefOverlay");
+      if (overlay) overlay.classList.add("visible");
+      refreshCallBrief(CALL_BRIEF_STATE.useLlm);
+    }
+
+    function hideCallBriefModal() {
+      document.getElementById("callBriefOverlay")?.classList.remove("visible");
+    }
+
+    function switchCallBriefGoal(goal) {
+      CALL_BRIEF_STATE.goal = String(goal || "general");
+      _syncCallBriefGoalUi();
+      if (CALL_BRIEF_STATE.goal === "custom") {
+        const inp = document.getElementById("callBriefCustomGoalInput");
+        if (inp) {
+          inp.focus();
+          if (inp.value.trim()) refreshCallBrief(CALL_BRIEF_STATE.useLlm);
+        }
+        return;
+      }
+      refreshCallBrief(CALL_BRIEF_STATE.useLlm);
+    }
+
+    async function refreshCallBrief(useLlm) {
+      if (!CALL_BRIEF_STATE.target) return;
+      CALL_BRIEF_STATE.useLlm = (useLlm !== false);
+      CALL_BRIEF_STATE.loading = true;
+      const customInp = document.getElementById("callBriefCustomGoalInput");
+      CALL_BRIEF_STATE.customGoal = String((customInp && customInp.value) || "").trim();
+
+      const aiBtn = document.getElementById("callBriefAiBtn");
+      const fastBtn = document.getElementById("callBriefFastBtn");
+      const badge = document.getElementById("callBriefModelBadge");
+      const bodyEl = document.getElementById("callBriefContent");
+      const covEl = document.getElementById("callBriefCoverageBar");
+      if (aiBtn) aiBtn.disabled = true;
+      if (fastBtn) fastBtn.disabled = true;
+      if (badge) badge.textContent = CALL_BRIEF_STATE.useLlm ? "⏳ AI 深度研判中…" : "⚡ 快速汇总中…";
+      if (covEl) covEl.innerHTML = '<span style="color:var(--text-muted);">正在汇总 5 路本地数据源…</span>';
+      if (bodyEl) {
+        bodyEl.innerHTML = '<div class="cb-card"><div style="font-size:13px; color:var(--text-secondary);">正在为您梳理「' +
+          escapeHtml(CALL_BRIEF_STATE.target) + '」的聊天记录、Soul 记忆、朋友圈动态与 CRM 商机，请稍候…</div></div>';
+      }
+
+      try {
+        const { status, data } = await apiJson("/api/call-brief", {
+          method: "POST",
+          body: JSON.stringify({
+            target: CALL_BRIEF_STATE.target,
+            goal: CALL_BRIEF_STATE.goal,
+            custom_goal: CALL_BRIEF_STATE.customGoal,
+            use_llm: CALL_BRIEF_STATE.useLlm,
+          }),
+        });
+        if (status === 403) {
+          if (badge) badge.textContent = "需要授权";
+          if (bodyEl) {
+            bodyEl.innerHTML = '<div class="cb-card"><div class="cb-card-title">需要授权 read_contacts</div><div style="font-size:13px; color:var(--text-secondary);">' +
+              escapeHtml((data && data.error) || "请先在工作台开启权限授权") + '</div></div>';
+          }
+          return;
+        }
+        if (!data || !data.ok) {
+          if (badge) badge.textContent = "生成失败";
+          if (bodyEl) {
+            bodyEl.innerHTML = '<div class="cb-card"><div class="cb-card-title">无法生成电话前速览</div><div style="font-size:13px; color:var(--danger);">' +
+              escapeHtml((data && data.error) || "未知错误") + '</div></div>';
+          }
+          return;
+        }
+        CALL_BRIEF_STATE.lastData = data;
+        renderCallBrief(data);
+      } catch (err) {
+        if (badge) badge.textContent = "请求异常";
+        if (bodyEl) {
+          bodyEl.innerHTML = '<div class="cb-card"><div class="cb-card-title">加载速览失败</div><div style="font-size:13px; color:var(--danger);">' +
+            escapeHtml((err && err.message) || String(err)) + '</div></div>';
+        }
+      } finally {
+        CALL_BRIEF_STATE.loading = false;
+        if (aiBtn) aiBtn.disabled = false;
+        if (fastBtn) fastBtn.disabled = false;
+      }
+    }
+
+    function _renderCbList(items, emptyText) {
+      const list = Array.isArray(items) ? items.filter((x) => String(x || "").trim()) : [];
+      if (!list.length) return '<div style="color:var(--text-muted); font-size:12.5px;">' + escapeHtml(emptyText || "暂无记录") + '</div>';
+      return '<ul class="cb-list">' + list.map((it) => '<li>' + escapeHtml(it) + '</li>').join("") + '</ul>';
+    }
+
+    function renderCallBrief(data) {
+      CALL_BRIEF_STATE.copyPool = [];
+      const titleEl = document.getElementById("callBriefModalTitle");
+      if (titleEl) {
+        titleEl.textContent = "📋 电话前速览 · " + (data.matchedTitle || data.target || CALL_BRIEF_STATE.target);
+      }
+      const badge = document.getElementById("callBriefModelBadge");
+      if (badge) {
+        if (data.usedLlm) {
+          badge.textContent = "✨ AI 深度研判" + (data.modelId ? " · " + data.modelId : "");
+        } else {
+          badge.textContent = "⚡ 本地规则汇总" + (data.llmFallbackReason ? " · " + data.llmFallbackReason : "");
+        }
+      }
+
+      const cov = data.dataCoverage || {};
+      const covEl = document.getElementById("callBriefCoverageBar");
+      if (covEl) {
+        const momentsCount = Number(cov.momentsPosts || 0);
+        const crmLabel = cov.hasCrmRecord ? (cov.crmStage || "已建档") : "未入漏斗";
+        const nudgeHtml = momentsCount === 0
+          ? '<span class="call-brief-moments-nudge"><span>尚未读取该联系人朋友圈</span>' +
+            '<button type="button" class="btn-outline sm" onclick="hideCallBriefModal(); switchTab(\'moments\')">前往「朋友圈」读取 →</button></span>'
+          : "";
+        covEl.innerHTML = [
+          '<span class="call-brief-stat-chip">💬 聊天消息 ' + (cov.chatMessages ?? 0) + ' 条</span>',
+          '<span class="call-brief-stat-chip">◎ 朋友圈 ' + momentsCount + ' 条</span>',
+          '<span class="call-brief-stat-chip">🤝 互赞/互评 ' + (cov.momentsMutualHits ?? 0) + ' 次</span>',
+          '<span class="call-brief-stat-chip">🧠 Soul 记忆 ' + (cov.soulMemories ?? 0) + ' 条</span>',
+          '<span class="call-brief-stat-chip">📈 CRM：' + escapeHtml(crmLabel) + '</span>',
+          nudgeHtml,
+        ].join("");
+      }
+
+      const sum = data.summaryCard || {};
+      const mom = data.momentsInsights || {};
+      const needs = data.needsAndFocus || {};
+      const scripts = data.phoneScripts || {};
+      const history = Array.isArray(data.historyHighlights) ? data.historyHighlights : [];
+
+      const oneLinerCopy = registerCallBriefCopy(sum.oneLiner || "");
+      const icebreakers = Array.isArray(mom.icebreakers) ? mom.icebreakers.filter(Boolean) : [];
+      const recentPosts = Array.isArray(mom.recentPosts) ? mom.recentPosts : [];
+      const postsHtml = recentPosts.length
+        ? '<details style="margin-top:4px;" open><summary style="cursor:pointer; font-size:12.5px; font-weight:600; color:var(--text-secondary);">展开近期朋友圈原文（' + recentPosts.length + ' 条）</summary>' +
+          '<div style="display:flex; flex-direction:column; gap:6px; margin-top:8px;">' +
+          recentPosts.map((p) => {
+            const metaBits = [p.timeText || "", p.likesCount ? ("👍 " + p.likesCount) : "", p.commentsCount ? ("💬 " + p.commentsCount) : ""].filter(Boolean).join(" · ");
+            const bodyTxt = p.text || (Array.isArray(p.attachments) && p.attachments.length ? "[附件] " + p.attachments.join(" / ") : "（图片/动态）");
+            return '<div class="cb-post-item"><div style="font-size:11.5px; color:var(--text-muted); margin-bottom:2px;">' + escapeHtml(metaBits || "近期动态") + '</div>' +
+              '<div>' + escapeHtml(bodyTxt) + '</div></div>';
+          }).join("") + '</div></details>'
+        : '<div style="font-size:12.5px; color:var(--text-muted);">暂未读到该联系人的公开朋友圈原文（不会编造内容）。</div>';
+
+      const openingIdx = registerCallBriefCopy(scripts.opening || "");
+      const dqList = Array.isArray(scripts.discoveryQuestions) ? scripts.discoveryQuestions.filter(Boolean) : [];
+      const dqAllIdx = registerCallBriefCopy(dqList.map((q, i) => (i + 1) + ". " + q).join("\n"));
+      const objList = Array.isArray(scripts.objectionHandlers) ? scripts.objectionHandlers : [];
+      const closingIdx = registerCallBriefCopy(scripts.closing || "");
+
+      const bodyEl = document.getElementById("callBriefContent");
+      if (!bodyEl) return;
+      bodyEl.innerHTML = [
+        '<section class="cb-card">' +
+          '<div class="cb-card-head"><h3 class="cb-card-title">1 · 一句话速览与性格脾气</h3>' +
+          '<button type="button" class="btn-outline sm" onclick="copyCallBriefItem(' + oneLinerCopy + ', \'已复制一句话速览\')">📋 复制速览</button></div>' +
+          '<div class="cb-oneliner">' + escapeHtml(sum.oneLiner || "暂无足够上下文，建议温和寒暄开场。") + '</div>' +
+          '<div class="cb-grid-2">' +
+            '<div class="cb-subbox"><h4>🎭 脾气与沟通风格</h4><div>' + escapeHtml(sum.temperamentAndStyle || "待补充互动样本") + '</div></div>' +
+            '<div class="cb-subbox"><h4>🌡️ 当前情绪基线</h4><div>' + escapeHtml(sum.emotionalTone || "平稳正常") + '</div></div>' +
+          '</div>' +
+          '<div class="cb-grid-2">' +
+            '<div class="cb-subbox"><h4>✅ 建议做法 (Do\'s)</h4>' + _renderCbList(sum.dos, "保持自然真诚、节奏适中") + '</div>' +
+            '<div class="cb-subbox"><h4>⛔ 忌讳雷区 (Don\'ts)</h4>' + _renderCbList(sum.donts, "避免生硬推销或连续追问") + '</div>' +
+          '</div>' +
+        '</section>',
+
+        '<section class="cb-card">' +
+          '<div class="cb-card-head"><h3 class="cb-card-title">2 · 近期朋友圈洞察与破冰话题</h3></div>' +
+          '<div style="font-size:13px; color:var(--text);">' + escapeHtml(mom.summary || "暂无朋友圈洞察。") + '</div>' +
+          (icebreakers.length
+            ? '<div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center;"><span style="font-size:12px; color:var(--text-muted);">破冰话术（点击复制）：</span>' +
+              icebreakers.map((ib) => {
+                const cidx = registerCallBriefCopy(ib);
+                return '<button type="button" class="btn-outline sm" onclick="copyCallBriefItem(' + cidx + ', \'已复制破冰话题\')">💬 ' + escapeHtml(ib) + '</button>';
+              }).join("") + '</div>'
+            : "") +
+          postsHtml +
+        '</section>',
+
+        '<section class="cb-card">' +
+          '<div class="cb-card-head"><h3 class="cb-card-title">3 · 核心需求 · 关注点 · 未闭环事项 &amp; CRM 推进</h3></div>' +
+          '<div class="cb-grid-2">' +
+            '<div class="cb-subbox"><h4>🎯 核心需求</h4>' + _renderCbList(needs.coreNeeds, "待通过通话探需确认") + '</div>' +
+            '<div class="cb-subbox"><h4>🔎 重点关注话题</h4>' + _renderCbList(needs.focusTopics, "暂无高频聚焦话题") + '</div>' +
+          '</div>' +
+          '<div class="cb-grid-2">' +
+            '<div class="cb-subbox"><h4>⏳ 未闭环事项 (Open Loops)</h4>' + _renderCbList(needs.openLoops, "暂无待确认承诺或遗留问题") + '</div>' +
+            '<div class="cb-subbox"><h4>📈 CRM 推进提示</h4><div>' + escapeHtml(needs.crmHint || "暂无 SalesCRM 阶段记录") + '</div></div>' +
+          '</div>' +
+        '</section>',
+
+        '<section class="cb-card cb-script-card">' +
+          '<div class="cb-card-head"><h3 class="cb-card-title">4 · 人工口语电话话术提词卡（目标：' + escapeHtml(data.goalLabel || data.goal || "综合沟通") + '）</h3></div>' +
+          '<div class="cb-script-block">' +
+            '<div class="cb-script-block-head"><span>📞 开场白</span><button type="button" class="btn-outline sm" onclick="copyCallBriefItem(' + openingIdx + ', \'已复制开场白\')">📋 复制</button></div>' +
+            '<div class="cb-script-quote">' + escapeHtml(scripts.opening || "") + '</div>' +
+          '</div>' +
+          '<div class="cb-script-block">' +
+            '<div class="cb-script-block-head"><span>❓ 探需提问列表</span>' +
+            (dqList.length ? '<button type="button" class="btn-outline sm" onclick="copyCallBriefItem(' + dqAllIdx + ', \'已复制全部探需提问\')">📋 复制全部</button>' : "") +
+            '</div>' +
+            (dqList.length
+              ? dqList.map((q, qi) => {
+                  const qIdx = registerCallBriefCopy(q);
+                  return '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; font-size:13px;">' +
+                    '<span>' + (qi + 1) + '. ' + escapeHtml(q) + '</span>' +
+                    '<button type="button" class="btn-outline sm" style="flex-shrink:0;" onclick="copyCallBriefItem(' + qIdx + ', \'已复制提问\')">📋 复制</button></div>';
+                }).join("")
+              : '<div style="font-size:12.5px; color:var(--text-muted);">暂无预设提问</div>') +
+          '</div>' +
+          '<div class="cb-script-block">' +
+            '<div class="cb-script-block-head"><span>🛡️ 常见异议拆解</span></div>' +
+            (objList.length
+              ? objList.map((oh) => {
+                  const resp = String((oh && oh.response) || "");
+                  const rIdx = registerCallBriefCopy(resp);
+                  return '<div class="cb-obj-item">' +
+                    '<div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">' +
+                    '<strong style="color:var(--special, #e11d48);">异议：' + escapeHtml((oh && oh.concern) || "") + '</strong>' +
+                    '<button type="button" class="btn-outline sm" onclick="copyCallBriefItem(' + rIdx + ', \'已复制异议回应\')">📋 复制回应</button></div>' +
+                    '<div style="color:var(--text);">回应：' + escapeHtml(resp) + '</div></div>';
+                }).join("")
+              : '<div style="font-size:12.5px; color:var(--text-muted);">暂无预置异议拆解</div>') +
+          '</div>' +
+          '<div class="cb-script-block">' +
+            '<div class="cb-script-block-head"><span>🤝 收口动作</span><button type="button" class="btn-outline sm" onclick="copyCallBriefItem(' + closingIdx + ', \'已复制收口话术\')">📋 复制</button></div>' +
+            '<div class="cb-script-quote">' + escapeHtml(scripts.closing || "") + '</div>' +
+          '</div>' +
+        '</section>',
+
+        '<section class="cb-card">' +
+          '<div class="cb-card-head"><h3 class="cb-card-title">5 · 近期关键历史往来摘要（最多 8 条）</h3></div>' +
+          _renderCbList(history.map((h) => typeof h === "string" ? h : JSON.stringify(h)), "暂无本地历史往来摘要") +
+        '</section>',
+      ].join("");
+    }
+
+    function copyFullCallBrief() {
+      const d = CALL_BRIEF_STATE.lastData;
+      if (!d) { showToast("请先等待速览加载完成"); return; }
+      const sum = d.summaryCard || {};
+      const mom = d.momentsInsights || {};
+      const needs = d.needsAndFocus || {};
+      const sc = d.phoneScripts || {};
+      const lines = [
+        "【电话前速览】" + (d.matchedTitle || d.target || "") + "（目标：" + (d.goalLabel || d.goal || "") + "）",
+        "",
+        "1. 一句话速览：" + (sum.oneLiner || ""),
+        "   脾气与风格：" + (sum.temperamentAndStyle || ""),
+        "   情绪基线：" + (sum.emotionalTone || ""),
+        "   建议做法：" + ((sum.dos || []).join("；") || "—"),
+        "   忌讳雷区：" + ((sum.donts || []).join("；") || "—"),
+        "",
+        "2. 朋友圈洞察：" + (mom.summary || ""),
+        ((mom.icebreakers || []).length ? "   破冰话题：" + mom.icebreakers.join(" | ") : ""),
+        "",
+        "3. 核心需求与待闭环：",
+        "   核心需求：" + ((needs.coreNeeds || []).join("；") || "—"),
+        "   关注点：" + ((needs.focusTopics || []).join("；") || "—"),
+        "   未闭环：" + ((needs.openLoops || []).join("；") || "—"),
+        "   CRM 提示：" + (needs.crmHint || "—"),
+        "",
+        "4. 电话话术提词卡：",
+        "   [开场白] " + (sc.opening || ""),
+        "   [探需提问]",
+        ...(sc.discoveryQuestions || []).map((q, i) => "   " + (i + 1) + ". " + q),
+        "   [异议拆解]",
+        ...(sc.objectionHandlers || []).map((o) => "   - 异议：" + (o.concern || "") + " -> 回应：" + (o.response || "")),
+        "   [收口动作] " + (sc.closing || ""),
+        "",
+        "5. 近期关键往来：",
+        ...(d.historyHighlights || []).map((h) => "   - " + h),
+      ].filter((x) => x !== undefined);
+      copyCallBriefText(lines.join("\n"), "已复制整张电话话术卡");
+    }
+
+    /* ---------- v3 Zero-FDE 向导 / 使用手册 / 测试好友 / #指令 / 测试与评分 ---------- */
+    const WIZARD_STATE = { step: 1, discovered: null, trainResult: null, simCount: 0, autoOpened: false };
+    const DRAFT_FEEDBACK_STATE = { target: "", incomingText: "", replyText: "", turnId: null, stars: 0, tags: new Set() };
+
+    function renderSimpleMarkdown(md) {
+      const lines = String(md || "").replace(/\r\n/g, "\n").split("\n");
+      const out = [];
+      let inCode = false;
+      let inList = false;
+      const closeList = () => { if (inList) { out.push("</ul>"); inList = false; } };
+      const fmtInline = (s) => escapeHtml(s)
+        .replace(/`([^`]+)`/g, "<code>$1</code>")
+        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+      for (const raw of lines) {
+        if (raw.trim().startsWith("```")) {
+          closeList();
+          out.push(inCode ? "</pre>" : "<pre>");
+          inCode = !inCode;
+          continue;
+        }
+        if (inCode) { out.push(escapeHtml(raw) + "\n"); continue; }
+        const t = raw.trim();
+        if (!t) { closeList(); continue; }
+        if (t === "---") { closeList(); out.push('<hr style="border:none;border-top:1px solid var(--border);margin:12px 0;" />'); continue; }
+        const hm = t.match(/^(#{1,3})\s+(.*)$/);
+        if (hm) {
+          closeList();
+          const lvl = hm[1].length;
+          out.push(`<h${lvl}>${fmtInline(hm[2])}</h${lvl}>`);
+          continue;
+        }
+        if (/^[-*]\s+/.test(t) || /^\d+\.\s+/.test(t)) {
+          if (!inList) { out.push('<ul style="margin:4px 0 8px; padding-left:20px;">'); inList = true; }
+          const body = t.replace(/^[-*]\s+|^\d+\.\s+/, "");
+          out.push(`<li>${fmtInline(body)}</li>`);
+          continue;
+        }
+        if (t.startsWith("> ")) {
+          closeList();
+          out.push(`<blockquote style="margin:6px 0;padding:6px 10px;border-left:3px solid var(--work-pine);background:var(--surface-soft);">${fmtInline(t.slice(2))}</blockquote>`);
+          continue;
+        }
+        closeList();
+        out.push(`<p style="margin:4px 0;">${fmtInline(t)}</p>`);
+      }
+      closeList();
+      if (inCode) out.push("</pre>");
+      return out.join("");
+    }
+
+    async function openUserGuideModal() {
+      const overlay = document.getElementById("userGuideOverlay");
+      const body = document.getElementById("userGuideBody");
+      if (overlay) overlay.classList.add("visible");
+      if (body) body.innerHTML = '<p class="hosting-empty">正在读取使用手册…</p>';
+      try {
+        const { status, data } = await apiJson("/api/docs/user-guide");
+        if (status !== 200 || !data.ok) throw new Error(data.error || "读取失败");
+        if (body) body.innerHTML = renderSimpleMarkdown(data.markdown || "");
+      } catch (err) {
+        if (body) body.innerHTML = `<p class="hosting-empty">读取使用手册失败：${escapeHtml(err.message || err)}</p>`;
+      }
+    }
+
+    function hideUserGuideModal() {
+      document.getElementById("userGuideOverlay")?.classList.remove("visible");
+    }
+
+    function goWizardStep(step) {
+      WIZARD_STATE.step = step;
+      for (let i = 1; i <= 4; i++) {
+        const panel = document.getElementById("wizardStepPanel" + i);
+        if (panel) panel.hidden = (i !== step);
+      }
+      document.querySelectorAll("#wizardStepPills .wizard-step-pill").forEach((el) => {
+        const s = Number(el.dataset.wstep || 0);
+        el.classList.toggle("active", s === step);
+        el.classList.toggle("done", s < step);
+      });
+    }
+
+    async function openOnboardingWizard(startStep = 1) {
+      const overlay = document.getElementById("onboardingWizardOverlay");
+      if (overlay) overlay.classList.add("visible");
+      goWizardStep(startStep);
+      try {
+        const [{ data: statusData }, { data: packsData }] = await Promise.all([
+          apiJson("/api/onboarding/status"),
+          apiJson("/api/sales-packs"),
+        ]);
+        const prof = statusData.profile || {};
+        const sel = document.getElementById("wizIndustryPack");
+        const packs = packsData.packs || statusData.salesPacks || [];
+        if (sel) {
+          sel.innerHTML = (packs.length ? packs : [{ packId: "general_sales", name: "通用私域与顾问式销售" }])
+            .map((pk) => `<option value="${escapeHtml(pk.packId)}" ${pk.packId === (prof.industryPack || "general_sales") ? "selected" : ""}>${escapeHtml(pk.name || pk.packId)} (${escapeHtml(pk.entryCount ?? "")}条)</option>`)
+            .join("");
+        }
+        if (prof.ownerName) document.getElementById("wizOwnerName").value = prof.ownerName;
+        if (prof.businessName) document.getElementById("wizBusinessName").value = prof.businessName;
+        if (prof.productSummary) document.getElementById("wizProductSummary").value = prof.productSummary;
+        if (Array.isArray(prof.ownerAliases) && prof.ownerAliases.length) {
+          document.getElementById("wizOwnerAliases").value = prof.ownerAliases.join(", ");
+        }
+        if (Array.isArray(prof.testContacts) && prof.testContacts.length) {
+          document.getElementById("wizTestContacts").value = prof.testContacts.join(", ");
+        }
+      } catch (err) { /* ignore initial load failure */ }
+    }
+
+    function hideOnboardingWizard() {
+      try { localStorage.setItem("wb_wizard_dismissed", "1"); } catch (e) {}
+      document.getElementById("onboardingWizardOverlay")?.classList.remove("visible");
+    }
+
+    async function wizardSubmitStep1() {
+      const ownerName = (document.getElementById("wizOwnerName")?.value || "").trim();
+      const businessName = (document.getElementById("wizBusinessName")?.value || "").trim();
+      const productSummary = (document.getElementById("wizProductSummary")?.value || "").trim();
+      const industryPack = (document.getElementById("wizIndustryPack")?.value || "general_sales").trim();
+      const ownerAliases = (document.getElementById("wizOwnerAliases")?.value || "").split(/[,，\n]+/).map((s) => s.trim()).filter(Boolean);
+      const testContacts = (document.getElementById("wizTestContacts")?.value || "").split(/[,，\n]+/).map((s) => s.trim()).filter(Boolean);
+      const btn = document.getElementById("wizSaveStep1Btn");
+      if (btn) btn.disabled = true;
+      try {
+        const { data } = await apiJson("/api/onboarding/setup", {
+          method: "POST",
+          body: JSON.stringify({ ownerName, businessName, productSummary, industryPack, ownerAliases, testContacts }),
+        });
+        if (!data.ok) throw new Error(data.error || "保存失败");
+        showToast("已保存基础身份与行业话术包");
+        goWizardStep(2);
+        await wizardDiscoverCorpora();
+      } catch (err) {
+        showToast("保存失败: " + (err.message || err));
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    async function wizardDiscoverCorpora() {
+      const sessEl = document.getElementById("wizDiscoveredSessions");
+      const archEl = document.getElementById("wizDiscoveredArchives");
+      if (sessEl) sessEl.innerHTML = '<span class="hosting-empty">正在扫描高价值微信会话…</span>';
+      if (archEl) archEl.innerHTML = '<span class="hosting-empty">正在扫描导出记录包…</span>';
+      try {
+        const { data } = await apiJson("/api/training/discover", { method: "POST", body: JSON.stringify({ limit: 15 }) });
+        WIZARD_STATE.discovered = data;
+        const sessions = data.sessions || [];
+        const archives = data.archives || [];
+        if (sessEl) {
+          sessEl.innerHTML = sessions.length
+            ? sessions.map((s, idx) => `<label style="display:flex;align-items:flex-start;gap:6px;margin-bottom:5px;cursor:pointer;">
+                <input type="checkbox" class="wiz-sess-cb" value="${escapeHtml(s.target)}" ${idx < 3 ? "checked" : ""} style="width:auto;margin-top:3px;" />
+                <span><strong>${escapeHtml(s.target)}</strong> (${escapeHtml(s.messageCount || 0)}条 · 分值${escapeHtml(s.score || 0)})<br><span style="color:var(--text-muted);font-size:11px;">${escapeHtml((s.reasonTags || []).join(" · "))}</span></span>
+              </label>`).join("")
+            : '<span class="hosting-empty">暂未发现可导入的本地会话记录，可直接在下方粘贴产品资料。</span>';
+        }
+        if (archEl) {
+          archEl.innerHTML = archives.length
+            ? archives.map((a) => `<label style="display:flex;align-items:flex-start;gap:6px;margin-bottom:5px;cursor:pointer;">
+                <input type="checkbox" class="wiz-arch-cb" value="${escapeHtml(a.path)}" checked style="width:auto;margin-top:3px;" />
+                <span><strong>${escapeHtml(a.name)}</strong><br><span style="color:var(--text-muted);font-size:11px;">${escapeHtml(a.transcriptEntry || a.path)}</span></span>
+              </label>`).join("")
+            : '<span class="hosting-empty">下载/桌面目录未扫到聊天记录导出包，可在下方手动输入路径。</span>';
+        }
+      } catch (err) {
+        if (sessEl) sessEl.innerHTML = `<span class="hosting-empty">扫描失败: ${escapeHtml(err.message || err)}</span>`;
+      }
+    }
+
+    async function wizardRunTraining() {
+      const contactTargets = Array.from(document.querySelectorAll(".wiz-sess-cb:checked")).map((el) => el.value);
+      const archivePaths = Array.from(document.querySelectorAll(".wiz-arch-cb:checked")).map((el) => el.value);
+      const extraPath = (document.getElementById("wizExtraArchivePath")?.value || "").trim();
+      if (extraPath) archivePaths.push(extraPath);
+      const docText = (document.getElementById("wizProductDocText")?.value || "").trim();
+      const docTexts = docText ? [{ name: "向导业务资料", text: docText }] : [];
+      const btn = document.getElementById("wizRunTrainBtn");
+      if (btn) { btn.disabled = true; btn.textContent = "⏳ 正在提炼话术…"; }
+      try {
+        const { data } = await apiJson("/api/training/run", {
+          method: "POST",
+          body: JSON.stringify({ contactTargets, archivePaths, docTexts, useLlm: false, autoPublishSafe: true }),
+        });
+        WIZARD_STATE.trainResult = data;
+        renderWizardStep3(data);
+        goWizardStep(3);
+      } catch (err) {
+        showToast("训练失败: " + (err.message || err));
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "⚡ 开始自训练并提炼话术 →"; }
+      }
+    }
+
+    function renderWizardStep3(report) {
+      const statsBox = document.getElementById("wizTrainStatsBox");
+      const vocabBox = document.getElementById("wizMinedVocabBox");
+      const draftsBox = document.getElementById("wizDraftsList");
+      const st = (report && report.stats) || {};
+      if (statsBox) {
+        statsBox.textContent = `本次共分析 ${st.conversationCount || 0} 段会话（${st.messageCount || 0} 条消息），提炼词汇 ${st.vocabularyCount || 0} 个，生成话术 ${st.synthesizedCount || 0} 条（安全自动发布 ${st.publishedCount || 0} 条，高风险待审核 ${st.draftCount || 0} 条）。`;
+      }
+      const vocab = (report && report.vocabulary) || [];
+      if (vocabBox) {
+        vocabBox.innerHTML = vocab.length
+          ? vocab.map((v) => `<span class="chip" title="${escapeHtml(v.definition || "")}">${escapeHtml(v.term)} (${escapeHtml(v.frequency || 1)})</span>`).join("")
+          : '<span class="hosting-empty">暂无新增业务词汇</span>';
+      }
+      const drafts = ((report && report.entries) || []).filter((e) => e.status === "draft" || e.needsApproval);
+      if (draftsBox) {
+        draftsBox.innerHTML = drafts.length
+          ? drafts.map((d) => `<div style="border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--surface-soft);">
+              <label style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:12.5px;margin-bottom:4px;">
+                <input type="checkbox" class="wiz-draft-cb" value="${escapeHtml(d.id)}" checked style="width:auto;" />
+                <span>${escapeHtml(d.title)}</span>
+                <span class="pill warn">${escapeHtml((d.riskFlags || ["需复核"]).join(", "))}</span>
+              </label>
+              <textarea class="wiz-draft-body" data-entry-id="${escapeHtml(d.id)}" rows="2" style="font-size:12px;">${escapeHtml(d.body)}</textarea>
+            </div>`).join("")
+          : '<span class="hosting-empty">无高风险待审核草稿，安全条目已自动发布。</span>';
+      }
+    }
+
+    async function wizardApproveDraftsAndNext() {
+      const checked = Array.from(document.querySelectorAll(".wiz-draft-cb:checked")).map((el) => el.value);
+      if (checked.length) {
+        const edits = {};
+        document.querySelectorAll(".wiz-draft-body").forEach((ta) => {
+          const eid = ta.dataset.entryId;
+          if (eid && checked.includes(eid)) edits[eid] = { body: ta.value };
+        });
+        try {
+          await apiJson("/api/training/approve", { method: "POST", body: JSON.stringify({ entryIds: checked, edits }) });
+          showToast(`已审核发布 ${checked.length} 条话术`);
+        } catch (err) {
+          showToast("审核发布失败: " + (err.message || err));
+        }
+      }
+      goWizardStep(4);
+    }
+
+    async function wizardSendSimTurn() {
+      const inp = document.getElementById("wizSimInput");
+      const log = document.getElementById("wizSimChatLog");
+      const msg = (inp?.value || "").trim();
+      if (!msg) return;
+      if (inp) inp.value = "";
+      if (log) log.innerHTML += `<div class="sparring-msg peer"><strong>模拟客户：</strong>${escapeHtml(msg)}</div>`;
+      try {
+        const { data } = await apiJson("/api/sparring/chat", { method: "POST", body: JSON.stringify({ message: msg, contactName: "向导试跑客户" }) });
+        WIZARD_STATE.simCount += 1;
+        const sc = (data.autoScore && data.autoScore.overallScore !== undefined) ? ` [自评 ${data.autoScore.overallScore}分]` : "";
+        if (log) {
+          log.innerHTML += `<div class="sparring-msg self"><strong>AI 回复${escapeHtml(sc)}：</strong>${escapeHtml(data.replyText || data.error || "")}</div>`;
+          log.scrollTop = log.scrollHeight;
+        }
+      } catch (err) {
+        if (log) log.innerHTML += `<div class="sparring-msg sys">试跑出错: ${escapeHtml(err.message || err)}</div>`;
+      }
+    }
+
+    function syncChatTestContactBtn(target) {
+      const btn = document.getElementById("chatTestContactBtn");
+      if (!btn) return;
+      const clean = String(target || "").trim();
+      const list = (STATE && STATE.testContacts) || [];
+      const isTest = !!clean && list.some((c) => String(c.displayName || "").trim().toLowerCase() === clean.toLowerCase());
+      btn.textContent = isTest ? "🧪 取消测试好友" : "🧪 设为测试好友";
+      btn.classList.toggle("btn-solid", isTest);
+      btn.classList.toggle("btn-outline", !isTest);
+    }
+
+    async function toggleTestContact(encTarget, enable) {
+      const target = decodeURIComponent(encTarget);
+      if (!target) return;
+      try {
+        const { data } = await apiJson("/api/test-contacts", {
+          method: "POST",
+          body: JSON.stringify({ name: target, enabled: !!enable }),
+        });
+        if (!data.ok) throw new Error(data.error || "操作失败");
+        showToast(enable ? `已将「${target}」设为测试好友（允许 # 指令纠偏，且不计入 CRM）` : `已取消「${target}」的测试好友标记`);
+        await loadOverview(false);
+        syncChatTestContactBtn(document.getElementById("previewTarget")?.value || "");
+      } catch (err) {
+        showToast("设置测试好友失败: " + (err.message || err));
+      }
+    }
+
+    async function toggleActiveChatTestContact() {
+      const target = (document.getElementById("previewTarget")?.value || document.getElementById("sendTarget")?.value || "").trim();
+      if (!target) { showToast("请先选择或填写会话对象"); return; }
+      const list = (STATE && STATE.testContacts) || [];
+      const isTest = list.some((c) => String(c.displayName || "").trim().toLowerCase() === target.toLowerCase());
+      await toggleTestContact(encodeURIComponent(target), !isTest);
+    }
+
+    function onComposerTextInput() {
+      const box = document.getElementById("sendText");
+      const banner = document.getElementById("supervisorDirectiveBanner");
+      if (!box || !banner) return;
+      const val = String(box.value || "").trim();
+      const isDir = /^[#＃]\s*\S/.test(val);
+      banner.hidden = !isDir;
+    }
+
+    async function executeSupervisorDirectiveFromComposer() {
+      const target = (document.getElementById("previewTarget")?.value || document.getElementById("sendTarget")?.value || "模拟测试客户").trim();
+      const box = document.getElementById("sendText");
+      const text = (box?.value || "").trim();
+      if (!text) return;
+      try {
+        const { data } = await apiJson("/api/supervisor/directive", {
+          method: "POST",
+          body: JSON.stringify({ contact: target, text, channel: "workbench" }),
+        });
+        if (!data.ok) throw new Error(data.error || data.reason || "指令执行失败");
+        showToast(data.ackMessage || "已执行管理员指令");
+        if (data.revisedReply && box) {
+          box.value = data.revisedReply;
+          onComposerTextInput();
+        }
+        document.getElementById("sendReceiptBox").innerHTML =
+          `<div class="send-receipt"><p>${escapeHtml(data.ackMessage || "管理员指令已生效")}</p></div>`;
+        await loadOverview(false);
+      } catch (err) {
+        showToast("指令执行失败: " + (err.message || err));
+      }
+    }
+
+    function renderDraftQualityFeedbackBar({ target, incomingText, replyText, turnId, autoScore }) {
+      const bar = document.getElementById("draftQualityFeedbackBar");
+      if (!bar) return;
+      DRAFT_FEEDBACK_STATE.target = target || "";
+      DRAFT_FEEDBACK_STATE.incomingText = incomingText || "";
+      DRAFT_FEEDBACK_STATE.replyText = replyText || "";
+      DRAFT_FEEDBACK_STATE.turnId = turnId || null;
+      DRAFT_FEEDBACK_STATE.stars = 0;
+      DRAFT_FEEDBACK_STATE.tags = new Set();
+
+      const tags = ["语气太硬", "未答重点", "缺少推进", "术语不准", "价格越权"];
+      const scoreHtml = autoScore
+        ? `<span style="color:var(--text-secondary);">5 维自评：<b>${escapeHtml(autoScore.overallScore)}分</b>（知识${escapeHtml(autoScore.kbGrounding)} · 术语${escapeHtml(autoScore.terminologyAlignment)} · 推进${escapeHtml(autoScore.salesProgression)} · 合规${escapeHtml(autoScore.complianceSafety)} · 拟人${escapeHtml(autoScore.humanLikeness)}）</span>`
+        : "";
+      bar.hidden = false;
+      bar.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+          <strong>⭐ 回复质量打分 &amp; 沉淀 SOP</strong>
+          ${scoreHtml}
+        </div>
+        <div class="star-rating-row">
+          ${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="star-btn" data-star="${n}" onclick="selectDraftFeedbackStar(${n})">${"★".repeat(n)} ${n}星</button>`).join("")}
+          ${tags.map((tg) => `<button type="button" class="tag-chip" data-tag="${escapeHtml(tg)}" onclick="toggleDraftFeedbackTag(this, '${escapeHtml(tg)}')">${escapeHtml(tg)}</button>`).join("")}
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <input type="text" id="draftFeedbackComment" placeholder="可选：纠偏备注（例如：先问规模再报价）" style="flex:1;min-width:180px;padding:4px 8px;font-size:12px;" />
+          <button type="button" class="btn-outline sm" onclick="submitDraftFeedbackRating()">提交评分</button>
+          <button type="button" class="btn-solid sm" onclick="learnFromDraftCorrection()">✨ 一键存为 SOP</button>
+        </div>
+      `;
+    }
+
+    function selectDraftFeedbackStar(n) {
+      DRAFT_FEEDBACK_STATE.stars = n;
+      document.querySelectorAll("#draftQualityFeedbackBar .star-btn").forEach((b) => {
+        b.classList.toggle("active", Number(b.dataset.star) === n);
+      });
+    }
+
+    function toggleDraftFeedbackTag(el, tag) {
+      if (DRAFT_FEEDBACK_STATE.tags.has(tag)) {
+        DRAFT_FEEDBACK_STATE.tags.delete(tag);
+        el.classList.remove("active");
+      } else {
+        DRAFT_FEEDBACK_STATE.tags.add(tag);
+        el.classList.add("active");
+      }
+    }
+
+    async function submitDraftFeedbackRating() {
+      const stars = DRAFT_FEEDBACK_STATE.stars;
+      if (!stars) { showToast("请先点击 1-5 星评分"); return; }
+      const comment = (document.getElementById("draftFeedbackComment")?.value || "").trim();
+      const tags = Array.from(DRAFT_FEEDBACK_STATE.tags);
+      const rewrite = (document.getElementById("sendText")?.value || "").trim();
+      try {
+        let turnId = DRAFT_FEEDBACK_STATE.turnId;
+        if (!turnId) {
+          const simRes = await apiJson("/api/sparring/chat", {
+            method: "POST",
+            body: JSON.stringify({
+              message: DRAFT_FEEDBACK_STATE.incomingText || "客户咨询",
+              contactName: DRAFT_FEEDBACK_STATE.target || "工作台草稿评分",
+              record: true,
+            }),
+          });
+          turnId = simRes.data?.turnId;
+          DRAFT_FEEDBACK_STATE.turnId = turnId;
+        }
+        if (!turnId) throw new Error("未能定位评分轮次");
+        const { data } = await apiJson("/api/supervisor/rate", {
+          method: "POST",
+          body: JSON.stringify({
+            turnId,
+            stars,
+            tags,
+            comment,
+            rewrittenReply: rewrite !== DRAFT_FEEDBACK_STATE.replyText ? rewrite : "",
+          }),
+        });
+        if (!data.ok) throw new Error(data.error || "评分失败");
+        showToast(`已记录 ${stars} 星评分，已同步更新知识库权重与质量面板`);
+        await loadOverview(false);
+      } catch (err) {
+        showToast("评分提交失败: " + (err.message || err));
+      }
+    }
+
+    function renderSparringFromState() {
+      if (!STATE) return;
+      syncChatTestContactBtn(document.getElementById("previewTarget")?.value || "");
+      const simSel = document.getElementById("simPersonaSelect");
+      if (simSel && STATE.personas?.personas) {
+        const cur = simSel.value || "wecom-kf-pro";
+        simSel.innerHTML = (STATE.personas.personas || [])
+          .map((p) => `<option value="${escapeHtml(p.id)}" ${p.id === cur ? "selected" : ""}>${escapeHtml(p.name)}</option>`)
+          .join("");
+      }
+      if (STATE.qualityDashboard) renderQualityDashboard(STATE.qualityDashboard);
+      renderTestContactsChips(STATE.testContacts || []);
+      if (
+        !WIZARD_STATE.autoOpened
+        && STATE.isCustomerMode
+        && STATE.tenantProfile
+        && !STATE.tenantProfile.onboardingCompleted
+      ) {
+        WIZARD_STATE.autoOpened = true;
+        try {
+          if (!localStorage.getItem("wb_wizard_dismissed")) openOnboardingWizard(1);
+        } catch (e) {}
+      }
+    }
+
+    function renderTestContactsChips(contacts) {
+      const box = document.getElementById("testContactsChipsBox");
+      if (!box) return;
+      if (!contacts.length) {
+        box.innerHTML = '<span class="hosting-empty">暂无测试好友，可点击联系人卡片「🧪 设为测试好友」或在右侧添加。</span>';
+        return;
+      }
+      box.innerHTML = contacts.map((c) => `<span class="chip">🧪 ${escapeHtml(c.displayName)} <button type="button" class="link-btn" style="padding:0 4px;" onclick="toggleTestContact('${encArg(c.displayName)}', false)">×</button></span>`).join("");
+    }
+
+    function renderQualityDashboard(dash) {
+      if (!dash || !dash.summary) return;
+      const s = dash.summary;
+      const kpi = document.getElementById("qualityKpiGrid");
+      if (kpi) {
+        kpi.innerHTML = `
+          <div class="mini-stat"><div class="k">对练总轮次</div><div class="v">${escapeHtml(s.totalTurns || 0)}（已评 ${escapeHtml(s.ratedTurns || 0)}）</div></div>
+          <div class="mini-stat"><div class="k">平均自动分 / 合格率</div><div class="v">${escapeHtml(s.avgAutoScore || 0)} 分 · ${escapeHtml(s.passRate || 0)}%</div></div>
+          <div class="mini-stat"><div class="k">平均星级 / 约束数</div><div class="v">${escapeHtml(s.avgSupervisorStars || 0)} ★ · 约束 ${escapeHtml(s.activeNegativeConstraints || 0)}</div></div>
+        `;
+      }
+      const distBox = document.getElementById("qualityStarDistBox");
+      if (distBox && dash.ratingDistribution) {
+        const dist = dash.ratingDistribution;
+        const maxCnt = Math.max(1, ...[1, 2, 3, 4, 5].map((k) => Number(dist[k] || dist[String(k)] || 0)));
+        distBox.innerHTML = [5, 4, 3, 2, 1].map((st) => {
+          const cnt = Number(dist[st] || dist[String(st)] || 0);
+          const pct = Math.round((cnt / maxCnt) * 100);
+          return `<div style="display:flex;align-items:center;gap:8px;font-size:12px;margin:2px 0;">
+            <span style="width:36px;">${st} ★</span>
+            <div style="flex:1;height:7px;background:var(--surface-soft);border-radius:99px;overflow:hidden;"><div style="width:${pct}%;height:100%;background:${st >= 4 ? "#16a34a" : (st <= 2 ? "#dc2626" : "#f59e0b")};"></div></div>
+            <span style="width:28px;text-align:right;">${cnt}</span>
+          </div>`;
+        }).join("");
+      }
+      const tagsBox = document.getElementById("qualityIssueTagsBox");
+      if (tagsBox) {
+        const tags = dash.topIssueTags || [];
+        tagsBox.innerHTML = tags.length
+          ? tags.map((t) => `<span class="chip">${escapeHtml(t.tag)} (${escapeHtml(t.count)})</span>`).join("")
+          : '<span class="hosting-empty">暂无低分问题标签</span>';
+      }
+      const lowBox = document.getElementById("qualityLowScoreList");
+      if (lowBox) {
+        const lows = dash.lowScoreTurns || [];
+        lowBox.innerHTML = lows.length
+          ? lows.map((t) => `<div style="border:1px solid var(--border);border-radius:8px;padding:7px;font-size:12px;background:var(--surface-soft);">
+              <div style="display:flex;justify-content:space-between;gap:6px;">
+                <strong>${escapeHtml(t.contactName)}</strong>
+                <span>自评 ${escapeHtml((t.autoScore || {}).overallScore ?? "-")}分${t.supervisorRating ? ` · ${t.supervisorRating}★` : ""}</span>
+              </div>
+              <div style="color:var(--text-secondary);margin-top:2px;">问：${escapeHtml(t.incomingText)}</div>
+              <div>答：${escapeHtml(t.revisedReply || t.aiReply)}</div>
+            </div>`).join("")
+          : '<span class="hosting-empty">暂无低分项，表现良好。</span>';
+      }
+    }
+
+    async function loadSparringWorkspace(notify = false) {
+      try {
+        const [{ data: dash }, { data: turnsRes }, { data: tcRes }] = await Promise.all([
+          apiJson("/api/supervisor/dashboard?days=30"),
+          apiJson("/api/sparring/turns?limit=25"),
+          apiJson("/api/test-contacts"),
+        ]);
+        renderQualityDashboard(dash);
+        renderTestContactsChips(tcRes.contacts || []);
+        const logBox = document.getElementById("sparringTurnsLogBox");
+        const turns = turnsRes.turns || [];
+        if (logBox) {
+          logBox.innerHTML = turns.length
+            ? turns.map((t) => `<div style="border:1px solid var(--border);border-radius:9px;padding:9px;font-size:12.5px;">
+                <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
+                  <span><strong>${escapeHtml(t.contactName)}</strong> <span class="pill">${escapeHtml(t.channel)}</span></span>
+                  <span>自评 ${escapeHtml((t.autoScore || {}).overallScore ?? "-")}分 ${t.supervisorRating ? `· 主管 ${t.supervisorRating}★` : ""}</span>
+                </div>
+                <div style="color:var(--text-secondary);">客户：${escapeHtml(t.incomingText)}</div>
+                <div style="margin:3px 0;">AI：${escapeHtml(t.aiReply)}</div>
+                ${t.revisedReply ? `<div style="color:var(--work-pine);">改写：${escapeHtml(t.revisedReply)}</div>` : ""}
+                <div class="star-rating-row" style="margin-top:6px;">
+                  ${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="star-btn ${t.supervisorRating === n ? "active" : ""}" onclick="rateTurnInline(${Number(t.turnId)}, ${n})">${n}★</button>`).join("")}
+                </div>
+              </div>`).join("")
+            : '<p class="hosting-empty">暂无对练日志，可在上方模拟测试窗口发送消息或绑定测试好友对练。</p>';
+        }
+        if (notify) showToast("测试与评分数据已刷新");
+      } catch (err) {
+        if (notify) showToast("刷新失败: " + (err.message || err));
+      }
+    }
+
+    async function rateTurnInline(turnId, stars) {
+      try {
+        const { data } = await apiJson("/api/supervisor/rate", {
+          method: "POST",
+          body: JSON.stringify({ turnId, stars }),
+        });
+        if (!data.ok) throw new Error(data.error || "评分失败");
+        showToast(`轮次 #${turnId} 已评 ${stars} 星`);
+        await loadSparringWorkspace(false);
+      } catch (err) {
+        showToast("评分失败: " + (err.message || err));
+      }
+    }
+
+    async function addTestContactFromWorkspace() {
+      const inp = document.getElementById("newTestContactInput");
+      const name = (inp?.value || "").trim();
+      if (!name) return;
+      if (inp) inp.value = "";
+      await toggleTestContact(encodeURIComponent(name), true);
+      await loadSparringWorkspace(false);
+    }
+
+    function clearSimChatLog() {
+      const box = document.getElementById("simChatLogBox");
+      if (box) box.innerHTML = '<div class="sparring-msg sys">模拟对话已清空，可继续试跑或发 # 指令调优。</div>';
+    }
+
+    async function sendSparringSimMessage() {
+      const inp = document.getElementById("simMessageInput");
+      const box = document.getElementById("simChatLogBox");
+      const contactName = (document.getElementById("simContactInput")?.value || "模拟测试客户").trim();
+      const personaId = (document.getElementById("simPersonaSelect")?.value || "").trim() || null;
+      const msg = (inp?.value || "").trim();
+      if (!msg) return;
+      if (inp) inp.value = "";
+      if (box) {
+        box.innerHTML += `<div class="sparring-msg peer"><strong>${escapeHtml(contactName)}：</strong>${escapeHtml(msg)}</div>`;
+        box.scrollTop = box.scrollHeight;
+      }
+      try {
+        if (/^[#＃]\s*\S/.test(msg)) {
+          const { data } = await apiJson("/api/supervisor/directive", {
+            method: "POST",
+            body: JSON.stringify({ contact: contactName, text: msg, channel: "sparring_sim" }),
+          });
+          if (box) {
+            box.innerHTML += `<div class="sparring-msg sys">🛡️ ${escapeHtml(data.ackMessage || data.error || "已处理")}</div>`;
+            box.scrollTop = box.scrollHeight;
+          }
+        } else {
+          const { data } = await apiJson("/api/sparring/chat", {
+            method: "POST",
+            body: JSON.stringify({ message: msg, contactName, personaId }),
+          });
+          const sc = (data.autoScore && data.autoScore.overallScore !== undefined) ? ` [${data.autoScore.overallScore}分 · ${data.autoScore.stars || 3}★]` : "";
+          const tid = data.turnId;
+          const starsHtml = tid ? `<div class="star-rating-row" style="margin-top:4px;">${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="star-btn" onclick="rateTurnInline(${Number(tid)}, ${n})">${n}★</button>`).join("")}</div>` : "";
+          if (box) {
+            box.innerHTML += `<div class="sparring-msg self"><strong>AI${escapeHtml(sc)}：</strong>${escapeHtml(data.replyText || data.error || "")}${starsHtml}</div>`;
+            box.scrollTop = box.scrollHeight;
+          }
+        }
+        await loadSparringWorkspace(false);
+      } catch (err) {
+        if (box) box.innerHTML += `<div class="sparring-msg sys">执行出错: ${escapeHtml(err.message || err)}</div>`;
+      }
+    }
+
+    async function runSparringRegressionSuite() {
+      const btn = document.getElementById("sparringRegressionBtn");
+      const box = document.getElementById("simRegressionBox");
+      if (btn) btn.disabled = true;
+      try {
+        const { data } = await apiJson("/api/sparring/regression", { method: "POST", body: JSON.stringify({ limit: 20 }) });
+        if (box) {
+          box.hidden = false;
+          const cases = data.results || [];
+          box.innerHTML = `<div style="border:1px solid var(--border);border-radius:9px;padding:9px;background:var(--surface-soft);font-size:12.5px;">
+            <strong>回归测试结果：${escapeHtml(data.passedCases || 0)} / ${escapeHtml(data.totalCases || 0)} 通过（通过率 ${escapeHtml(data.passRate ?? 100)}%）</strong>
+            ${cases.length ? `<ul style="margin:6px 0 0;padding-left:18px;">${cases.map((c) => `<li>${c.passed ? "✅" : "❌"} [${escapeHtml(c.overallScore)}分] ${escapeHtml(c.incomingText)} → ${escapeHtml(c.generatedReply)}</li>`).join("")}</ul>` : '<div style="color:var(--text-muted);margin-top:4px;">暂无历史低分或 # 纠偏用例。</div>'}
+          </div>`;
+        }
+        showToast(`回归测试完成：通过率 ${data.passRate ?? 100}%`);
+      } catch (err) {
+        showToast("回归测试失败: " + (err.message || err));
+      } finally {
+        if (btn) btn.disabled = false;
       }
     }
   </script>

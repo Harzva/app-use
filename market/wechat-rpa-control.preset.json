@@ -21,16 +21,17 @@
         "wechat_media_export_panel",
         "wechat_soul_kf_panel",
         "wechat_salescrm_panel",
+        "wechat_moments_panel",
         "app_use_generalization_panel",
         "dsh_plugin_tools",
         "wechat_ecosystem_delivery"
       ],
       "stats": {
-        "panelCount": 7,
-        "actionCount": 21,
+        "panelCount": 8,
+        "actionCount": 29,
         "zeroLlmCount": 2,
         "turnTemplateCount": 1,
-        "dshDelegateCount": 18
+        "dshDelegateCount": 26
       },
       "quickPrompts": [
         {
@@ -85,6 +86,7 @@
         "wechat_media_export_panel",
         "wechat_soul_kf_panel",
         "wechat_salescrm_panel",
+        "wechat_moments_panel",
         "app_use_generalization_panel",
         "dsh_plugin_tools",
         "wechat_ecosystem_delivery"
@@ -201,6 +203,72 @@
           "requiresApproval": false
         },
         {
+          "panelId": "wechat_salescrm_panel",
+          "panelTitle": "📈 开源 SalesCRM 营销漏斗与 15 维客户跟进",
+          "actionId": "crm_call_brief",
+          "title": "生成客户电话前一键速览与口语话术提词卡 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_call_brief」：聚合聊天历史、Soul 记忆、朋友圈动态与 SalesCRM，生成电话前一键速览与人工通话话术提词卡",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "wechat_moments_panel",
+          "panelTitle": "◎ 朋友圈读取 · 往来统计 · 点赞评论（默认演练）",
+          "actionId": "moments_read",
+          "title": "读取好友朋友圈并入库 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_moments_read」：从最新一条往下滚动读取好友朋友圈，入库可见的帖子（作者、正文、时间、点赞、评论）；只读，结束后切回聊天页",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "wechat_moments_panel",
+          "panelTitle": "◎ 朋友圈读取 · 往来统计 · 点赞评论（默认演练）",
+          "actionId": "moments_stats",
+          "title": "按联系人查看朋友圈往来统计 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_moments_stats」：按联系人汇总朋友圈往来：发帖数、我赞过/评论过、对方赞过/评论过我的、近期待点赞，以及频控与策略状态",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "wechat_moments_panel",
+          "panelTitle": "◎ 朋友圈读取 · 往来统计 · 点赞评论（默认演练）",
+          "actionId": "moments_plan",
+          "title": "列出策略允许的互动清单 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_moments_plan」：按策略列出可以自动互动的朋友圈项目（待点赞、评论模板），供执行前过目",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "wechat_moments_panel",
+          "panelTitle": "◎ 朋友圈读取 · 往来统计 · 点赞评论（默认演练）",
+          "actionId": "moments_suggest_comment",
+          "title": "AI 拟写自然口语朋友圈评论 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_moments_suggest_comment」：结合帖子内容与好友 Soul 画像，生成一条自然口语的朋友圈评论建议与 2 条备选（不发送，不触碰微信界面）",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "wechat_moments_panel",
+          "panelTitle": "◎ 朋友圈读取 · 往来统计 · 点赞评论（默认演练）",
+          "actionId": "moments_interact",
+          "title": "点赞 / 评论（默认演练，不点击） (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_moments_interact」：对一条朋友圈帖子点赞 / 取消点赞 / 评论。默认 dry_run：只打开该帖的「赞 / 评论」菜单并校验位置，不点击；silent_verify：粘贴评论并读回核对后放弃；live：真正发出，需要 moments_interact_live 授权",
+          "requiresApproval": false
+        },
+        {
           "panelId": "app_use_generalization_panel",
           "panelTitle": "🚀 Universal App-Use 泛化工厂 · 无焦点多窗口并发与反风控泳道",
           "actionId": "appuse_list_apps",
@@ -264,6 +332,28 @@
           "zeroLLM": true,
           "bridgeTool": "delegate_to_dsh_bot",
           "defaultTask": "调用 DSH 插件工具「app_use_concurrency_status」：查询当前多窗口并发泳道实时状态、无焦点 AX 占比、ForegroundHIDLease 争用与反风控节流统计",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "dsh_plugin_tools",
+          "panelTitle": "插件工具动作面板",
+          "actionId": "wechat_moments_posts",
+          "title": "列出已入库的朋友圈帖子（新到旧），可按联系人筛选，或按 post_key 取单条 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_moments_posts」：列出已入库的朋友圈帖子（新到旧），可按联系人筛选，或按 post_key 取单条",
+          "requiresApproval": false
+        },
+        {
+          "panelId": "dsh_plugin_tools",
+          "panelTitle": "插件工具动作面板",
+          "actionId": "wechat_moments_policy",
+          "title": "读取朋友圈自动互动策略；传入 updates（局部对象）则更新：autoLike.enabled / scope / contacts / exclude / maxAgeDays、comment.enabled / … (委派 DS…",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_moments_policy」：读取朋友圈自动互动策略；传入 updates（局部对象）则更新：autoLike.enabled / scope / contacts / exclude / maxAgeDays、comment.enabled / templates",
           "requiresApproval": false
         },
         {
@@ -661,6 +751,28 @@
           "required": false
         },
         {
+          "id": "goal",
+          "label": "沟通目标",
+          "type": "text",
+          "placeholder": "general / followup / quote / care / recovery / custom",
+          "defaultValue": "general",
+          "required": false
+        },
+        {
+          "id": "custom_goal",
+          "label": "自定义沟通目标",
+          "type": "text",
+          "defaultValue": "",
+          "required": false
+        },
+        {
+          "id": "use_llm",
+          "label": "启用 AI 深度研判",
+          "type": "toggle",
+          "defaultValue": true,
+          "required": false
+        },
+        {
           "id": "targetBotId",
           "label": "目标 DSH Bot ID",
           "type": "text",
@@ -704,6 +816,165 @@
           "requiresApproval": false,
           "bridgeTool": "delegate_to_dsh_bot",
           "defaultTask": "调用 DSH 插件工具「wechat_salescrm_formulas」：计算开源 SalesCRM 核心数学公式 BQ / BSP / BWS / PV 与最佳营业推进动作"
+        },
+        {
+          "id": "crm_call_brief",
+          "title": "生成客户电话前一键速览与口语话术提词卡 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "requiresApproval": false,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_call_brief」：聚合聊天历史、Soul 记忆、朋友圈动态与 SalesCRM，生成电话前一键速览与人工通话话术提词卡"
+        }
+      ]
+    },
+    {
+      "id": "wechat_moments_panel",
+      "title": "◎ 朋友圈读取 · 往来统计 · 点赞评论（默认演练）",
+      "kind": "codex-panel",
+      "description": "滚动读取好友朋友圈并入库，按联系人统计点赞评论往来；点赞与评论默认只校验「赞 / 评论」菜单的位置，不点击，真正发出需要单独授权。",
+      "fields": [
+        {
+          "id": "max_posts",
+          "label": "最多读到多少条完整帖子",
+          "type": "text",
+          "defaultValue": "40",
+          "required": false
+        },
+        {
+          "id": "max_pages",
+          "label": "最多滚动多少帧",
+          "type": "text",
+          "defaultValue": "90",
+          "required": false
+        },
+        {
+          "id": "limit",
+          "label": "最多返回多少个联系人",
+          "type": "text",
+          "defaultValue": "40",
+          "required": false
+        },
+        {
+          "id": "max_age_days",
+          "label": "只看最近多少天的帖子（可选）",
+          "type": "text",
+          "defaultValue": "",
+          "required": false
+        },
+        {
+          "id": "post_key",
+          "label": "帖子指纹",
+          "type": "text",
+          "defaultValue": "",
+          "required": true
+        },
+        {
+          "id": "style",
+          "label": "评论风格",
+          "type": "text",
+          "defaultValue": "natural",
+          "required": false
+        },
+        {
+          "id": "author",
+          "label": "联系人昵称（取其最新一条可操作的帖子）",
+          "type": "text",
+          "defaultValue": "",
+          "required": false
+        },
+        {
+          "id": "action",
+          "label": "动作",
+          "type": "text",
+          "placeholder": "like / unlike / comment",
+          "defaultValue": "like",
+          "required": false
+        },
+        {
+          "id": "text",
+          "label": "评论内容",
+          "type": "text",
+          "defaultValue": "",
+          "required": false
+        },
+        {
+          "id": "mode",
+          "label": "执行模式",
+          "type": "text",
+          "placeholder": "dry_run / silent_verify / live",
+          "defaultValue": "dry_run",
+          "required": false
+        },
+        {
+          "id": "execute_plan",
+          "label": "改为执行 plan 清单",
+          "type": "toggle",
+          "defaultValue": false,
+          "required": false
+        },
+        {
+          "id": "targetBotId",
+          "label": "目标 DSH Bot ID",
+          "type": "text",
+          "placeholder": "bot_wechat_ecosystem",
+          "defaultValue": "bot_wechat_ecosystem",
+          "required": false
+        },
+        {
+          "id": "task",
+          "label": "委派子任务说明",
+          "type": "text",
+          "placeholder": "输入交由 DSH Bot 执行的子任务详情",
+          "defaultValue": "",
+          "required": false
+        }
+      ],
+      "actions": [
+        {
+          "id": "moments_read",
+          "title": "读取好友朋友圈并入库 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "requiresApproval": false,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_moments_read」：从最新一条往下滚动读取好友朋友圈，入库可见的帖子（作者、正文、时间、点赞、评论）；只读，结束后切回聊天页"
+        },
+        {
+          "id": "moments_stats",
+          "title": "按联系人查看朋友圈往来统计 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "requiresApproval": false,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_moments_stats」：按联系人汇总朋友圈往来：发帖数、我赞过/评论过、对方赞过/评论过我的、近期待点赞，以及频控与策略状态"
+        },
+        {
+          "id": "moments_plan",
+          "title": "列出策略允许的互动清单 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "requiresApproval": false,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_moments_plan」：按策略列出可以自动互动的朋友圈项目（待点赞、评论模板），供执行前过目"
+        },
+        {
+          "id": "moments_suggest_comment",
+          "title": "AI 拟写自然口语朋友圈评论 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "requiresApproval": false,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_moments_suggest_comment」：结合帖子内容与好友 Soul 画像，生成一条自然口语的朋友圈评论建议与 2 条备选（不发送，不触碰微信界面）"
+        },
+        {
+          "id": "moments_interact",
+          "title": "点赞 / 评论（默认演练，不点击） (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "requiresApproval": false,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_moments_interact」：对一条朋友圈帖子点赞 / 取消点赞 / 评论。默认 dry_run：只打开该帖的「赞 / 评论」菜单并校验位置，不点击；silent_verify：粘贴评论并读回核对后放弃；live：真正发出，需要 moments_interact_live 授权"
         }
       ]
     },
@@ -906,6 +1177,34 @@
       "description": "从 @dsh-market/wechat-ecosystem 工具 JSON Schema 自动提取参数与执行映射。",
       "fields": [
         {
+          "id": "limit",
+          "label": "最多返回条数",
+          "type": "text",
+          "defaultValue": "30",
+          "required": false
+        },
+        {
+          "id": "author",
+          "label": "联系人昵称（可选）",
+          "type": "text",
+          "defaultValue": "",
+          "required": false
+        },
+        {
+          "id": "post_key",
+          "label": "帖子指纹（可选）",
+          "type": "text",
+          "defaultValue": "",
+          "required": false
+        },
+        {
+          "id": "updates",
+          "label": "要修改的策略项（可选）",
+          "type": "text",
+          "defaultValue": "",
+          "required": false
+        },
+        {
           "id": "bundle_id",
           "label": "目标应用 Bundle ID",
           "type": "text",
@@ -993,6 +1292,24 @@
         }
       ],
       "actions": [
+        {
+          "id": "wechat_moments_posts",
+          "title": "列出已入库的朋友圈帖子（新到旧），可按联系人筛选，或按 post_key 取单条 (委派 DSH)",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "requiresApproval": false,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_moments_posts」：列出已入库的朋友圈帖子（新到旧），可按联系人筛选，或按 post_key 取单条"
+        },
+        {
+          "id": "wechat_moments_policy",
+          "title": "读取朋友圈自动互动策略；传入 updates（局部对象）则更新：autoLike.enabled / scope / contacts / exclude / maxAgeDays、comment.enabled / … (委派 DS…",
+          "mode": "delegate_bot",
+          "zeroLLM": true,
+          "requiresApproval": false,
+          "bridgeTool": "delegate_to_dsh_bot",
+          "defaultTask": "调用 DSH 插件工具「wechat_moments_policy」：读取朋友圈自动互动策略；传入 updates（局部对象）则更新：autoLike.enabled / scope / contacts / exclude / maxAgeDays、comment.enabled / templates"
+        },
         {
           "id": "app_use_inspect",
           "title": "基于 AXUIElement + Apple Vision OCR 扫描任意 macOS 应用窗口控件树、语义锚点、弹窗阻断及拓扑原型 (0-LLM L2 OCR)",

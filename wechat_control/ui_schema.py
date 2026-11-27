@@ -3,11 +3,19 @@
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any, Dict, List, Optional
 
 
 WECHAT_UI_SCHEMA_VERSION = "1.0.0"
+
+# 「发现」页左栏第二列的入口；出现三项以上就认为当前在「发现」页
+DISCOVER_MARKERS = ("朋友圈", "视频号", "搜一搜", "游戏", "小程序")
+# 朋友圈页脚的相对时间
+_MOMENTS_FOOTER_RE = re.compile(r"(刚刚|\d+\s*(?:秒钟?|分钟|小时|天|周|个月|年)前)")
+# 「发现」页入口列表的右边界（导航栏 58 + 列表栏 430）
+DISCOVER_PANE_RIGHT = 488.0
 
 
 WECHAT_UI_VIEWS: Dict[str, Dict[str, Any]] = {
@@ -83,6 +91,20 @@ WECHAT_UI_VIEWS: Dict[str, Dict[str, Any]] = {
         "regions": ["article_reader_header", "article_reader_body", "article_reader_footer"],
         "landmarks": ["复制链接", "在默认浏览器中打开"],
     },
+    "discover_list": {
+        "id": "discover_list",
+        "title": "「发现」页入口列表",
+        "description": "左栏第二列列出朋友圈、视频号、搜一搜、游戏、小程序入口；右侧内容区为空或保留上一视图。",
+        "regions": ["left_nav_rail", "discover_list_pane"],
+        "landmarks": ["发现", "朋友圈", "视频号", "搜一搜", "小程序"],
+    },
+    "moments_feed": {
+        "id": "moments_feed",
+        "title": "朋友圈信息流",
+        "description": "右侧内容区显示封面与好友动态；每条帖子页脚右侧有「··」按钮，点开后在其左侧弹出「赞 / 评论」胶囊（独立窗口）。",
+        "regions": ["left_nav_rail", "discover_list_pane", "moments_feed_pane", "moments_post_actions"],
+        "landmarks": ["朋友圈", "全文", "发现"],
+    },
 }
 
 
@@ -146,6 +168,24 @@ WECHAT_UI_REGIONS: Dict[str, Dict[str, Any]] = {
         "title": "文章底部互动工具栏",
         "purpose": "展示公众号头像/+关注、点赞、转发、推荐与留言按钮。",
         "anchorSpec": {"x0": "article_split_x", "y0": "H-56", "x1": "W", "y1": "H"},
+    },
+    "discover_list_pane": {
+        "id": "discover_list_pane",
+        "title": "「发现」页入口列表区",
+        "purpose": "展示朋友圈、视频号、搜一搜、游戏、小程序入口；朋友圈读取从这里进入。",
+        "anchorSpec": {"x0": 58, "y0": 0, "x1": 488, "y1": "H"},
+    },
+    "moments_feed_pane": {
+        "id": "moments_feed_pane",
+        "title": "朋友圈内容区",
+        "purpose": "封面与好友动态信息流；帖子由头像、昵称、正文、媒体或链接、页脚（时间与来源）组成，靠 Vision OCR 读取。",
+        "anchorSpec": {"x0": 488, "y0": 0, "x1": "W", "y1": "H"},
+    },
+    "moments_post_actions": {
+        "id": "moments_post_actions",
+        "title": "朋友圈帖子的「赞 / 评论」弹层",
+        "purpose": "点页脚「··」后在按钮左侧弹出的深色胶囊。它是独立窗口，主窗口截图看不到，需要用屏幕区域截图校验后再点击。",
+        "anchorSpec": {"x0": "postFooterX-215", "y0": "postFooterY-34", "x1": "postFooterX+41", "y1": "postFooterY+34"},
     },
 }
 
@@ -394,6 +434,26 @@ WECHAT_UI_TARGETS: Dict[str, Dict[str, Any]] = {
         "anchor": {"mode": "article_body_center"},
         "expectedAfter": "可在正文区安全滚动翻页",
     },
+    "discover.moments_entry": {
+        "id": "discover.moments_entry",
+        "title": "发现页 · 朋友圈入口",
+        "view": "moments_feed",
+        "region": "discover_list_pane",
+        "category": "navigation",
+        "description": "点击「发现」页第一行进入朋友圈信息流（先用 nav.discover 打开「发现」页）。",
+        "anchor": {"mode": "ocr_only", "menuTexts": ["朋友圈"], "maxCenterX": 470},
+        "expectedView": "moments_feed",
+    },
+    "moments.feed_scroll_area": {
+        "id": "moments.feed_scroll_area",
+        "title": "朋友圈信息流滚动区",
+        "view": "moments_feed",
+        "region": "moments_feed_pane",
+        "category": "moments",
+        "description": "定位内容区中央的滚动锚点；每次滚动不超过可视高度的 30%。",
+        "anchor": {"mode": "moments_feed_center"},
+        "expectedAfter": "可在信息流里上下滚动翻页",
+    },
 }
 
 
@@ -466,7 +526,37 @@ def detect_active_view(
         return "contacts_directory"
     if geom["hasArticlePane"]:
         return "main_chat_with_article_reader"
+    discover = detect_discover_view(bounds, ocr_elements)
+    if discover:
+        return discover
     return "main_chat_split"
+
+
+def detect_discover_view(bounds: Dict[str, Any], ocr_elements: Optional[List[Dict[str, Any]]] = None) -> str:
+    """识别「发现」页：返回 discover_list 或 moments_feed；不是「发现」页返回空串。
+
+    入口列表在左栏第二列（右侧内容区之外），出现三项以上入口才算。右侧出现吸顶标题「朋友圈」
+    或帖子页脚的相对时间，说明已经进入了朋友圈信息流。OCR 坐标可能是 2 倍像素，所以只按
+    「窗口中线以左」划分，两种缩放下都成立。"""
+    win_w = max(320.0, float((bounds or {}).get("width", 1029.0)))
+    split = max(DISCOVER_PANE_RIGHT, win_w * 0.5)
+    left_text = ""
+    feed_hit = False
+    for el in ocr_elements or []:
+        text = str(el.get("text", "")).replace(" ", "")
+        center = el.get("center") or {}
+        try:
+            cx = float(center.get("x", 0.0))
+        except (TypeError, ValueError):
+            cx = 0.0
+        if cx <= split:
+            left_text += text + " "
+        elif "朋友圈" in text or _MOMENTS_FOOTER_RE.search(text):
+            feed_hit = True
+    markers = sum(1 for marker in DISCOVER_MARKERS if marker in left_text)
+    if markers < 3:
+        return ""
+    return "moments_feed" if feed_hit else "discover_list"
 
 
 def resolve_target_coordinates(
@@ -497,11 +587,15 @@ def resolve_target_coordinates(
     elements = ocr_elements or []
     if mode in ("ocr_only", "two_step_menu"):
         hints = anchor.get("menuTexts") or []
+        # maxCenterX：只在窗口左侧某位置以右找（例如限定在「发现」页入口列表里，避开同名的内容区标题）
+        max_center_x = anchor.get("maxCenterX")
         for el in elements:
             txt = str(el.get("text", "")).replace(" ", "")
             if any(h.replace(" ", "") in txt for h in hints):
                 c = el.get("center") or {}
                 if "x" in c and "y" in c:
+                    if max_center_x is not None and float(c["x"]) > float(max_center_x):
+                        continue
                     rel_x = float(c["x"])
                     rel_y = float(c["y"])
                     resolution_method = "ocr_landmark_match"
@@ -554,6 +648,9 @@ def resolve_target_coordinates(
         elif mode == "article_body_center":
             art_x = float(geom.get("articleSplitX") or (win_w * 0.56))
             rel_x = round((art_x + win_w) * 0.5, 1)
+            rel_y = round(win_h * 0.52, 1)
+        elif mode == "moments_feed_center":
+            rel_x = round((DISCOVER_PANE_RIGHT + win_w) * 0.5, 1)
             rel_y = round(win_h * 0.52, 1)
         elif mode == "two_step_menu" and allow_preclick_fallback:
             pre_id = anchor.get("preClick")
@@ -708,70 +805,97 @@ class WeChatUIProtocolNavigator:
             }
 
         # Activate WeChat before clicking
-        self.engine._run_native(["activate"], 10.0)
-        steps_executed: List[Dict[str, Any]] = []
-
-        if anchor["mode"] == "two_step_menu":
-            pre_id = anchor["preClick"]
-            pre_res = resolve_target_coordinates(pre_id, bounds)
-            sp = pre_res.get("screenPoint")
-            if sp:
-                self.engine._run_native(["click", "--x", str(sp["x"]), "--y", str(sp["y"])], 6.0)
-                steps_executed.append({"step": pre_id, "click": sp})
-                time.sleep(0.45)
-
-            snap_dir = self.engine.inspector.snapshots_dir
-            snap_dir.mkdir(parents=True, exist_ok=True)
-            menu_ocr = self.engine._run_native(
-                ["capture-ocr", "--out", str(snap_dir / f"ui_nav_{clean_id.replace('.', '_')}.png")],
-                15.0,
-            )
-            els = menu_ocr.get("elements") or []
-            resolved = resolve_target_coordinates(
-                clean_id,
-                bounds,
-                els,
-                allow_preclick_fallback=False,
-            )
-            sp2 = resolved.get("screenPoint")
-            if not sp2:
+        bypass_ctx = (
+            self.engine.bypass_human_guard(True)
+            if (not respect_human_guard and hasattr(self.engine, "bypass_human_guard"))
+            else None
+        )
+        if bypass_ctx is not None:
+            bypass_ctx.__enter__()
+        try:
+            act_res = self.engine._run_native(["activate"], 10.0)
+            if isinstance(act_res, dict) and (act_res.get("blockedByHumanGuard") or act_res.get("error_code") == "human_input_active"):
                 return {
                     "ok": False,
                     "targetId": clean_id,
-                    "error": f"Menu item for {clean_id} not matched via Vision OCR.",
-                    "stepsExecuted": steps_executed,
+                    "blockedByHumanGuard": True,
+                    "error_code": "human_input_active",
+                    "error": str(act_res.get("error") or "Human active during UI navigation."),
                 }
-            self.engine._run_native(["click", "--x", str(sp2["x"]), "--y", str(sp2["y"])], 6.0)
-            steps_executed.append({"step": clean_id, "click": sp2, "method": resolved.get("resolutionMethod")})
-        elif anchor["mode"] == "ocr_only":
-            snap_dir = self.engine.inspector.snapshots_dir
-            snap_dir.mkdir(parents=True, exist_ok=True)
-            ocr = self.engine._run_native(
-                ["capture-ocr", "--out", str(snap_dir / f"ui_nav_{clean_id.replace('.', '_')}.png")],
-                15.0,
-            )
-            resolved = resolve_target_coordinates(clean_id, bounds, ocr.get("elements") or [])
-            sp = resolved.get("screenPoint")
-            if not sp:
-                return {
-                    "ok": False,
-                    "targetId": clean_id,
-                    "error": f"OCR could not locate {spec['title']} in current window.",
-                }
-            self.engine._run_native(["click", "--x", str(sp["x"]), "--y", str(sp["y"])], 6.0)
-            steps_executed.append({"step": clean_id, "click": sp, "method": "ocr_landmark_match"})
-        else:
-            sp = resolved.get("screenPoint")
-            if not sp:
-                return {"ok": False, "targetId": clean_id, "error": "Could not resolve screenPoint."}
-            self.engine._run_native(["click", "--x", str(sp["x"]), "--y", str(sp["y"])], 6.0)
-            steps_executed.append({"step": clean_id, "click": sp, "method": resolved.get("resolutionMethod")})
+            steps_executed: List[Dict[str, Any]] = []
 
-        return {
-            "ok": True,
-            "dryRun": False,
-            "targetId": clean_id,
-            "targetSpec": spec,
-            "stepsExecuted": steps_executed,
-            "resolved": resolved,
-        }
+            if anchor["mode"] == "two_step_menu":
+                pre_id = anchor["preClick"]
+                pre_res = resolve_target_coordinates(pre_id, bounds)
+                sp = pre_res.get("screenPoint")
+                if sp:
+                    click_res = self.engine._run_native(["click", "--x", str(sp["x"]), "--y", str(sp["y"])], 6.0)
+                    if isinstance(click_res, dict) and (click_res.get("blockedByHumanGuard") or click_res.get("error_code") == "human_input_active"):
+                        return {"ok": False, "targetId": clean_id, "blockedByHumanGuard": True, "error_code": "human_input_active", "error": str(click_res.get("error") or "")}
+                    steps_executed.append({"step": pre_id, "click": sp})
+                    time.sleep(0.45)
+
+                snap_dir = self.engine.inspector.snapshots_dir
+                snap_dir.mkdir(parents=True, exist_ok=True)
+                menu_ocr = self.engine._run_native(
+                    ["capture-ocr", "--no-activate", "--out", str(snap_dir / f"ui_nav_{clean_id.replace('.', '_')}.png")],
+                    15.0,
+                )
+                els = menu_ocr.get("elements") or []
+                resolved = resolve_target_coordinates(
+                    clean_id,
+                    bounds,
+                    els,
+                    allow_preclick_fallback=False,
+                )
+                sp2 = resolved.get("screenPoint")
+                if not sp2:
+                    return {
+                        "ok": False,
+                        "targetId": clean_id,
+                        "error": f"Menu item for {clean_id} not matched via Vision OCR.",
+                        "stepsExecuted": steps_executed,
+                    }
+                click_res2 = self.engine._run_native(["click", "--x", str(sp2["x"]), "--y", str(sp2["y"])], 6.0)
+                if isinstance(click_res2, dict) and (click_res2.get("blockedByHumanGuard") or click_res2.get("error_code") == "human_input_active"):
+                    return {"ok": False, "targetId": clean_id, "blockedByHumanGuard": True, "error_code": "human_input_active", "error": str(click_res2.get("error") or "")}
+                steps_executed.append({"step": clean_id, "click": sp2, "method": resolved.get("resolutionMethod")})
+            elif anchor["mode"] == "ocr_only":
+                snap_dir = self.engine.inspector.snapshots_dir
+                snap_dir.mkdir(parents=True, exist_ok=True)
+                ocr = self.engine._run_native(
+                    ["capture-ocr", "--no-activate", "--out", str(snap_dir / f"ui_nav_{clean_id.replace('.', '_')}.png")],
+                    15.0,
+                )
+                resolved = resolve_target_coordinates(clean_id, bounds, ocr.get("elements") or [])
+                sp = resolved.get("screenPoint")
+                if not sp:
+                    return {
+                        "ok": False,
+                        "targetId": clean_id,
+                        "error": f"OCR could not locate {spec['title']} in current window.",
+                    }
+                click_res = self.engine._run_native(["click", "--x", str(sp["x"]), "--y", str(sp["y"])], 6.0)
+                if isinstance(click_res, dict) and (click_res.get("blockedByHumanGuard") or click_res.get("error_code") == "human_input_active"):
+                    return {"ok": False, "targetId": clean_id, "blockedByHumanGuard": True, "error_code": "human_input_active", "error": str(click_res.get("error") or "")}
+                steps_executed.append({"step": clean_id, "click": sp, "method": "ocr_landmark_match"})
+            else:
+                sp = resolved.get("screenPoint")
+                if not sp:
+                    return {"ok": False, "targetId": clean_id, "error": "Could not resolve screenPoint."}
+                click_res = self.engine._run_native(["click", "--x", str(sp["x"]), "--y", str(sp["y"])], 6.0)
+                if isinstance(click_res, dict) and (click_res.get("blockedByHumanGuard") or click_res.get("error_code") == "human_input_active"):
+                    return {"ok": False, "targetId": clean_id, "blockedByHumanGuard": True, "error_code": "human_input_active", "error": str(click_res.get("error") or "")}
+                steps_executed.append({"step": clean_id, "click": sp, "method": resolved.get("resolutionMethod")})
+
+            return {
+                "ok": True,
+                "dryRun": False,
+                "targetId": clean_id,
+                "targetSpec": spec,
+                "stepsExecuted": steps_executed,
+                "resolved": resolved,
+            }
+        finally:
+            if bypass_ctx is not None:
+                bypass_ctx.__exit__(None, None, None)

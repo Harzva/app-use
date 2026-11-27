@@ -3,7 +3,7 @@
   "id": "dsh-plugin-wechat-ecosystem",
   "name": "dsh-plugin-wechat-ecosystem",
   "packageName": "@dsh-market/wechat-ecosystem",
-  "version": "2.9.0",
+  "version": "3.0.0",
   "title": "微信全生态私域与内容工作台",
   "domain": "ops",
   "companionBotId": "bot_wechat_ecosystem",
@@ -84,6 +84,205 @@
             "type": "string",
             "title": "目标客户名称",
             "default": "联系人A"
+          }
+        },
+        "required": ["target"]
+      }
+    },
+    {
+      "name": "wechat_moments_read",
+      "description": "从最新一条往下滚动读取好友朋友圈，入库可见的帖子（作者、正文、时间、点赞、评论）；只读，结束后切回聊天页",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "max_posts": {
+            "type": "integer",
+            "title": "最多读到多少条完整帖子",
+            "default": 40
+          },
+          "max_pages": {
+            "type": "integer",
+            "title": "最多滚动多少帧",
+            "default": 90
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "wechat_moments_posts",
+      "description": "列出已入库的朋友圈帖子（新到旧），可按联系人筛选，或按 post_key 取单条",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "title": "最多返回条数",
+            "default": 30
+          },
+          "author": {
+            "type": "string",
+            "title": "联系人昵称（可选）",
+            "default": ""
+          },
+          "post_key": {
+            "type": "string",
+            "title": "帖子指纹（可选）",
+            "default": ""
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "wechat_moments_stats",
+      "description": "按联系人汇总朋友圈往来：发帖数、我赞过/评论过、对方赞过/评论过我的、近期待点赞，以及频控与策略状态",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "title": "最多返回多少个联系人",
+            "default": 40
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "wechat_moments_policy",
+      "description": "读取朋友圈自动互动策略；传入 updates（局部对象）则更新：autoLike.enabled / scope / contacts / exclude / maxAgeDays、comment.enabled / templates",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "updates": {
+            "type": "object",
+            "title": "要修改的策略项（可选）"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "wechat_moments_plan",
+      "description": "按策略列出可以自动互动的朋友圈项目（待点赞、评论模板），供执行前过目",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "title": "最多返回条数",
+            "default": 20
+          },
+          "max_age_days": {
+            "type": "integer",
+            "title": "只看最近多少天的帖子（可选）"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "wechat_moments_interact",
+      "description": "对一条朋友圈帖子点赞 / 取消点赞 / 评论。默认 dry_run：只打开该帖的「赞 / 评论」菜单并校验位置，不点击；silent_verify：粘贴评论并读回核对后放弃；live：真正发出，需要 moments_interact_live 授权",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "post_key": {
+            "type": "string",
+            "title": "帖子指纹",
+            "default": ""
+          },
+          "author": {
+            "type": "string",
+            "title": "联系人昵称（取其最新一条可操作的帖子）",
+            "default": ""
+          },
+          "action": {
+            "type": "string",
+            "title": "动作",
+            "description": "like / unlike / comment",
+            "default": "like"
+          },
+          "text": {
+            "type": "string",
+            "title": "评论内容",
+            "default": ""
+          },
+          "mode": {
+            "type": "string",
+            "title": "执行模式",
+            "description": "dry_run / silent_verify / live",
+            "default": "dry_run"
+          },
+          "execute_plan": {
+            "type": "boolean",
+            "title": "改为执行 plan 清单",
+            "default": false
+          },
+          "limit": {
+            "type": "integer",
+            "title": "执行清单时最多几条",
+            "default": 5
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "wechat_moments_suggest_comment",
+      "description": "结合帖子内容与好友 Soul 画像，生成一条自然口语的朋友圈评论建议与 2 条备选（不发送，不触碰微信界面）",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "post_key": {
+            "type": "string",
+            "title": "帖子指纹",
+            "default": ""
+          },
+          "style": {
+            "type": "string",
+            "title": "评论风格",
+            "default": "natural"
+          }
+        },
+        "required": ["post_key"]
+      }
+    },
+    {
+      "name": "wechat_call_brief",
+      "description": "聚合聊天历史、Soul 记忆、朋友圈动态与 SalesCRM，生成电话前一键速览与人工通话话术提词卡",
+      "requiresDshRuntime": true,
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "title": "联系人昵称或备注",
+            "default": ""
+          },
+          "goal": {
+            "type": "string",
+            "title": "沟通目标",
+            "description": "general / followup / quote / care / recovery / custom",
+            "default": "general"
+          },
+          "custom_goal": {
+            "type": "string",
+            "title": "自定义沟通目标",
+            "default": ""
+          },
+          "use_llm": {
+            "type": "boolean",
+            "title": "启用 AI 深度研判",
+            "default": true
           }
         },
         "required": ["target"]
@@ -637,6 +836,49 @@
             "id": "crm_formulas",
             "title": "计算 SalesCRM 数学公式 (BQ / BSP / BWS / PV)",
             "tool": "wechat_salescrm_formulas",
+            "requiresApproval": false
+          },
+          {
+            "id": "crm_call_brief",
+            "title": "生成客户电话前一键速览与口语话术提词卡",
+            "tool": "wechat_call_brief",
+            "requiresApproval": false
+          }
+        ]
+      },
+      {
+        "id": "wechat_moments_panel",
+        "title": " ◎ 朋友圈读取 · 往来统计 · 点赞评论（默认演练）",
+        "description": "滚动读取好友朋友圈并入库，按联系人统计点赞评论往来；点赞与评论默认只校验「赞 / 评论」菜单的位置，不点击，真正发出需要单独授权。",
+        "actions": [
+          {
+            "id": "moments_read",
+            "title": "读取好友朋友圈并入库",
+            "tool": "wechat_moments_read",
+            "requiresApproval": false
+          },
+          {
+            "id": "moments_stats",
+            "title": "按联系人查看朋友圈往来统计",
+            "tool": "wechat_moments_stats",
+            "requiresApproval": false
+          },
+          {
+            "id": "moments_plan",
+            "title": "列出策略允许的互动清单",
+            "tool": "wechat_moments_plan",
+            "requiresApproval": false
+          },
+          {
+            "id": "moments_suggest_comment",
+            "title": "AI 拟写自然口语朋友圈评论",
+            "tool": "wechat_moments_suggest_comment",
+            "requiresApproval": false
+          },
+          {
+            "id": "moments_interact",
+            "title": "点赞 / 评论（默认演练，不点击）",
+            "tool": "wechat_moments_interact",
             "requiresApproval": false
           }
         ]

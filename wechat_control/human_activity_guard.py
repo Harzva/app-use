@@ -242,15 +242,26 @@ class HumanActivityGuard:
             kb_idle = max(0.0, float(kb_idle_raw if kb_idle_raw is not None else any_idle))
             hw_kb_raw = hid.get("hardwareKeyboardIdleSeconds")
             hw_kb_idle = max(0.0, float(hw_kb_raw if hw_kb_raw is not None else kb_idle))
+            hw_mouse_raw = hid.get("hardwareMouseIdleSeconds")
+            hw_mouse_idle = max(0.0, float(hw_mouse_raw) if hw_mouse_raw is not None else mouse_idle)
 
             # Hardware keyboard input is NEVER exempted even right after paste-and-verify,
             # so any physical user typing pauses automation immediately.
-            human_typing_active = bool(hid.get("keyboardActive")) and (hw_kb_idle < idle_thresh)
+            human_typing_active = (bool(hid.get("keyboardActive")) and (hw_kb_idle < idle_thresh)) or (hw_kb_idle < idle_thresh)
+            # Self-RPA exemption MUST have recorded cursor coordinates within tolerance (never cursor_drift_from_rpa is None)
+            # and no fresh hardware mouse activity or unexpected scroll-wheel input.
+            hw_mouse_clean = True if hw_mouse_raw is None else (hw_mouse_idle >= 1.2 or (since_rpa <= 1.2 and cursor_drift_from_rpa is not None and cursor_drift_from_rpa <= tol_px))
+            scroll_idle_raw = hid.get("scrollIdleSeconds")
+            last_rpa_kind = str(self._state.get("last_rpa_kind") or "")
+            if scroll_idle_raw is not None and float(scroll_idle_raw) < 1.2 and last_rpa_kind != "scroll":
+                hw_mouse_clean = False
             is_self_rpa_window = (
                 since_rpa <= 1.2
-                and (cursor_drift_from_rpa is None or cursor_drift_from_rpa <= tol_px)
+                and cursor_drift_from_rpa is not None
+                and cursor_drift_from_rpa <= tol_px
                 and hw_kb_idle >= 2.0
                 and kb_idle >= 1.2
+                and hw_mouse_clean
             )
             if (any_idle < idle_thresh and not is_self_rpa_window) or (human_typing_active and not (since_rpa <= 1.2 and hw_kb_idle >= 2.0)):
                 human_triggered = True
@@ -334,4 +345,65 @@ class HumanActivityGuard:
                 if cooldown_until > 0
                 else ""
             ),
+        }
+
+    def trigger_human_cooldown(
+        self,
+        *,
+        reason: str = "native_human_interrupt",
+        cursor_pos: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Immediately enter/extend human-active cooldown from a native HID abort signal."""
+        now = float(self._clock())
+        enabled = bool(self._state.get("enabled", True))
+        idle_thresh = float(self._state.get("idle_resume_seconds", 45.0))
+        cooldown_sec = float(self._state.get("cooldown_seconds", 45.0))
+        if not enabled:
+            return self.check_can_operate()
+
+        prev_status = self._state.get("status", "idle_ready")
+        prev_human_at = float(self._state.get("last_human_activity_at") or 0.0)
+        cooldown_until = float(self._state.get("cooldown_until") or 0.0)
+        if prev_status != "human_active_cooldown" or (now - prev_human_at) > 1.0:
+            self._state["interventions_detected"] = int(self._state.get("interventions_detected") or 0) + 1
+        new_cooldown_until = max(cooldown_until, now + cooldown_sec)
+        self._state["last_human_activity_at"] = max(prev_human_at, now)
+        self._state["cooldown_until"] = new_cooldown_until
+        self._state["status"] = "human_active_cooldown"
+        clean_reason = str(reason or "native_human_interrupt").strip() or "native_human_interrupt"
+        self._state["last_trigger_reason"] = clean_reason
+
+        norm_cursor: Optional[Dict[str, float]] = None
+        if isinstance(cursor_pos, dict) and cursor_pos.get("x") is not None and cursor_pos.get("y") is not None:
+            try:
+                norm_cursor = {
+                    "x": round(float(cursor_pos["x"]), 1),
+                    "y": round(float(cursor_pos["y"]), 1),
+                }
+                self._state["last_observed_cursor"] = norm_cursor
+            except Exception:
+                norm_cursor = None
+        self._save()
+
+        wait_seconds = max(0.0, new_cooldown_until - now, idle_thresh)
+        return {
+            "ok": True,
+            "enabled": True,
+            "canOperate": False,
+            "status": "human_active_cooldown",
+            "idleResumeSeconds": idle_thresh,
+            "cooldownSeconds": cooldown_sec,
+            "remainingCooldownSeconds": round(wait_seconds, 1),
+            "anyInputIdleSeconds": 0.0,
+            "mouseIdleSeconds": 0.0 if "mouse" in clean_reason or "cursor" in clean_reason else None,
+            "keyboardIdleSeconds": 0.0 if "key" in clean_reason else None,
+            "cursorPosition": norm_cursor or self._state.get("last_observed_cursor"),
+            "interventionsDetected": int(self._state.get("interventions_detected") or 0),
+            "triggerReason": clean_reason,
+            "lastHumanActivityAt": datetime.fromtimestamp(
+                float(self._state["last_human_activity_at"]), tz=timezone.utc
+            ).astimezone().isoformat(timespec="seconds"),
+            "cooldownUntil": datetime.fromtimestamp(
+                new_cooldown_until, tz=timezone.utc
+            ).astimezone().isoformat(timespec="seconds"),
         }

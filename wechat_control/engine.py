@@ -21,9 +21,10 @@ import urllib.parse
 import tempfile
 import threading
 import time
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from .agent_dispatcher import WeChatAgentDispatcher
 from .app_use_studio import AppUseStudio
@@ -32,19 +33,30 @@ from .auth_gate import StudioAuthGate, StudioPluginUnauthorizedError
 from .benchmark_suite import WeChatRPABenchmarkSuite
 from .botstudio_bridge import BotStudioBridgeManager
 from .bridge_importer import WeChatBridgeImporter
+from .call_brief import PreCallBriefEngine
 from .coevolution_engine import DualProductCoevolutionEngine
 from .contact_profiler import ContactBindingStore, ContactStyleProfiler, ContextualAIChatGenerator
+from .corpus_discovery import CorpusDiscoveryEngine
 from .doc_ingestor import ALLOWED_TEST_CONTACTS, AppWindowBinder, DocumentKnowledgeIngestor
 from .human_activity_guard import HumanActivityGuard
 from .knowledge_kf_engine import DEFAULT_OPENBOT_KNOWLEDGE_DB, PersonaSwitchEngine, WeChatKnowledgeStore
 from .live_inspector import WeChatLiveInspector, _matches_target, _slugify_target
 from .magpie_provider_hub import MagpieProviderHub
 from .media_link_analyzer import WeChatMediaLinkAnalyzer
+from .moments_hub import WeChatMomentsHub
 from .multi_window_scheduler import MultiWindowScheduler
 from .omni_channels import OmniChannelHub
+from .playbook_trainer import SelfTrainingPlaybookEngine
 from .realtime_monitor import _looks_like_timestamp, WeChatRealtimeMonitor
 from .sales_crm_hub import WeChatSalesCRMHub
 from .soul_memory_profiler import SoulMemoryProfiler
+from .supervisor_eval import SupervisorEvalEngine, is_blocked_outbound_directive
+from .tenant_profile import (
+    DEFAULT_INDUSTRY_PACK,
+    TenantProfileStore,
+    list_sales_packs,
+    load_sales_pack,
+)
 from .ui_schema import WeChatUIProtocolNavigator
 from .io_utils import atomic_write_json
 from .safety import (
@@ -164,6 +176,8 @@ def _copy_file_atomic(src: Path, dst: Path) -> bool:
 
 def _migrate_legacy_runtime_data(bundle_res: Path, target_root: Path) -> Dict[str, Any]:
     """首次从旧源码/包内数据目录平滑迁移运行时数据到 bundle 外稳定目录。"""
+    if (Path(bundle_res) / "customer_build.marker").is_file():
+        return {"migrated": False, "reason": "customer_build_marker"}
     try:
         if target_root.resolve() == bundle_res.resolve():
             return {"migrated": False, "reason": "same_root"}
@@ -334,8 +348,9 @@ class WeChatControlEngine:
         dedup_window_seconds: float = 120.0,
         allowed_groups: Optional[Iterable[str]] = None,
         jitter: Optional[HumanJitter] = None,
+        bundle_root: Optional[Path] = None,
     ) -> None:
-        self.bundle_root = _BUNDLE_RES
+        self.bundle_root = Path(bundle_root) if bundle_root else _BUNDLE_RES
         self.plugin_root = DEFAULT_ROOT
         self.binary_path = Path(binary_path or os.environ.get("WECHAT_PLUGIN_NATIVE_BINARY") or DEFAULT_BINARY_PATH)
         env_audit = os.environ.get("WECHAT_PLUGIN_AUDIT_LOG")
@@ -376,7 +391,36 @@ class WeChatControlEngine:
             resolved_kb = Path(auth_file_path).parent / "wechat_knowledge.sqlite"
         else:
             resolved_kb = DEFAULT_KB_DB
-        self.knowledge = WeChatKnowledgeStore(resolved_kb)
+
+        if auth_file_path or env_auth:
+            resolved_tenant_dir = resolved_auth.parent
+        elif bindings_file_path or env_bindings:
+            resolved_tenant_dir = resolved_bindings.parent
+        elif knowledge_db_path or env_kb:
+            resolved_tenant_dir = resolved_kb.parent
+        else:
+            resolved_tenant_dir = DEFAULT_ROOT / "config"
+
+        self.tenant = TenantProfileStore(
+            resolved_tenant_dir / "tenant_profile.json",
+            bundle_root=self.bundle_root,
+        )
+        tenant_profile = self.tenant.get_profile()
+        is_customer_mode = self.tenant.is_customer_mode()
+        if is_customer_mode:
+            packs_dir = self._resolve_sales_packs_dir()
+            pack_id = str(tenant_profile.get("industryPack") or DEFAULT_INDUSTRY_PACK).strip() or DEFAULT_INDUSTRY_PACK
+            pack_path: Optional[Path] = (packs_dir / f"{pack_id}.json") if packs_dir else None
+            if pack_path is not None and (not pack_path.is_file()) and packs_dir:
+                fallback_pack = packs_dir / f"{DEFAULT_INDUSTRY_PACK}.json"
+                pack_path = fallback_pack if fallback_pack.is_file() else None
+            self.knowledge = WeChatKnowledgeStore(
+                resolved_kb,
+                seed_mode="sales_pack",
+                sales_pack_path=pack_path if (pack_path and pack_path.is_file()) else None,
+            )
+        else:
+            self.knowledge = WeChatKnowledgeStore(resolved_kb)
 
         env_models = os.environ.get("WECHAT_PLUGIN_MODELS_CONFIG")
         if models_config_path:
@@ -464,6 +508,8 @@ class WeChatControlEngine:
             min_reply_gap_seconds=int(os.environ.get("WECHAT_PLUGIN_ANTIBAN_GAP", "90") or 90),
         )
         self.ui_protocol = WeChatUIProtocolNavigator(self)
+        # 朋友圈读取与互动：数据落在 logs/moments/，不碰聊天档案
+        self.moments = WeChatMomentsHub(self)
 
         env_soul = os.environ.get("WECHAT_PLUGIN_SOUL_FILE")
         if env_soul:
@@ -479,7 +525,7 @@ class WeChatControlEngine:
             histories_dir=self.inspector.reports_dir / "contacts",
             reports_dir=resolved_reports,
             store_path=resolved_soul,
-            analytics_provider=lambda: self.profile_contacts(),
+            analytics_provider=lambda: (self.profile_contacts() if self.auth_gate.is_allowed("status") else {}),
             bindings_provider=lambda: self.bindings.list_bindings(),
             persona_sync_cb=lambda owner: self.personas.upsert_persona({
                 "id": "owner-digital-twin",
@@ -490,12 +536,25 @@ class WeChatControlEngine:
                 "guidelines": str(owner.get("digitalTwinSystemPrompt") or ""),
                 "maxChars": 140,
             }),
+            moments_provider=lambda name: self.moments.get_posts_for_contact(name, limit=10),
+            tenant_mode="customer" if is_customer_mode else "legacy",
+            owner_config=tenant_profile,
         )
+        self.corpus_discovery = CorpusDiscoveryEngine(self.importer)
+        self.playbook_trainer = SelfTrainingPlaybookEngine()
+        self.supervisor_eval = SupervisorEvalEngine(resolved_kb.parent / "supervisor_eval.sqlite")
+        for tc in tenant_profile.get("testContacts") or []:
+            if str(tc or "").strip():
+                try:
+                    self.supervisor_eval.mark_test_contact(str(tc).strip())
+                except Exception:
+                    pass
         self.benchmark_suite = WeChatRPABenchmarkSuite(self)
         self.botstudio_bridge = BotStudioBridgeManager(self)
         self.media_analyzer = WeChatMediaLinkAnalyzer(self)
         self.agent_dispatcher = WeChatAgentDispatcher(self)
         self.sales_crm = WeChatSalesCRMHub(self, db_path=resolved_kb.parent / "sales_crm.sqlite")
+        self.call_brief = PreCallBriefEngine(self)
         self.omni_hub = OmniChannelHub(
             self,
             config_path=resolved_auth.parent / "omni_channels.json",
@@ -511,6 +570,7 @@ class WeChatControlEngine:
             interval_seconds=max(4.0, float(os.environ.get("WECHAT_PLUGIN_HOSTING_INTERVAL", "8") or 8)),
         )
         self._workos_lock = threading.RLock()
+        self._guard_ctx = threading.local()
         self.workos_state_path = resolved_auth.parent / "workos_state.json"
         self._workos_state = self._load_workos_state()
         self.app_window_binder = AppWindowBinder(resolved_auth.parent / "app_window_binding.json")
@@ -546,13 +606,74 @@ class WeChatControlEngine:
             self.audit.log("auth_gate", "denied", {"capability": capability, "error": str(exc)})
             raise
 
+    INTERACTIVE_NATIVE_CMDS = frozenset({
+        "click",
+        "right-click",
+        "scroll",
+        "activate",
+        "focus-input",
+        "paste-and-verify",
+        "send-sticker",
+        "paste-image",
+        "press-key",
+        "join-tencent-meeting",
+        "voice-call",
+        "app-use-activate",
+        "app-use-paste",
+    })
+
+    def is_human_guard_enforced(self) -> bool:
+        ctx = getattr(self, "_guard_ctx", None)
+        return bool(getattr(ctx, "enforced", False)) if ctx is not None else False
+
+    def is_human_guard_bypassed(self) -> bool:
+        ctx = getattr(self, "_guard_ctx", None)
+        return bool(getattr(ctx, "bypassed", False)) if ctx is not None else False
+
+    @contextmanager
+    def enforce_human_guard(self, strict: bool = True):
+        if not hasattr(self, "_guard_ctx") or self._guard_ctx is None:
+            self._guard_ctx = threading.local()
+        prev = getattr(self._guard_ctx, "enforced", False)
+        self._guard_ctx.enforced = bool(strict)
+        try:
+            yield
+        finally:
+            self._guard_ctx.enforced = prev
+
+    @contextmanager
+    def bypass_human_guard(self, bypass: bool = True):
+        if not hasattr(self, "_guard_ctx") or self._guard_ctx is None:
+            self._guard_ctx = threading.local()
+        prev = getattr(self._guard_ctx, "bypassed", False)
+        self._guard_ctx.bypassed = bool(bypass)
+        try:
+            yield
+        finally:
+            self._guard_ctx.bypassed = prev
+
+    def _check_human_guard_for_action(
+        self,
+        *,
+        manual_trigger: bool = False,
+        ignore_human_guard: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        if manual_trigger or ignore_human_guard or self.is_human_guard_bypassed() or not hasattr(self, "human_guard"):
+            return None
+        g = self.human_guard.check_can_operate()
+        if g.get("canOperate", True):
+            return None
+        if (not self.is_human_guard_enforced()) and g.get("status") == "hid_unavailable":
+            return None
+        return g
+
     def capture_wechat_ocr(self, out_path: Path, *, timeout: float = 30.0,
                            window_title: str = "微信") -> Dict[str, Any]:
         """只截微信/企业微信目标窗口做 OCR（优先使用已绑定的 --window-id / --app，默认 --window-title 定位）。
 
         两层兜底：
         1. 窗口不存在（window_not_found）→ 退回不带 title 的调用（保留自动拉起能力）
-        2. 截图成功但 OCR 为空（窗口被其他应用完全遮挡时 macOS 返回空白）→ 激活应用后重截一次
+        2. 截图成功但 OCR 为空（窗口被其他应用完全遮挡时 macOS 返回空白）→ 先校验防抢守卫再决定是否激活重截
         """
         bound = self.app_window_binder.get_binding() if hasattr(self, "app_window_binder") else {}
         bound_app = str(bound.get("appId") or "auto")
@@ -566,19 +687,36 @@ class WeChatControlEngine:
             eff_title = bound_title if (bound_title and window_title == "微信") else window_title
             target_flags = ["--window-title", eff_title]
 
-        capture_args = ["capture-ocr", *target_flags, *app_flags, "--out", str(out_path)]
+        capture_args = ["capture-ocr", "--no-activate", *target_flags, *app_flags, "--out", str(out_path)]
         res = self._run_native(capture_args, timeout)
         if not res.get("ok"):
             if res.get("error_code") in ("window_not_found", "no_window"):
-                fallback = self._run_native(["capture-ocr", *app_flags, "--out", str(out_path)], timeout)
+                fallback = self._run_native(["capture-ocr", "--no-activate", *app_flags, "--out", str(out_path)], timeout)
                 fallback["fallbackUsed"] = True
                 fallback["fallbackReason"] = res.get("error_code")
                 return fallback
             if res.get("error_code") != "window_occluded":
                 return res
-        # 窗口被完全遮挡（原生层返回 window_occluded / 空结果）→ 激活后重截一次
+        # 窗口被完全遮挡（原生层返回 window_occluded / 空结果）→ 若用户正在操作电脑则绝不抢焦点激活
         if res.get("error_code") == "window_occluded" or not (res.get("elements") or []):
-            self._run_native(["activate", *app_flags], 10.0)
+            blocked = self._check_human_guard_for_action()
+            if blocked is not None:
+                return {
+                    **res,
+                    "ok": False,
+                    "occluded": True,
+                    "pausedByHumanGuard": True,
+                    "humanGuard": blocked,
+                }
+            act_res = self._run_native(["activate", *app_flags], 10.0)
+            if isinstance(act_res, dict) and (act_res.get("blockedByHumanGuard") or act_res.get("error_code") == "human_input_active"):
+                return {
+                    **res,
+                    "ok": False,
+                    "occluded": True,
+                    "pausedByHumanGuard": True,
+                    "humanGuard": act_res.get("humanGuard") or act_res,
+                }
             time.sleep(0.8)
             retry = self._run_native(capture_args, timeout)
             if retry.get("ok") and (retry.get("elements") or []):
@@ -659,23 +797,72 @@ class WeChatControlEngine:
                 "error_code": "native_binary_missing",
                 "error": f"Native binary not compiled at {self.binary_path}",
             }
-        cmd_name = args[0] if args else ""
-        mutating_input = cmd_name in ("click", "scroll", "focus-input", "paste-and-verify", "send-sticker", "paste-image")
+        effective_args = list(args)
+        cmd_name = effective_args[0] if effective_args else ""
+        is_dry_run = "--dry-run" in effective_args
+        is_voice_status = False
+        if cmd_name == "voice-call" and "--action" in effective_args:
+            act_idx = effective_args.index("--action") + 1
+            if act_idx < len(effective_args) and str(effective_args[act_idx]).strip().lower() == "status":
+                is_voice_status = True
+
+        is_interactive = (
+            cmd_name in self.INTERACTIVE_NATIVE_CMDS
+            and not is_dry_run
+            and not is_voice_status
+            and "--review-window" not in effective_args
+        )
+        if is_interactive:
+            if not self.is_human_guard_bypassed():
+                if self.is_human_guard_enforced() and hasattr(self, "human_guard"):
+                    g = self.human_guard.check_can_operate()
+                    if not g.get("canOperate", True):
+                        return {
+                            "ok": False,
+                            "error_code": "human_input_active",
+                            "blockedByHumanGuard": True,
+                            "retryable": True,
+                            "humanGuard": g,
+                            "error": "Human active: native interactive action blocked.",
+                        }
+                if (
+                    "--guard-idle" not in effective_args
+                    and "--ignore-human-guard" not in effective_args
+                    and "--skip-human-check" not in effective_args
+                ):
+                    effective_args.extend(["--guard-idle", "1.5"])
+            else:
+                if (
+                    "--guard-idle" not in effective_args
+                    and "--ignore-human-guard" not in effective_args
+                    and "--skip-human-check" not in effective_args
+                ):
+                    effective_args.append("--ignore-human-guard")
+
+        mutating_input = cmd_name in (
+            "click",
+            "right-click",
+            "scroll",
+            "focus-input",
+            "paste-and-verify",
+            "send-sticker",
+            "paste-image",
+            "join-tencent-meeting",
+            "voice-call",
+        ) and not is_dry_run and not is_voice_status
         rpa_x: Optional[float] = None
         rpa_y: Optional[float] = None
         if mutating_input:
             try:
-                if "--x" in args:
-                    rpa_x = float(args[args.index("--x") + 1])
-                if "--y" in args:
-                    rpa_y = float(args[args.index("--y") + 1])
+                if "--x" in effective_args:
+                    rpa_x = float(effective_args[effective_args.index("--x") + 1])
+                if "--y" in effective_args:
+                    rpa_y = float(effective_args[effective_args.index("--y") + 1])
             except Exception:
                 rpa_x = None
                 rpa_y = None
-            if hasattr(self, "human_guard"):
-                self.human_guard.record_rpa_action(action=cmd_name, cursor_x=rpa_x, cursor_y=rpa_y)
 
-        cmd = [str(self.binary_path)] + args
+        cmd = [str(self.binary_path)] + effective_args
         try:
             proc = subprocess.run(
                 cmd,
@@ -687,11 +874,8 @@ class WeChatControlEngine:
             return {
                 "ok": False,
                 "error_code": "native_timeout",
-                "error": f"Native command timed out after {timeout}s: {' '.join(args)}",
+                "error": f"Native command timed out after {timeout}s: {' '.join(effective_args)}",
             }
-        finally:
-            if mutating_input and hasattr(self, "human_guard"):
-                self.human_guard.record_rpa_action(action=cmd_name, cursor_x=rpa_x, cursor_y=rpa_y)
 
         stdout = (proc.stdout or "").strip()
         if not stdout:
@@ -705,7 +889,22 @@ class WeChatControlEngine:
             data = json.loads(stdout)
             if isinstance(data, dict):
                 data.setdefault("returncode", proc.returncode)
-                return self._enhance_lowres_ocr(args, data, timeout=timeout)
+                if data.get("error_code") in ("human_input_active", "human_keyboard_active", "interrupted_before_return") and hasattr(self, "human_guard"):
+                    cp = data.get("cursorPosition") if isinstance(data.get("cursorPosition"), dict) else None
+                    self.human_guard.trigger_human_cooldown(
+                        reason=str(data.get("reason") or data.get("error_code") or "native_human_interrupt"),
+                        cursor_pos=cp,
+                    )
+                elif mutating_input and data.get("ok") and hasattr(self, "human_guard"):
+                    final_pt = data.get("finalCursorPosition") or data.get("clickPoint") or data.get("slotPoint")
+                    if isinstance(final_pt, dict) and final_pt.get("x") is not None and final_pt.get("y") is not None:
+                        try:
+                            rpa_x = float(final_pt["x"])
+                            rpa_y = float(final_pt["y"])
+                        except Exception:
+                            pass
+                    self.human_guard.record_rpa_action(action=cmd_name, cursor_x=rpa_x, cursor_y=rpa_y)
+                return self._enhance_lowres_ocr(effective_args, data, timeout=timeout)
         except json.JSONDecodeError:
             pass
         return {
@@ -747,8 +946,25 @@ class WeChatControlEngine:
         self.audit.log("status", "ok" if res.get("ok") else "error", {"wechatRunning": res.get("wechatRunning")})
         return res
 
-    def request_permissions(self, *, open_settings: bool = True) -> Dict[str, Any]:
+    # 权限项 → (tccutil 服务名, request-permissions --only 值)。post_event 与 accessibility 同属「辅助功能」一项。
+    PERMISSION_ITEMS: Dict[str, Tuple[str, str]] = {
+        "accessibility": ("Accessibility", "accessibility"),
+        "post_event": ("Accessibility", "post-event"),
+        "screen_capture": ("ScreenCapture", "screen-capture"),
+    }
+    # 辅助功能与屏幕录制的系统弹窗不能同一瞬间发出（后一个可能被系统丢弃），两步之间留出的间隔
+    _permission_prompt_gap_seconds = 2.5
+
+    def request_permissions(self, *, open_settings: bool = True, only: Optional[str] = None) -> Dict[str, Any]:
+        """向 macOS 申请权限登记：系统弹出授权提示，并把本 App 加进对应面板的列表。
+
+        不申请的话列表里没有本 App，用户只能手动「+」添加。`only` 只申请当前缺失的那一项。
+        """
         args = ["request-permissions"]
+        if only:
+            if only not in self.PERMISSION_ITEMS:
+                raise ValueError(f"Unsupported permission item: {only}")
+            args += ["--only", self.PERMISSION_ITEMS[only][1]]
         if not open_settings:
             args.append("--no-settings")
         res = self._run_native(args)
@@ -756,6 +972,8 @@ class WeChatControlEngine:
             "request_permissions",
             "ok" if res.get("ok") else "error",
             {
+                "only": only or "all",
+                "screenCapturePrompted": res.get("screenCapturePrompted"),
                 "accessibilityTrusted": res.get("accessibilityTrusted"),
                 "postEventTrusted": res.get("postEventTrusted"),
                 "screenCaptureTrusted": res.get("screenCaptureTrusted"),
@@ -763,6 +981,104 @@ class WeChatControlEngine:
             },
         )
         return res
+
+    def _normalize_permission_items(self, services: Optional[Iterable[str]]) -> Dict[str, List[str]]:
+        items = (
+            [str(s).strip() for s in services if str(s).strip()]
+            if services
+            else ["accessibility", "post_event", "screen_capture"]
+        )
+        invalid = [item for item in items if item not in self.PERMISSION_ITEMS]
+        if invalid:
+            raise ValueError(f"Unsupported permission items: {invalid}")
+        ordered: List[str] = []
+        tcc_services: List[str] = []
+        for item in items:
+            if item not in ordered:
+                ordered.append(item)
+            tcc_service = self.PERMISSION_ITEMS[item][0]
+            if tcc_service not in tcc_services:
+                tcc_services.append(tcc_service)
+        return {"items": ordered, "tccServices": tcc_services}
+
+    # 本 App 的 bundle id：授权自愈时 tccutil reset 只作用于它，不触及其他应用
+    DEFAULT_TCC_BUNDLE_ID = "com.openbot.wechat-bot"
+    _tccutil_bin = "/usr/bin/tccutil"
+
+    def tcc_bundle_id(self) -> str:
+        """解析本 App 的 bundle id：环境变量 > 所在 .app 的 Info.plist > 默认值。"""
+        env_bid = str(os.environ.get("WECHAT_BUNDLE_ID") or "").strip()
+        if env_bid:
+            return env_bid
+        try:
+            res_dir = Path(__file__).resolve().parent.parent
+            if str(res_dir).endswith(".app/Contents/Resources"):
+                import plistlib
+
+                bid = plistlib.loads((res_dir.parent / "Info.plist").read_bytes()).get("CFBundleIdentifier")
+                if bid:
+                    return str(bid)
+        except Exception:
+            pass
+        return self.DEFAULT_TCC_BUNDLE_ID
+
+    def repair_permissions(
+        self,
+        *,
+        reset: bool = True,
+        prompt: bool = True,
+        services: Optional[Iterable[str]] = None,
+    ) -> Dict[str, Any]:
+        """授权自愈：清除绑在旧构建上的失效授权记录，并让 macOS 重新登记当前版本。
+
+        系统设置里的开关可能显示已开，但那条记录绑定的是某个旧构建的代码哈希，macOS 据此把
+        当前版本当成另一个应用——开关怎么点都无效，只会被反复要求重新授权。
+        tccutil reset 只清除本应用自己的记录（可逆：重新打开开关即可）。
+
+        `services` 只处理指定的权限项（accessibility / post_event / screen_capture）；缺省仍按旧行为
+        处理辅助功能与屏幕录制两项。重新登记时辅助功能先申请、隔开间隔再申请屏幕录制。
+        """
+        bundle_id = self.tcc_bundle_id()
+        selected = self._normalize_permission_items(services)
+        reset_results: List[Dict[str, Any]] = []
+        if reset:
+            for service in selected["tccServices"]:
+                try:
+                    proc = subprocess.run(
+                        [self._tccutil_bin, "reset", service, bundle_id],
+                        capture_output=True,
+                        text=True,
+                        timeout=10.0,
+                    )
+                    reset_results.append({
+                        "service": service,
+                        "returncode": proc.returncode,
+                        "output": ((proc.stdout or "") + (proc.stderr or "")).strip()[:200],
+                    })
+                except Exception as exc:
+                    reset_results.append({"service": service, "returncode": -1, "output": str(exc)[:200]})
+        items = selected["items"]
+        request: Optional[Dict[str, Any]] = None
+        if prompt:
+            steps: List[Dict[str, Any]] = []
+            if "post_event" in items or "accessibility" in items:
+                # 「辅助功能」一项同时覆盖系统事件控制；只有单独指定 post_event 时才只申请它
+                ax_item = "post_event" if items == ["post_event"] else "accessibility"
+                ax_step = self.request_permissions(open_settings=False, only=ax_item)
+                steps.append(ax_step)
+                if "screen_capture" in items and not ax_step.get("accessibilityTrusted"):
+                    time.sleep(self._permission_prompt_gap_seconds)
+            if "screen_capture" in items:
+                steps.append(self.request_permissions(open_settings=False, only="screen_capture"))
+            request = dict(steps[-1]) if steps else {}
+            request["steps"] = steps
+        ok = (not reset) or all(r.get("returncode") == 0 for r in reset_results)
+        self.audit.log(
+            "repair_permissions",
+            "ok" if ok else "error",
+            {"bundleId": bundle_id, "items": items, "reset": reset_results},
+        )
+        return {"ok": ok, "bundleId": bundle_id, "items": items, "reset": reset_results, "request": request}
 
     def doctor(self) -> Dict[str, Any]:
         binary_exists = self.binary_path.exists()
@@ -970,6 +1286,8 @@ class WeChatControlEngine:
         skip_navigation: bool = False,
         expected_window_id: Optional[int] = None,
         target_window_id: Optional[int] = None,
+        manual_trigger: bool = False,
+        ignore_human_guard: bool = False,
     ) -> Dict[str, Any]:
         """Safely execute or dry-run the WeChat send state machine.
 
@@ -990,6 +1308,21 @@ class WeChatControlEngine:
                 "error": "Outgoing message text cannot be empty.",
             }
             self.audit.log("send_text", "rejected_empty_text", {"target": clean_target})
+            return res
+
+        is_test_contact = bool(
+            hasattr(self, "supervisor_eval")
+            and self.supervisor_eval.is_test_contact(clean_target)
+        )
+        if (not is_test_contact) and is_blocked_outbound_directive(text):
+            res = {
+                "ok": False,
+                "status": "blocked_internal_hashtag_directive",
+                "error_code": "blocked_internal_hashtag_directive",
+                "target": clean_target,
+                "error": "Internal `#` supervisor directives are blocked from sending to normal contacts.",
+            }
+            self.audit.log("send_text", "blocked_internal_hashtag_directive", res)
             return res
 
         if allowed_groups is not None:
@@ -1057,51 +1390,76 @@ class WeChatControlEngine:
             self.audit.log("send_text", "dry_run_ok", res)
             return res
 
-        matched_title = clean_target
-        if not skip_navigation:
-            nav = self.inspector.select_session(clean_target)
-            if not nav.get("ok"):
+        if (not dry_run) and (expected_window_id is None):
+            blocked = self._check_human_guard_for_action(
+                manual_trigger=manual_trigger,
+                ignore_human_guard=ignore_human_guard,
+            )
+            if blocked is not None:
                 self.dedup.rollback(fp)
                 res = {
                     "ok": False,
-                    "status": "target_navigation_failed",
+                    "status": "paused_human_active",
+                    "blockedByHumanGuard": True,
                     "retryable": True,
                     "target": clean_target,
-                    "navigation": nav,
-                    "error": nav.get("error", f"Failed to navigate to {clean_target!r}."),
+                    "humanGuard": blocked,
+                    "error": f"检测到人工正在操作键鼠，已暂停向 {clean_target!r} 发送消息让路。",
                 }
-                self.audit.log("send_text", "target_navigation_failed", res)
+                self.audit.log("send_text", "paused_human_active", res)
                 return res
-            matched_title = str(nav.get("matchedTitle") or clean_target)
 
-        # Live or silent-UI verification via native binary
-        native_args = ["paste-and-verify", "--text", text]
-        effective_wid: Optional[int] = None
-        if expected_window_id is not None:
-            native_args += ["--review-window", str(expected_window_id), "--review-title", clean_target]
-            effective_wid = int(expected_window_id)
-        else:
-            popout_win = None
-            if target_window_id is not None:
-                effective_wid = int(target_window_id)
-            elif skip_navigation and hasattr(self, "inspector"):
-                try:
-                    popout_win = self.inspector.find_popout_window(clean_target, app="all")
-                    if popout_win and popout_win.get("windowID"):
-                        effective_wid = int(popout_win["windowID"])
-                except Exception:
-                    popout_win = None
-            if effective_wid is not None:
-                native_args += ["--window-id", str(effective_wid)]
-                pw_title = str((popout_win or {}).get("title") or "").strip()
-                if pw_title:
-                    native_args += ["--window-title", pw_title]
-        if will_send:
-            native_args.append("--send")
-        else:
-            native_args.append("--silent")
+        bypass_ctx = (
+            self.bypass_human_guard(True)
+            if ((not dry_run) and (manual_trigger or ignore_human_guard))
+            else nullcontext()
+        )
+        with bypass_ctx:
+            matched_title = clean_target
+            if not skip_navigation:
+                nav = self.inspector.select_session(clean_target)
+                if not nav.get("ok"):
+                    self.dedup.rollback(fp)
+                    res = {
+                        "ok": False,
+                        "status": "target_navigation_failed",
+                        "retryable": True,
+                        "target": clean_target,
+                        "navigation": nav,
+                        "error": nav.get("error", f"Failed to navigate to {clean_target!r}."),
+                    }
+                    self.audit.log("send_text", "target_navigation_failed", res)
+                    return res
+                matched_title = str(nav.get("matchedTitle") or clean_target)
 
-        native_res = self._run_native(native_args, timeout=25.0)
+            # Live or silent-UI verification via native binary
+            native_args = ["paste-and-verify", "--text", text]
+            effective_wid: Optional[int] = None
+            if expected_window_id is not None:
+                native_args += ["--review-window", str(expected_window_id), "--review-title", clean_target]
+                effective_wid = int(expected_window_id)
+            else:
+                popout_win = None
+                if target_window_id is not None:
+                    effective_wid = int(target_window_id)
+                elif skip_navigation and hasattr(self, "inspector"):
+                    try:
+                        popout_win = self.inspector.find_popout_window(clean_target, app="all")
+                        if popout_win and popout_win.get("windowID"):
+                            effective_wid = int(popout_win["windowID"])
+                    except Exception:
+                        popout_win = None
+                if effective_wid is not None:
+                    native_args += ["--window-id", str(effective_wid)]
+                    pw_title = str((popout_win or {}).get("title") or "").strip()
+                    if pw_title:
+                        native_args += ["--window-title", pw_title]
+            if will_send:
+                native_args.append("--send")
+            else:
+                native_args.append("--silent")
+
+            native_res = self._run_native(native_args, timeout=25.0)
         status_label = "sent" if (native_res.get("ok") and native_res.get("sent")) else (
             "silent_verified" if native_res.get("ok") else native_res.get("error_code", "native_error")
         )
@@ -1116,13 +1474,17 @@ class WeChatControlEngine:
             slug = _slugify_target(clean_target)
             snap_file = self.inspector.snapshots_dir / f"sent_{slug}_{int(time.time() * 1000)}.png"
             self.inspector.snapshots_dir.mkdir(parents=True, exist_ok=True)
-            cap_args = ["capture-ocr", "--out", str(snap_file)]
+            cap_args = ["capture-ocr", "--no-activate", "--out", str(snap_file)]
             if effective_wid is not None:
                 cap_args += ["--window-id", str(effective_wid)]
             cap = self._run_native(cap_args, timeout=15.0)
             if cap.get("ok"):
                 post_send_snapshot = str(snap_file)
 
+        blocked_by_guard = bool(
+            native_res.get("blockedByHumanGuard")
+            or native_res.get("error_code") in ("human_input_active", "human_keyboard_active")
+        )
         result: Dict[str, Any] = {
             "ok": send_succeeded,
             "status": status_label if send_succeeded or status_label != "sent" else "return_not_dispatched",
@@ -1133,6 +1495,12 @@ class WeChatControlEngine:
             "fingerprint": fp,
             "native": native_res,
         }
+        if blocked_by_guard:
+            result["blockedByHumanGuard"] = True
+            if isinstance(native_res.get("humanGuard"), dict):
+                result["humanGuard"] = native_res["humanGuard"]
+            elif hasattr(self, "human_guard"):
+                result["humanGuard"] = self.human_guard.check_can_operate()
         if post_send_snapshot:
             result["postSendSnapshot"] = post_send_snapshot
         audit_payload = result if expected_window_id is None else {"fingerprint": fp, "stage": "workbench"}
@@ -1150,6 +1518,8 @@ class WeChatControlEngine:
         confirm_send: bool = True,
         skip_navigation: bool = False,
         target_window_id: Optional[int] = None,
+        manual_trigger: bool = False,
+        ignore_human_guard: bool = False,
     ) -> Dict[str, Any]:
         """Send an official WeChat emoji shortcode (`[旺柴]`/`[捂脸]`) or click a favorite/emoji panel sticker."""
         clean_target = str(target or "").strip()
@@ -1171,6 +1541,8 @@ class WeChatControlEngine:
                 confirm_send=bool(confirm_send and not dry_run),
                 skip_navigation=skip_navigation,
                 target_window_id=target_window_id,
+                manual_trigger=manual_trigger,
+                ignore_human_guard=ignore_human_guard,
             )
 
         will_send = (not dry_run) and bool(confirm_send)
@@ -1183,39 +1555,63 @@ class WeChatControlEngine:
                 "error": f"Target {clean_target!r} is not in allowed groups/contacts.",
             }
 
+        if will_send:
+            blocked = self._check_human_guard_for_action(
+                manual_trigger=manual_trigger,
+                ignore_human_guard=ignore_human_guard,
+            )
+            if blocked is not None:
+                res = {
+                    "ok": False,
+                    "status": "paused_human_active",
+                    "blockedByHumanGuard": True,
+                    "retryable": True,
+                    "target": clean_target,
+                    "humanGuard": blocked,
+                    "error": f"检测到人工正在操作键鼠，已暂停发送表情给 {clean_target!r}。",
+                }
+                self.audit.log("send_sticker", "paused_human_active", res)
+                return res
+
         clean_tab = "emoji" if str(tab or "").strip().lower() == "emoji" else "favorites"
         clean_slot = max(0, min(24, int(slot or 0)))
 
-        popout_win = None
-        effective_wid: Optional[int] = int(target_window_id) if target_window_id is not None else None
-        if effective_wid is None and hasattr(self, "inspector"):
-            try:
-                popout_win = self.inspector.find_popout_window(clean_target, app="all")
-                if popout_win and popout_win.get("windowID"):
-                    effective_wid = int(popout_win["windowID"])
-            except Exception:
-                popout_win = None
+        bypass_ctx = (
+            self.bypass_human_guard(True)
+            if (will_send and (manual_trigger or ignore_human_guard))
+            else nullcontext()
+        )
+        with bypass_ctx:
+            popout_win = None
+            effective_wid: Optional[int] = int(target_window_id) if target_window_id is not None else None
+            if effective_wid is None and hasattr(self, "inspector"):
+                try:
+                    popout_win = self.inspector.find_popout_window(clean_target, app="all")
+                    if popout_win and popout_win.get("windowID"):
+                        effective_wid = int(popout_win["windowID"])
+                except Exception:
+                    popout_win = None
 
-        if effective_wid is None and (not skip_navigation) and (not dry_run):
-            nav = self.inspector.select_session(clean_target)
-            if not nav.get("ok"):
-                return {
-                    "ok": False,
-                    "status": "target_navigation_failed",
-                    "target": clean_target,
-                    "error": nav.get("error", f"Failed to select {clean_target!r}"),
-                }
+            if effective_wid is None and (not skip_navigation) and (not dry_run):
+                nav = self.inspector.select_session(clean_target)
+                if not nav.get("ok"):
+                    return {
+                        "ok": False,
+                        "status": "target_navigation_failed",
+                        "target": clean_target,
+                        "error": nav.get("error", f"Failed to select {clean_target!r}"),
+                    }
 
-        args = ["send-sticker", "--tab", clean_tab, "--slot", str(clean_slot)]
-        if effective_wid is not None:
-            args += ["--window-id", str(effective_wid)]
-            pw_title = str((popout_win or {}).get("title") or "").strip()
-            if pw_title:
-                args += ["--window-title", pw_title]
-        if not will_send:
-            args.append("--dry-run")
+            args = ["send-sticker", "--tab", clean_tab, "--slot", str(clean_slot)]
+            if effective_wid is not None:
+                args += ["--window-id", str(effective_wid)]
+                pw_title = str((popout_win or {}).get("title") or "").strip()
+                if pw_title:
+                    args += ["--window-title", pw_title]
+            if not will_send:
+                args.append("--dry-run")
 
-        native_res = self._run_native(args, timeout=15.0)
+            native_res = self._run_native(args, timeout=15.0)
         res = {
             "ok": bool(native_res.get("ok")),
             "status": "sent" if (will_send and native_res.get("sent")) else ("dry_run_ok" if native_res.get("ok") else native_res.get("error_code", "native_error")),
@@ -1225,6 +1621,8 @@ class WeChatControlEngine:
             "windowID": effective_wid,
             "native": native_res,
         }
+        if native_res.get("blockedByHumanGuard") or native_res.get("error_code") in ("human_input_active", "human_keyboard_active"):
+            res["blockedByHumanGuard"] = True
         self.audit.log("send_sticker", res["status"], res)
         return res
 
@@ -1238,6 +1636,8 @@ class WeChatControlEngine:
         confirm_send: bool = True,
         skip_navigation: bool = False,
         target_window_id: Optional[int] = None,
+        manual_trigger: bool = False,
+        ignore_human_guard: bool = False,
     ) -> Dict[str, Any]:
         """Paste and send an image file directly into WeChat (optionally with a follow-up text caption)."""
         clean_target = str(target or "").strip()
@@ -1257,47 +1657,74 @@ class WeChatControlEngine:
                 "error": f"Target {clean_target!r} is not in allowed contacts.",
             }
 
-        popout_win = None
-        effective_wid: Optional[int] = int(target_window_id) if target_window_id is not None else None
-        if effective_wid is None and hasattr(self, "inspector"):
-            try:
-                popout_win = self.inspector.find_popout_window(clean_target, app="all")
-                if popout_win and popout_win.get("windowID"):
-                    effective_wid = int(popout_win["windowID"])
-            except Exception:
-                popout_win = None
-
-        if effective_wid is None and (not skip_navigation) and (not dry_run):
-            nav = self.inspector.select_session(clean_target)
-            if not nav.get("ok"):
-                return {
-                    "ok": False,
-                    "status": "target_navigation_failed",
-                    "target": clean_target,
-                    "error": nav.get("error", f"Failed to navigate to {clean_target!r}."),
-                }
-
-        args = ["paste-image", "--image", str(img_file)]
-        if effective_wid is not None:
-            args += ["--window-id", str(effective_wid)]
-            pw_title = str((popout_win or {}).get("title") or "").strip()
-            if pw_title:
-                args += ["--window-title", pw_title]
-        args.append("--send" if will_send else "--dry-run")
-
-        native_res = self._run_native(args, timeout=20.0)
-        img_sent_ok = bool(native_res.get("ok")) and ((not will_send) or bool(native_res.get("sent")))
-        caption_res = None
-        if img_sent_ok and will_send and str(caption or "").strip():
-            caption_res = self.send_text(
-                clean_target,
-                str(caption).strip(),
-                dry_run=False,
-                silent_mode=False,
-                confirm_send=True,
-                skip_navigation=True,
-                target_window_id=effective_wid,
+        if will_send:
+            blocked = self._check_human_guard_for_action(
+                manual_trigger=manual_trigger,
+                ignore_human_guard=ignore_human_guard,
             )
+            if blocked is not None:
+                res = {
+                    "ok": False,
+                    "status": "paused_human_active",
+                    "blockedByHumanGuard": True,
+                    "retryable": True,
+                    "target": clean_target,
+                    "imagePath": str(img_file),
+                    "humanGuard": blocked,
+                    "error": f"检测到人工正在操作键鼠，已暂停发送图片给 {clean_target!r}。",
+                }
+                self.audit.log("send_image", "paused_human_active", res)
+                return res
+
+        bypass_ctx = (
+            self.bypass_human_guard(True)
+            if (will_send and (manual_trigger or ignore_human_guard))
+            else nullcontext()
+        )
+        with bypass_ctx:
+            popout_win = None
+            effective_wid: Optional[int] = int(target_window_id) if target_window_id is not None else None
+            if effective_wid is None and hasattr(self, "inspector"):
+                try:
+                    popout_win = self.inspector.find_popout_window(clean_target, app="all")
+                    if popout_win and popout_win.get("windowID"):
+                        effective_wid = int(popout_win["windowID"])
+                except Exception:
+                    popout_win = None
+
+            if effective_wid is None and (not skip_navigation) and (not dry_run):
+                nav = self.inspector.select_session(clean_target)
+                if not nav.get("ok"):
+                    return {
+                        "ok": False,
+                        "status": "target_navigation_failed",
+                        "target": clean_target,
+                        "error": nav.get("error", f"Failed to navigate to {clean_target!r}."),
+                    }
+
+            args = ["paste-image", "--image", str(img_file)]
+            if effective_wid is not None:
+                args += ["--window-id", str(effective_wid)]
+                pw_title = str((popout_win or {}).get("title") or "").strip()
+                if pw_title:
+                    args += ["--window-title", pw_title]
+            args.append("--send" if will_send else "--dry-run")
+
+            native_res = self._run_native(args, timeout=20.0)
+            img_sent_ok = bool(native_res.get("ok")) and ((not will_send) or bool(native_res.get("sent")))
+            caption_res = None
+            if img_sent_ok and will_send and str(caption or "").strip():
+                caption_res = self.send_text(
+                    clean_target,
+                    str(caption).strip(),
+                    dry_run=False,
+                    silent_mode=False,
+                    confirm_send=True,
+                    skip_navigation=True,
+                    target_window_id=effective_wid,
+                    manual_trigger=manual_trigger,
+                    ignore_human_guard=ignore_human_guard,
+                )
 
         status = "sent" if (will_send and img_sent_ok) else ("dry_run_ok" if native_res.get("ok") else native_res.get("error_code", "native_error"))
         res = {
@@ -1309,6 +1736,8 @@ class WeChatControlEngine:
             "native": native_res,
             **({"captionSend": caption_res} if caption_res is not None else {}),
         }
+        if native_res.get("blockedByHumanGuard") or native_res.get("error_code") in ("human_input_active", "human_keyboard_active"):
+            res["blockedByHumanGuard"] = True
         self.audit.log("send_image", status, res)
         return res
 
@@ -1321,6 +1750,7 @@ class WeChatControlEngine:
         dry_run: bool = False,
         confirm_send: bool = True,
         target_window_id: Optional[int] = None,
+        manual_trigger: bool = False,
     ) -> Dict[str, Any]:
         """Search an image on the web for `query` and send (or dry-run) it to `target`."""
         self._require("send_text_live" if (not dry_run and confirm_send) else "send_text_dry_run")
@@ -1334,6 +1764,7 @@ class WeChatControlEngine:
             dry_run=dry_run,
             confirm_send=confirm_send,
             target_window_id=target_window_id,
+            manual_trigger=manual_trigger,
         )
         return {**send_res, "search": search_res}
 
@@ -1348,6 +1779,7 @@ class WeChatControlEngine:
         dry_run: bool = False,
         confirm_send: bool = True,
         target_window_id: Optional[int] = None,
+        manual_trigger: bool = False,
     ) -> Dict[str, Any]:
         """Highlight key areas on a peer-sent image using Vision OCR red boxes/callouts and send it back."""
         self._require("send_text_live" if (not dry_run and confirm_send) else "send_text_dry_run")
@@ -1367,6 +1799,7 @@ class WeChatControlEngine:
             dry_run=dry_run,
             confirm_send=confirm_send,
             target_window_id=target_window_id,
+            manual_trigger=manual_trigger,
         )
         return {**send_res, "annotation": ann_res}
 
@@ -1441,6 +1874,8 @@ class WeChatControlEngine:
         dry_run: bool = False,
         confirm_send: bool = True,
         target_window_id: Optional[int] = None,
+        manual_trigger: bool = False,
+        ignore_human_guard: bool = False,
     ) -> Dict[str, Any]:
         """Click WeChat Tencent Meeting card / open wemeet:// and start Bot Studio voice participant."""
         will_live = (not dry_run) and bool(confirm_send)
@@ -1454,33 +1889,57 @@ class WeChatControlEngine:
                 "error": f"Target {clean_target!r} is not in allowed contacts.",
             }
 
-        popout_win = None
-        effective_wid: Optional[int] = int(target_window_id) if target_window_id is not None else None
-        if effective_wid is None and clean_target and hasattr(self, "inspector"):
-            try:
-                popout_win = self.inspector.find_popout_window(clean_target, app="all")
-                if popout_win and popout_win.get("windowID"):
-                    effective_wid = int(popout_win["windowID"])
-            except Exception:
-                popout_win = None
+        if will_live:
+            blocked = self._check_human_guard_for_action(
+                manual_trigger=manual_trigger,
+                ignore_human_guard=ignore_human_guard,
+            )
+            if blocked is not None:
+                res = {
+                    "ok": False,
+                    "status": "paused_human_active",
+                    "blockedByHumanGuard": True,
+                    "retryable": True,
+                    "target": clean_target,
+                    "humanGuard": blocked,
+                    "error": "检测到人工正在操作键鼠，已暂停加入腾讯会议让路。",
+                }
+                self.audit.log("join_tencent_meeting_botstudio", "paused_human_active", res)
+                return res
 
-        args = ["join-tencent-meeting"]
-        if click_card:
-            args.append("--click-card")
-        if effective_wid is not None:
-            args += ["--window-id", str(effective_wid)]
-            pw_title = str((popout_win or {}).get("title") or "").strip()
-            if pw_title:
-                args += ["--window-title", pw_title]
-        clean_code = re.sub(r"\D+", "", str(meeting_code or ""))
-        if clean_code:
-            args += ["--meeting-code", clean_code]
-        if str(password or "").strip():
-            args += ["--password", str(password).strip()]
-        if not will_live:
-            args.append("--dry-run")
+        bypass_ctx = (
+            self.bypass_human_guard(True)
+            if (will_live and (manual_trigger or ignore_human_guard))
+            else nullcontext()
+        )
+        with bypass_ctx:
+            popout_win = None
+            effective_wid: Optional[int] = int(target_window_id) if target_window_id is not None else None
+            if effective_wid is None and clean_target and hasattr(self, "inspector"):
+                try:
+                    popout_win = self.inspector.find_popout_window(clean_target, app="all")
+                    if popout_win and popout_win.get("windowID"):
+                        effective_wid = int(popout_win["windowID"])
+                except Exception:
+                    popout_win = None
 
-        native_res = self._run_native(args, timeout=25.0)
+            args = ["join-tencent-meeting"]
+            if click_card:
+                args.append("--click-card")
+            if effective_wid is not None:
+                args += ["--window-id", str(effective_wid)]
+                pw_title = str((popout_win or {}).get("title") or "").strip()
+                if pw_title:
+                    args += ["--window-title", pw_title]
+            clean_code = re.sub(r"\D+", "", str(meeting_code or ""))
+            if clean_code:
+                args += ["--meeting-code", clean_code]
+            if str(password or "").strip():
+                args += ["--password", str(password).strip()]
+            if not will_live:
+                args.append("--dry-run")
+
+            native_res = self._run_native(args, timeout=25.0)
         resolved_code = str(native_res.get("meetingCode") or clean_code)
         botstudio_res: Dict[str, Any] = {"ok": False, "status": "dry_run_skipped"}
         if will_live and native_res.get("ok"):
@@ -1490,12 +1949,20 @@ class WeChatControlEngine:
                 agenda=agenda,
             )
 
+        blocked_by_guard = bool(
+            native_res.get("blockedByHumanGuard")
+            or native_res.get("error_code") in ("human_input_active", "human_keyboard_active")
+        )
         res = {
             "ok": bool(native_res.get("ok")),
             "status": (
                 "in_meeting"
                 if native_res.get("joined")
-                else ("needs_password" if native_res.get("needsPassword") else ("dry_run_ok" if not will_live else "initiated"))
+                else (
+                    "paused_human_active"
+                    if blocked_by_guard
+                    else ("needs_password" if native_res.get("needsPassword") else ("dry_run_ok" if not will_live else "initiated"))
+                )
             ),
             "target": clean_target,
             "meetingCode": resolved_code,
@@ -1505,6 +1972,8 @@ class WeChatControlEngine:
             "native": native_res,
             "botStudio": botstudio_res,
         }
+        if blocked_by_guard:
+            res["blockedByHumanGuard"] = True
         self.audit.log("join_tencent_meeting_botstudio", res["status"], res)
         return res
 
@@ -1629,6 +2098,8 @@ class WeChatControlEngine:
         confirm_send: bool = True,
         skip_navigation: bool = False,
         target_window_id: Optional[int] = None,
+        manual_trigger: bool = False,
+        ignore_human_guard: bool = False,
     ) -> Dict[str, Any]:
         """Place, answer, inspect, or hang up a native WeChat / WeCom VoIP voice/video call with live AI voice agent."""
         import os
@@ -1661,6 +2132,67 @@ class WeChatControlEngine:
                 "target": clean_target,
                 "error": f"Target {clean_target!r} is not in allowed contacts.",
             }
+
+        if will_live:
+            blocked = self._check_human_guard_for_action(
+                manual_trigger=manual_trigger,
+                ignore_human_guard=ignore_human_guard,
+            )
+            if blocked is not None:
+                res = {
+                    "ok": False,
+                    "action": clean_action,
+                    "status": "paused_human_active",
+                    "blockedByHumanGuard": True,
+                    "retryable": True,
+                    "target": clean_target,
+                    "humanGuard": blocked,
+                    "error": f"检测到人工正在操作键鼠，已暂停语音通话操作 ({clean_action})。",
+                }
+                self.audit.log(f"voice_call_{clean_action}", "paused_human_active", res)
+                return res
+
+        with (
+            self.bypass_human_guard(True)
+            if (will_live and (manual_trigger or ignore_human_guard))
+            else nullcontext()
+        ):
+            return self._voice_call_exec(
+                clean_target=clean_target,
+                clean_action=clean_action,
+                clean_app=clean_app,
+                clean_call_type=clean_call_type,
+                greeting=greeting,
+                instructions=instructions,
+                auto_voice_agent=auto_voice_agent,
+                idle_input_uid=idle_input_uid,
+                dry_run=dry_run,
+                confirm_send=confirm_send,
+                skip_navigation=skip_navigation,
+                target_window_id=target_window_id,
+                will_live=will_live,
+            )
+
+    def _voice_call_exec(
+        self,
+        *,
+        clean_target: str,
+        clean_action: str,
+        clean_app: str,
+        clean_call_type: str,
+        greeting: str,
+        instructions: str,
+        auto_voice_agent: bool,
+        idle_input_uid: str,
+        dry_run: bool,
+        confirm_send: bool,
+        skip_navigation: bool,
+        target_window_id: Optional[int],
+        will_live: bool,
+    ) -> Dict[str, Any]:
+        import os
+        import signal
+        import urllib.request
 
         saved_mic_file = self.plugin_root / "logs" / "voip_saved_input_device.json"
 
@@ -2351,14 +2883,22 @@ class WeChatControlEngine:
         library: Optional[str] = None,
         external_only: bool = True,
         limit: int = 6,
+        entry_weights: Optional[Dict[str, float]] = None,
     ) -> Dict[str, Any]:
         self._require("status")
+        weights = entry_weights
+        if weights is None and hasattr(self, "supervisor_eval"):
+            try:
+                weights = self.supervisor_eval.get_entry_weights()
+            except Exception:
+                weights = None
         return self.knowledge.search_context(
             query,
             kind=kind,
             library=library,
             external_only=external_only,
             limit=limit,
+            entry_weights=weights,
         )
 
     def kb_save(
@@ -2512,6 +3052,19 @@ class WeChatControlEngine:
             eff_speed = str(speed_mode or self._workos_state.get("speedMode") or "fast").strip().lower()
             eff_goal = str(task_goal if task_goal is not None else self._workos_state.get("taskGoal") or "").strip()
 
+        neg_constraints: List[Dict[str, Any]] = []
+        entry_weights: Optional[Dict[str, float]] = None
+        if hasattr(self, "supervisor_eval"):
+            try:
+                neg_constraints = self.supervisor_eval.match_negative_constraints(query_incoming, limit=3)
+                golden_exemplars = self.supervisor_eval.match_golden_exemplars(query_incoming, limit=2)
+                entry_weights = self.supervisor_eval.get_entry_weights()
+                memory_context["negativeConstraints"] = neg_constraints
+                memory_context["goldenExemplars"] = golden_exemplars
+                memory_context["entryWeights"] = entry_weights
+            except Exception:
+                pass
+
         res = self.personas.generate_smart_reply(
             target,
             query_incoming,
@@ -2525,7 +3078,23 @@ class WeChatControlEngine:
             use_llm=use_llm,
             speed_mode=eff_speed,
             task_goal=eff_goal,
+            entry_weights=entry_weights,
         )
+        if res.get("ok") and hasattr(self, "supervisor_eval") and str(res.get("generationMode") or "") != "empty_input_guard":
+            try:
+                auto_score = self.supervisor_eval.auto_score_reply(
+                    query_incoming,
+                    str(res.get("replyText") or ""),
+                    matched_entries=res.get("matchedEntries") or (),
+                    negative_constraints=neg_constraints,
+                )
+                res["autoScore"] = auto_score
+                if int(auto_score.get("overallScore", 100)) < 70:
+                    res["needsHumanReview"] = True
+                    if not res.get("humanReviewReason"):
+                        res["humanReviewReason"] = "自动评分低于 70 分，建议人工复核"
+            except Exception:
+                pass
         if (
             res.get("ok")
             and int(res.get("matchedCount") or 0) == 0
@@ -2863,8 +3432,9 @@ class WeChatControlEngine:
              "deepLink": "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"},
             {"id": "screen_capture", "name": "屏幕录制", "granted": screen_capture,
              "purpose": "截屏识别聊天文字（Vision OCR），没有它巡检是“睁眼瞎”",
-             "pane": "Privacy_ScreenRecording",
-             "deepLink": "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenRecording"},
+             # 面板标识是 Privacy_ScreenCapture；写成 Privacy_ScreenRecording 系统只会打开「隐私与安全性」总页
+             "pane": "Privacy_ScreenCapture",
+             "deepLink": "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"},
         ]
         return {
             "ok": True,
@@ -4168,6 +4738,11 @@ class WeChatControlEngine:
             "sidebarDockStatus": self.dock_app_to_wechat("verify"),
             "salesCrm": self.sales_crm.get_overview(auto_sync=True),
             "coevolution": self.coevolution.get_summary(),
+            "tenantProfile": self.tenant.get_profile() if hasattr(self, "tenant") else {},
+            "isCustomerMode": self.tenant.is_customer_mode() if hasattr(self, "tenant") else False,
+            "testContacts": self.supervisor_eval.list_test_contacts() if hasattr(self, "supervisor_eval") else [],
+            "qualityDashboard": self.supervisor_eval.get_quality_dashboard(days=7) if hasattr(self, "supervisor_eval") else {},
+            "salesPacks": self.list_available_sales_packs(),
         }
 
     # ------------------------------------------------------------------
@@ -4239,6 +4814,89 @@ class WeChatControlEngine:
             "navigate_ui",
             "ok" if res.get("ok") else ("blocked" if res.get("blockedByHumanGuard") else "failed"),
             {"targetId": target_id, "dryRun": dry_run, "blocked": res.get("blockedByHumanGuard", False)},
+        )
+        return res
+
+    # ------------------------------------------------------------------
+    # Moments (朋友圈) read + interaction
+    # ------------------------------------------------------------------
+    def moments_read_feed(self, *, max_posts: int = 40, max_pages: int = 90, restore_view: bool = True) -> Dict[str, Any]:
+        return self.moments.read_feed(max_posts=max_posts, max_pages=max_pages, restore_view=restore_view)
+
+    def moments_list_posts(self, *, limit: int = 30, author: str = "", include_partial: bool = False) -> Dict[str, Any]:
+        return self.moments.list_posts(limit=limit, author=author, include_partial=include_partial)
+
+    def moments_stats(self, *, limit: int = 40) -> Dict[str, Any]:
+        return self.moments.stats(limit=limit)
+
+    def moments_get_policy(self) -> Dict[str, Any]:
+        return self.moments.get_policy()
+
+    def moments_set_policy(self, updates: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        return self.moments.set_policy(updates)
+
+    def moments_plan(self, *, limit: int = 20, max_age_days: Optional[int] = None) -> Dict[str, Any]:
+        return self.moments.plan(limit=limit, max_age_days=max_age_days)
+
+    def moments_interact(
+        self, post_key: str = "", *, author: str = "", action: str = "like", text: str = "",
+        mode: str = "dry_run", restore_view: bool = True,
+    ) -> Dict[str, Any]:
+        """朋友圈点赞 / 取消点赞 / 评论。默认 dry_run；live 需要 moments_interact_live 能力。"""
+        return self.moments.interact(
+            post_key, author=author, action=action, text=text, mode=mode, restore_view=restore_view
+        )
+
+    def moments_execute_plan(
+        self, items: Optional[List[Dict[str, Any]]] = None, *, mode: str = "dry_run", limit: int = 5,
+        restore_view: bool = True,
+    ) -> Dict[str, Any]:
+        return self.moments.execute_plan(items, mode=mode, limit=limit, restore_view=restore_view)
+
+    def moments_log(self, *, limit: int = 50) -> Dict[str, Any]:
+        return self.moments.interaction_log(limit=limit)
+
+    def moments_suggest_comment(self, post_key: str, *, style: str = "natural") -> Dict[str, Any]:
+        """结合帖子内容与好友 Soul 画像拟写自然口语朋友圈评论建议（不发送，不碰微信 UI）。"""
+        self._require("read_moments")
+        res = self.moments.suggest_comment(post_key, style=style)
+        self.audit.log(
+            "moments_suggest_comment",
+            "ok" if res.get("ok") else "error",
+            {
+                "postKey": post_key,
+                "style": style,
+                "usedLlm": bool(res.get("usedLlm")),
+                "source": res.get("source"),
+            },
+        )
+        return res
+
+    def get_pre_call_brief(
+        self,
+        target: str,
+        *,
+        goal: str = "general",
+        custom_goal: str = "",
+        use_llm: bool = True,
+    ) -> Dict[str, Any]:
+        """聚合聊天历史、Soul 记忆、朋友圈动态与 SalesCRM 生成电话前一键速览与话术提词卡。"""
+        self._require("read_contacts")
+        res = self.call_brief.generate_brief(
+            target,
+            goal=goal,
+            custom_goal=custom_goal,
+            use_llm=use_llm,
+        )
+        self.audit.log(
+            "call_brief",
+            "ok" if res.get("ok") else "error",
+            {
+                "target": target,
+                "goal": goal,
+                "usedLlm": bool(res.get("usedLlm")),
+                "modelId": res.get("modelId"),
+            },
         )
         return res
 
@@ -6006,3 +6664,540 @@ class WeChatControlEngine:
             app_name=app_name,
             app_path=app_path,
         )
+
+    # ------------------------------------------------------------------
+    # Zero-FDE Onboarding, Self-Training, Test Sandbox & Quality Loop (v3)
+    # ------------------------------------------------------------------
+
+    def _resolve_sales_packs_dir(self) -> Path:
+        candidates = [
+            self.bundle_root / "config_templates" / "sales_packs",
+            self.plugin_root / "config_templates" / "sales_packs",
+            Path(__file__).resolve().parent.parent / "config_templates" / "sales_packs",
+        ]
+        for cand in candidates:
+            if cand.is_dir():
+                return cand
+        return candidates[0]
+
+    def _resolve_user_guide_path(self) -> Path:
+        candidates = [
+            self.bundle_root / "docs" / "USER_GUIDE.md",
+            self.plugin_root / "docs" / "USER_GUIDE.md",
+            Path(__file__).resolve().parent.parent / "docs" / "USER_GUIDE.md",
+        ]
+        for cand in candidates:
+            if cand.is_file():
+                return cand
+        return candidates[0]
+
+    def _resolve_user_guide_html_path(self) -> Path:
+        candidates = [
+            self.bundle_root / "docs" / "user-guide.html",
+            self.plugin_root / "docs" / "user-guide.html",
+            Path(__file__).resolve().parent.parent / "docs" / "user-guide.html",
+        ]
+        for cand in candidates:
+            if cand.is_file():
+                return cand
+        return candidates[0]
+
+    def list_available_sales_packs(self) -> List[Dict[str, Any]]:
+        packs_dir = self._resolve_sales_packs_dir()
+        return list_sales_packs(packs_dir)
+
+    def get_onboarding_status(self) -> Dict[str, Any]:
+        profile = self.tenant.get_profile()
+        kb_pub = self.knowledge.list_entries(include_drafts=False, limit=1000)
+        kb_all = self.knowledge.list_entries(include_drafts=True, limit=1000)
+        return {
+            "ok": True,
+            "profile": profile,
+            "isCustomerMode": self.tenant.is_customer_mode(),
+            "onboardingCompleted": bool(profile.get("onboardingCompleted")),
+            "salesPacks": self.list_available_sales_packs(),
+            "publishedKnowledgeCount": int(kb_pub.get("count") or 0),
+            "totalKnowledgeCount": int(kb_all.get("count") or 0),
+            "testContacts": self.supervisor_eval.list_test_contacts(),
+        }
+
+    def setup_tenant_onboarding(
+        self,
+        owner_name: Optional[str] = None,
+        *,
+        business_name: Optional[str] = None,
+        product_summary: Optional[str] = None,
+        industry_pack: Optional[str] = None,
+        owner_aliases: Optional[Iterable[str]] = None,
+        admin_contacts: Optional[Iterable[str]] = None,
+        test_contacts: Optional[Iterable[str]] = None,
+        apply_pack: bool = True,
+        withdraw_legacy_seeds: bool = True,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        profile = self.tenant.complete_onboarding(
+            owner_name=owner_name,
+            business_name=business_name,
+            product_summary=product_summary,
+            industry_pack=industry_pack,
+            owner_aliases=owner_aliases,
+            admin_contacts=admin_contacts,
+            test_contacts=test_contacts,
+            **kwargs,
+        )
+        self.soul_profiler.set_tenant_context(tenant_mode="customer", owner_config=profile)
+
+        pack_applied: Optional[Dict[str, Any]] = None
+        if apply_pack:
+            packs_dir = self._resolve_sales_packs_dir()
+            pack_id = str(profile.get("industryPack") or DEFAULT_INDUSTRY_PACK).strip() or DEFAULT_INDUSTRY_PACK
+            try:
+                pack_data = load_sales_pack(pack_id, packs_dir)
+                pack_applied = self.knowledge.apply_sales_pack(
+                    pack_data,
+                    withdraw_legacy_seeds=withdraw_legacy_seeds,
+                )
+            except FileNotFoundError:
+                if withdraw_legacy_seeds:
+                    pack_applied = self.knowledge.withdraw_legacy_seeds()
+        elif withdraw_legacy_seeds:
+            pack_applied = self.knowledge.withdraw_legacy_seeds()
+
+        summary_text = str(profile.get("productSummary") or "").strip()
+        biz_text = str(profile.get("businessName") or "").strip()
+        if summary_text:
+            title = f"{biz_text} · 业务与产品简介" if biz_text else "业务与产品简介"
+            try:
+                self.knowledge.save_entry(
+                    title=title,
+                    body=summary_text,
+                    kind="knowledge",
+                    library="shared",
+                    keywords=[k for k in (biz_text, profile.get("ownerName"), "产品介绍", "业务介绍") if k],
+                    source="tenant-onboarding",
+                    external=True,
+                    status="published",
+                )
+            except Exception:
+                pass
+
+        for tc in profile.get("testContacts") or []:
+            if str(tc or "").strip():
+                self.supervisor_eval.mark_test_contact(str(tc).strip(), note="onboarding")
+
+        return {
+            "ok": True,
+            "profile": profile,
+            "isCustomerMode": self.tenant.is_customer_mode(),
+            "salesPackApplied": pack_applied,
+            "testContacts": self.supervisor_eval.list_test_contacts(),
+        }
+
+    def discover_training_corpus(
+        self,
+        *,
+        search_dirs: Optional[Iterable[Path | str]] = None,
+        limit: int = 20,
+        include_live_sessions: bool = True,
+    ) -> Dict[str, Any]:
+        sessions_input: Any = []
+        if include_live_sessions:
+            mgmt_path = self.inspector.reports_dir / "wechat_management_report.json"
+            if mgmt_path.is_file():
+                try:
+                    sessions_input = json.loads(mgmt_path.read_text(encoding="utf-8"))
+                except Exception:
+                    sessions_input = []
+            if not sessions_input:
+                try:
+                    sessions_input = self.inspector.list_sessions()
+                except Exception:
+                    sessions_input = []
+        test_names = [c["displayName"] for c in self.supervisor_eval.list_test_contacts()]
+        sessions = self.corpus_discovery.discover_wechat_sessions(
+            sessions_input,
+            histories_dir=self.inspector.reports_dir / "contacts",
+            test_contacts=test_names,
+            limit=limit,
+        )
+        archives = self.corpus_discovery.scan_archive_directories(search_dirs=search_dirs)
+        return {
+            "ok": True,
+            "sessions": sessions,
+            "archives": archives,
+            "sessionCount": len(sessions),
+            "archiveCount": len(archives),
+        }
+
+    def _load_conversations_for_contacts(self, targets: Iterable[str]) -> List[Dict[str, Any]]:
+        histories_dir = self.inspector.reports_dir / "contacts"
+        if not histories_dir.is_dir():
+            return []
+        wanted = {normalize_chat_name(str(t)).casefold() for t in targets if str(t).strip()}
+        if not wanted:
+            return []
+        convs: List[Dict[str, Any]] = []
+        for hp in sorted(histories_dir.glob("*_history.json")):
+            try:
+                doc = json.loads(hp.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            cname = str(doc.get("matchedTitle") or doc.get("target") or "").strip()
+            if not cname:
+                continue
+            if normalize_chat_name(cname).casefold() not in wanted:
+                continue
+            records = [
+                {
+                    "direction": str(r.get("direction") or "peer"),
+                    "text": str(r.get("text") or ""),
+                    "timestamp": str(r.get("timeMarker") or r.get("ts") or ""),
+                }
+                for r in (doc.get("records") or [])
+                if isinstance(r, dict) and r.get("kind") != "timestamp" and str(r.get("text") or "").strip()
+            ]
+            if records:
+                convs.append({"contact": cname, "sourcePaths": [str(hp)], "records": records})
+        return convs
+
+    def run_self_training(
+        self,
+        *,
+        archive_paths: Optional[Iterable[Path | str]] = None,
+        contact_targets: Optional[Iterable[str]] = None,
+        raw_conversations: Optional[Sequence[Dict[str, Any]]] = None,
+        doc_texts: Optional[Sequence[Dict[str, Any]]] = None,
+        owner_name: Optional[str] = None,
+        industry_pack: Optional[str] = None,
+        use_llm: bool = False,
+        auto_publish_safe: bool = True,
+    ) -> Dict[str, Any]:
+        profile = self.tenant.get_profile()
+        resolved_owner = str(owner_name or profile.get("ownerName") or "").strip() or None
+        aliases = list(profile.get("ownerAliases") or [])
+
+        conversations: List[Dict[str, Any]] = []
+        if raw_conversations:
+            for item in raw_conversations:
+                if isinstance(item, dict):
+                    conversations.append(item)
+        if archive_paths:
+            conversations.extend(
+                self.corpus_discovery.batch_import_archives(
+                    archive_paths,
+                    owner_name=resolved_owner,
+                    known_aliases=aliases,
+                )
+            )
+        if contact_targets:
+            conversations.extend(self._load_conversations_for_contacts(contact_targets))
+
+        pack_id = str(industry_pack or profile.get("industryPack") or DEFAULT_INDUSTRY_PACK).strip() or DEFAULT_INDUSTRY_PACK
+        packs_dir = self._resolve_sales_packs_dir()
+        try:
+            sales_pack = load_sales_pack(pack_id, packs_dir)
+        except Exception:
+            sales_pack = {"packId": pack_id, "stages": [], "entries": []}
+
+        report = self.playbook_trainer.train_from_corpora(
+            conversations,
+            sales_pack=sales_pack,
+            knowledge_store=self.knowledge,
+            model_hub=self.models if use_llm else None,
+            use_llm=use_llm,
+            auto_publish_safe=auto_publish_safe,
+            report_path=self.inspector.reports_dir / "self_training_report.json",
+        )
+
+        # Optional product/FAQ doc texts submitted during wizard step 2
+        doc_saved_entries: List[Dict[str, Any]] = []
+        for doc_item in (doc_texts or ()):
+            if isinstance(doc_item, str):
+                raw_doc = doc_item.strip()
+                doc_name = "产品资料"
+            elif isinstance(doc_item, dict):
+                raw_doc = str(doc_item.get("text") or doc_item.get("rawText") or "").strip()
+                doc_name = str(doc_item.get("name") or doc_item.get("docName") or "产品资料").strip()
+            else:
+                continue
+            if not raw_doc:
+                continue
+            redacted = self.playbook_trainer.redact_pii(raw_doc)
+            saved = self.knowledge.save_entry(
+                title=f"业务资料：{doc_name[:36]}",
+                body=redacted[:2400],
+                kind="knowledge",
+                library="shared",
+                keywords=[doc_name, "产品资料"],
+                source="self-train-doc",
+                external=True,
+                status="published" if auto_publish_safe else "draft",
+            )
+            doc_saved_entries.append(saved["entry"])
+
+        if doc_saved_entries:
+            report["docEntries"] = doc_saved_entries
+            report["publishedIds"] = list(report.get("publishedIds") or []) + [
+                e["id"] for e in doc_saved_entries if e.get("status") == "published"
+            ]
+            report["draftIds"] = list(report.get("draftIds") or []) + [
+                e["id"] for e in doc_saved_entries if e.get("status") != "published"
+            ]
+        return report
+
+    def approve_training_drafts(
+        self,
+        entry_ids: Iterable[str],
+        *,
+        edits: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        return self.playbook_trainer.approve_drafts(
+            self.knowledge,
+            entry_ids,
+            edits=edits,
+        )
+
+    def set_test_contact(
+        self,
+        name: str,
+        *,
+        enabled: bool = True,
+        note: str = "",
+        auto_bind: bool = True,
+    ) -> Dict[str, Any]:
+        clean = str(name or "").strip()
+        if not clean:
+            raise ValueError("Test contact name cannot be empty.")
+        if enabled:
+            eval_res = self.supervisor_eval.mark_test_contact(clean, note=note)
+            self.tenant.add_test_contact(clean)
+            if auto_bind and self.bindings.get_binding(clean) is None:
+                self.bindings.bind_contact(clean, role="test", auto_reply_enabled=True, notes=note or "内部测试好友")
+            return {
+                "ok": True,
+                "enabled": True,
+                "contact": eval_res,
+                "testContacts": self.supervisor_eval.list_test_contacts(),
+            }
+        eval_res = self.supervisor_eval.unmark_test_contact(clean)
+        self.tenant.remove_test_contact(clean)
+        return {
+            "ok": True,
+            "enabled": False,
+            "contact": eval_res,
+            "testContacts": self.supervisor_eval.list_test_contacts(),
+        }
+
+    def list_test_contacts(self) -> Dict[str, Any]:
+        contacts = self.supervisor_eval.list_test_contacts()
+        return {
+            "ok": True,
+            "count": len(contacts),
+            "contacts": contacts,
+        }
+
+    def _build_supervisor_reply_generator(self, *, use_llm: bool = False):
+        def _gen(
+            contact: str,
+            trigger_text: str,
+            *,
+            directive: str = "",
+            negative_constraints: Sequence[Dict[str, Any]] = (),
+        ) -> str:
+            binding = self.bindings.get_binding(contact)
+            mem_ctx = dict(self.soul_profiler.get_contact_memory_context(contact) or {})
+            entry_weights = self.supervisor_eval.get_entry_weights()
+            mem_ctx["negativeConstraints"] = list(negative_constraints) if negative_constraints else self.supervisor_eval.match_negative_constraints(trigger_text, limit=4)
+            mem_ctx["goldenExemplars"] = self.supervisor_eval.match_golden_exemplars(trigger_text, limit=2)
+            mem_ctx["entryWeights"] = entry_weights
+            if directive:
+                mem_ctx["supervisorDirective"] = directive
+            res = self.personas.generate_smart_reply(
+                contact or "模拟测试客户",
+                trigger_text,
+                knowledge_store=self.knowledge,
+                binding=binding,
+                memory_context=mem_ctx,
+                model_hub=self.models,
+                use_llm=use_llm,
+                entry_weights=entry_weights,
+            )
+            return str(res.get("replyText") or "")
+
+        return _gen
+
+    def sparring_simulate_turn(
+        self,
+        message: str,
+        *,
+        contact_name: str = "模拟测试客户",
+        persona_id: Optional[str] = None,
+        use_llm: Optional[bool] = None,
+        model_id: Optional[str] = None,
+        record: bool = True,
+    ) -> Dict[str, Any]:
+        clean_msg = str(message or "").strip()
+        if not clean_msg:
+            return {"ok": False, "error": "message cannot be empty."}
+        target = str(contact_name or "模拟测试客户").strip() or "模拟测试客户"
+        binding = self.bindings.get_binding(target)
+        mem_ctx = dict(self.soul_profiler.get_contact_memory_context(target) or {})
+        neg_constraints = self.supervisor_eval.match_negative_constraints(clean_msg, limit=3)
+        golden_exemplars = self.supervisor_eval.match_golden_exemplars(clean_msg, limit=2)
+        entry_weights = self.supervisor_eval.get_entry_weights()
+        mem_ctx["negativeConstraints"] = neg_constraints
+        mem_ctx["goldenExemplars"] = golden_exemplars
+        mem_ctx["entryWeights"] = entry_weights
+
+        res = self.personas.generate_smart_reply(
+            target,
+            clean_msg,
+            knowledge_store=self.knowledge,
+            binding=binding,
+            persona_override=persona_id,
+            memory_context=mem_ctx,
+            model_hub=self.models,
+            model_id=model_id,
+            use_llm=use_llm,
+            entry_weights=entry_weights,
+        )
+        reply_text = str(res.get("replyText") or "")
+        matched_entries = res.get("matchedEntries") or []
+        auto_score = self.supervisor_eval.auto_score_reply(
+            clean_msg,
+            reply_text,
+            matched_entries=matched_entries,
+            negative_constraints=neg_constraints,
+        )
+        res["autoScore"] = auto_score
+        if int(auto_score.get("overallScore", 100)) < 70:
+            res["needsHumanReview"] = True
+            if not res.get("humanReviewReason"):
+                res["humanReviewReason"] = "自动评分低于 70 分，建议人工复核"
+
+        turn_id = None
+        if record:
+            matched_ids = [str(e.get("id")) for e in matched_entries if isinstance(e, dict) and e.get("id")]
+            turn_rec = self.supervisor_eval.record_turn(
+                target,
+                clean_msg,
+                reply_text,
+                channel="sparring_sim",
+                matched_entry_ids=matched_ids,
+                auto_score=auto_score,
+            )
+            turn_id = turn_rec.get("turnId")
+            res["turnId"] = turn_id
+
+        return {
+            **res,
+            "contactName": target,
+            "turnId": turn_id,
+        }
+
+    def handle_supervisor_hashtag(
+        self,
+        contact: str,
+        raw_text: str,
+        *,
+        channel: str = "wechat",
+        use_llm: bool = False,
+    ) -> Dict[str, Any]:
+        admin_contacts = tuple(self.tenant.get_profile().get("adminContacts") or ())
+        reply_gen = self._build_supervisor_reply_generator(use_llm=use_llm)
+
+        def _takeover_cb(target_name: str, action: str) -> Dict[str, Any]:
+            if action in ("takeover", "pause"):
+                return self.monitor.takeover_contact(target_name, reason=f"supervisor_hashtag:{action}")
+            return self.monitor.resume_contact(target_name)
+
+        return self.supervisor_eval.handle_hashtag_directive(
+            contact,
+            raw_text,
+            channel=channel,
+            admin_contacts=admin_contacts,
+            knowledge_store=self.knowledge,
+            reply_generator=reply_gen,
+            takeover_cb=_takeover_cb,
+        )
+
+    def submit_reply_rating(
+        self,
+        turn_id: int,
+        *,
+        stars: int,
+        tags: Iterable[str] = (),
+        comment: str = "",
+        rewritten_reply: str = "",
+    ) -> Dict[str, Any]:
+        return self.supervisor_eval.submit_rating(
+            turn_id,
+            stars=stars,
+            tags=tags,
+            comment=comment,
+            rewritten_reply=rewritten_reply,
+            knowledge_store=self.knowledge,
+        )
+
+    def get_quality_dashboard(self, *, days: int = 7) -> Dict[str, Any]:
+        return self.supervisor_eval.get_quality_dashboard(days=days)
+
+    def list_sparring_turns(
+        self,
+        *,
+        contact_name: Optional[str] = None,
+        limit: int = 30,
+    ) -> Dict[str, Any]:
+        limit_n = max(1, min(int(limit), 200))
+        with self.supervisor_eval._lock, self.supervisor_eval._connect() as conn:
+            if contact_name and str(contact_name).strip():
+                norm = normalize_chat_name(str(contact_name).strip()) or str(contact_name).strip()
+                rows = conn.execute(
+                    "SELECT * FROM sparring_turns WHERE contact_name = ? ORDER BY id DESC LIMIT ?",
+                    (norm, limit_n),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM sparring_turns ORDER BY id DESC LIMIT ?",
+                    (limit_n,),
+                ).fetchall()
+        turns = [self.supervisor_eval._turn_view(r) for r in rows]
+        return {
+            "ok": True,
+            "count": len(turns),
+            "turns": turns,
+        }
+
+    def run_sparring_regression(self, *, limit: int = 20, use_llm: bool = False) -> Dict[str, Any]:
+        reply_gen = self._build_supervisor_reply_generator(use_llm=use_llm)
+        return self.supervisor_eval.run_regression_suite(reply_gen, limit=limit)
+
+    def get_user_guide_markdown(self) -> Dict[str, Any]:
+        guide_path = self._resolve_user_guide_path()
+        if not guide_path.is_file():
+            return {"ok": False, "error": f"User guide not found at {guide_path}", "markdown": ""}
+        content = guide_path.read_text(encoding="utf-8")
+        return {
+            "ok": True,
+            "title": "WeChat Bot 使用者操作手册",
+            "path": str(guide_path),
+            "markdown": content,
+        }
+
+    def get_user_guide_html(self) -> Dict[str, Any]:
+        """Load the standalone local web user guide HTML from bundle_root or plugin_root."""
+        guide_path = self._resolve_user_guide_html_path()
+        if not guide_path.is_file():
+            return {
+                "ok": False,
+                "error": f"User guide HTML not found at {guide_path}",
+                "path": str(guide_path),
+                "html": "",
+            }
+        content = guide_path.read_text(encoding="utf-8")
+        return {
+            "ok": True,
+            "title": "WeChat Bot 使用手册",
+            "path": str(guide_path),
+            "html": content,
+        }

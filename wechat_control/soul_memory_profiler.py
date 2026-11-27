@@ -186,6 +186,130 @@ def _dedupe_memory_items(items: List[Dict[str, Any]], limit: int = 16) -> List[D
     return out
 
 
+_MOMENTS_TOPIC_RULES: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+    ("AI/技术产品", ("ai", "大模型", "agent", "开源", "github", "产品", "上线", "代码", "自动化", "系统", "研发", "部署", "openbot")),
+    ("商务/合作推进", ("签约", "客户", "报价", "方案", "合作", "项目", "复盘", "交付", "峰会", "出差", "会议", "融资")),
+    ("户外/运动健身", ("爬山", "跑步", "健身", "马拉松", "骑行", "游泳", "徒步", "瑜伽", "打球", "露营")),
+    ("旅行/周末休闲", ("旅行", "旅游", "出游", "风景", "海边", "机票", "酒店", "自驾", "度假")),
+    ("咖啡/美食生活", ("咖啡", "美食", "火锅", "烧烤", "探店", "甜品", "做饭", "奶茶", "聚餐", "喝茶")),
+    ("阅读/成长思考", ("读书", "书单", "笔记", "复盘", "思考", "课程", "讲座", "论文", "播客")),
+    ("家庭/生活日常", ("家人", "孩子", "带娃", "猫咪", "狗狗", "宠物", "养花", "绿萝", "装修", "搬家")),
+)
+_MOMENTS_HASHTAG_RE = re.compile(r"#([^\s#]{2,18})#?")
+
+
+def _extract_moments_clues(
+    title: str,
+    moments_payload: Any,
+) -> Tuple[List[Dict[str, Any]], List[str], int]:
+    """Extract deterministic facts, topic tags, and count from a contact's Moments payload."""
+    raw_authored: List[Any] = []
+    raw_interacted: List[Any] = []
+    stats: Dict[str, Any] = {}
+
+    if isinstance(moments_payload, dict):
+        if moments_payload.get("ok") is False:
+            return [], [], 0
+        if isinstance(moments_payload.get("authored"), list):
+            raw_authored = list(moments_payload.get("authored") or [])
+        elif isinstance(moments_payload.get("posts"), list):
+            raw_authored = list(moments_payload.get("posts") or [])
+        if isinstance(moments_payload.get("interactedOnMine"), list):
+            raw_interacted = list(moments_payload.get("interactedOnMine") or [])
+        if isinstance(moments_payload.get("stats"), dict):
+            stats = dict(moments_payload.get("stats") or {})
+    elif isinstance(moments_payload, list):
+        raw_authored = list(moments_payload)
+    else:
+        return [], [], 0
+
+    authored = [p for p in raw_authored if isinstance(p, dict) and not p.get("isAd")]
+    recent_count = len(authored)
+    if recent_count == 0 and stats:
+        for stat_key in ("authoredCount", "posts", "postCount"):
+            if isinstance(stats.get(stat_key), int) and int(stats[stat_key]) > 0:
+                recent_count = int(stats[stat_key])
+                break
+
+    facts: List[Dict[str, Any]] = []
+    topic_blobs: List[str] = []
+    topics: List[str] = []
+
+    def _add_topic(label: str) -> None:
+        clean_l = _clean_text(label)
+        if clean_l and clean_l not in topics:
+            topics.append(clean_l)
+
+    for post in authored[:8]:
+        body = _clean_text(str(post.get("text") or ""))
+        time_text = _clean_text(str(post.get("timeText") or ""))
+        source = _clean_text(str(post.get("source") or ""))
+        atts = [_clean_text(str(a)) for a in (post.get("attachments") or []) if _clean_text(str(a))]
+        combined = " ".join(part for part in (body, source, " ".join(atts)) if part)
+        if combined:
+            topic_blobs.append(combined)
+
+        if len(facts) < 5:
+            prefix_time = f"({time_text})" if time_text else ""
+            if body:
+                facts.append({
+                    "id": _stable_id("fact_mom", title, time_text, body[:40]),
+                    "category": "fact",
+                    "content": f"近期朋友圈动态{prefix_time}：{body[:72]}",
+                    "source": "moments_feed",
+                })
+            elif atts:
+                facts.append({
+                    "id": _stable_id("fact_mom_att", title, time_text, atts[0][:40]),
+                    "category": "fact",
+                    "content": f"近期朋友圈分享{prefix_time}：{' / '.join(atts[:2])[:72]}",
+                    "source": "moments_feed",
+                })
+        if body:
+            for tag in _MOMENTS_HASHTAG_RE.findall(body):
+                _add_topic(tag)
+            for ufact in _USER_FACT_RE.findall(body):
+                clean_u = ufact.strip("，,。.!！?？ ")
+                if len(clean_u) >= 5:
+                    facts.append({
+                        "id": _stable_id("fact_mom_u", title, clean_u),
+                        "category": "fact",
+                        "content": f"朋友圈透露：{clean_u}",
+                        "source": "moments_feed",
+                    })
+            for quoted in _BOOK_OR_VIDEO_RE.findall(body):
+                clean_q = quoted.strip()
+                if len(clean_q) >= 2:
+                    facts.append({
+                        "id": _stable_id("fact_mom_q", title, clean_q),
+                        "category": "fact",
+                        "content": f"朋友圈提及「{clean_q}」",
+                        "source": "moments_feed",
+                    })
+
+    if raw_interacted:
+        facts.append({
+            "id": _stable_id("fact_mom_hit", title, str(len(raw_interacted))),
+            "category": "fact",
+            "content": f"朋友圈互动：在号主动态下互动 {len(raw_interacted)} 次",
+            "source": "moments_interaction",
+        })
+
+    blob_cf = " ".join(topic_blobs).casefold()
+    if blob_cf:
+        for label, keywords in _MOMENTS_TOPIC_RULES:
+            if any(kw in blob_cf for kw in keywords):
+                _add_topic(label)
+        if "视频号" in blob_cf:
+            _add_topic("视频号内容关注")
+        elif "公众号" in blob_cf:
+            _add_topic("公众号资讯阅读")
+    if authored and not topics:
+        _add_topic("朋友圈生活动态")
+
+    return _dedupe_memory_items(facts, limit=6), topics[:5], recent_count
+
+
 class SoulMemoryProfiler:
     """Builds and persists Owner Self-Soul, Friend Psychological Profiles, and Episodic Memories."""
 
@@ -198,6 +322,9 @@ class SoulMemoryProfiler:
         analytics_provider: Optional[Callable[[], Dict[str, Any]]] = None,
         bindings_provider: Optional[Callable[[], List[Dict[str, Any]]]] = None,
         persona_sync_cb: Optional[Callable[[Dict[str, Any]], None]] = None,
+        moments_provider: Optional[Callable[[str], Dict[str, Any]]] = None,
+        tenant_mode: str = "legacy",
+        owner_config: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.histories_dir = Path(histories_dir)
         self.reports_dir = Path(reports_dir)
@@ -205,19 +332,44 @@ class SoulMemoryProfiler:
         self.analytics_provider = analytics_provider
         self.bindings_provider = bindings_provider
         self.persona_sync_cb = persona_sync_cb
+        self.moments_provider = moments_provider
+        self.tenant_mode = str(tenant_mode or "legacy").strip().lower()
+        self.owner_config: Dict[str, Any] = dict(owner_config or {})
         self.store_path.parent.mkdir(parents=True, exist_ok=True)
         self.histories_dir.mkdir(parents=True, exist_ok=True)
         self.reports_dir.mkdir(parents=True, exist_ok=True)
+
+    def set_tenant_context(
+        self,
+        *,
+        tenant_mode: Optional[str] = None,
+        owner_config: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if tenant_mode is not None:
+            self.tenant_mode = str(tenant_mode or "legacy").strip().lower()
+        if owner_config is not None:
+            self.owner_config = dict(owner_config)
 
     # ------------------------------------------------------------------
     # Store I/O
     # ------------------------------------------------------------------
 
     def _empty_store(self) -> Dict[str, Any]:
+        if self.tenant_mode == "customer":
+            aliases: List[str] = ["我", "self", "owner", "本人", "号主"]
+            owner_name = str(self.owner_config.get("ownerName") or "").strip()
+            if owner_name and owner_name not in aliases:
+                aliases.append(owner_name)
+            for al in self.owner_config.get("ownerAliases") or []:
+                clean_al = str(al or "").strip()
+                if clean_al and clean_al not in aliases:
+                    aliases.append(clean_al)
+        else:
+            aliases = list(DEFAULT_OWNER_ALIASES)
         return {
             "schema": "openbot.wechat-soul-memories/1",
             "updatedAt": "",
-            "ownerAliases": list(DEFAULT_OWNER_ALIASES),
+            "ownerAliases": aliases,
             "manualMemories": {},
             "bridgeArchives": [],
             "ownerProfile": {},
@@ -290,6 +442,8 @@ class SoulMemoryProfiler:
         title: str,
         records: List[Dict[str, Any]],
         snippets: List[str],
+        *,
+        tenant_mode: str = "legacy",
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
         """Extract deterministic facts, episodicEvents, and sharedContext from bidirectional chat logs."""
         facts: List[Dict[str, Any]] = []
@@ -351,27 +505,28 @@ class SoulMemoryProfiler:
                     "source": "chat_log_extract",
                 })
 
-        # Domain-specific high-value entities observed in local WeChat records
-        entity_rules = [
-            ("StaffDeck", "讨论并关注企业级数字员工开源平台 StaffDeck（OpenBMB）"),
-            ("OpenBot", "围绕 OpenBot 自动化 Agent 与微信 RPA 插件协同"),
-            ("YoBot", "交流过微信机器人控制端参考项目 yobot.yokoagi.com"),
-            ("ICLR", "关注顶会 ICLR / 世界模型学术论文动向"),
-            ("呆猫吃娱", "互发轻松趣味短视频/视频号内容（如《呆猫吃娱》）"),
-            ("围观群众小葵子", "分享搞笑/生活类视频号《围观群众小葵子》"),
-            ("影刀", "对比讨论过 RPA 与影刀/按键精灵自动化技术差异"),
-            ("Personal Agent", "个人助手/虚拟机/云电脑硬件配置调研归档"),
-            ("AI工具箱", "收藏并沉淀「宝藏 AI 工具箱」资料"),
-            ("郝泽华", "企业微信联系人「郝泽华@安心的AI工作室」"),
-        ]
-        for needle, summary in entity_rules:
-            if needle.casefold() in blob.casefold():
-                shared.append({
-                    "id": _stable_id("sh_ent", title, needle),
-                    "category": "shared",
-                    "content": summary,
-                    "source": "chat_log_extract",
-                })
+        # Domain-specific high-value entities observed in local WeChat records (legacy mode only)
+        if str(tenant_mode or "legacy").strip().lower() != "customer":
+            entity_rules = [
+                ("StaffDeck", "讨论并关注企业级数字员工开源平台 StaffDeck（OpenBMB）"),
+                ("OpenBot", "围绕 OpenBot 自动化 Agent 与微信 RPA 插件协同"),
+                ("YoBot", "交流过微信机器人控制端参考项目 yobot.yokoagi.com"),
+                ("ICLR", "关注顶会 ICLR / 世界模型学术论文动向"),
+                ("呆猫吃娱", "互发轻松趣味短视频/视频号内容（如《呆猫吃娱》）"),
+                ("围观群众小葵子", "分享搞笑/生活类视频号《围观群众小葵子》"),
+                ("影刀", "对比讨论过 RPA 与影刀/按键精灵自动化技术差异"),
+                ("Personal Agent", "个人助手/虚拟机/云电脑硬件配置调研归档"),
+                ("AI工具箱", "收藏并沉淀「宝藏 AI 工具箱」资料"),
+                ("郝泽华", "企业微信联系人「郝泽华@安心的AI工作室」"),
+            ]
+            for needle, summary in entity_rules:
+                if needle.casefold() in blob.casefold():
+                    shared.append({
+                        "id": _stable_id("sh_ent", title, needle),
+                        "category": "shared",
+                        "content": summary,
+                        "source": "chat_log_extract",
+                    })
 
         # Extract user household/work/personal facts & media deep-reads
         for rec in records:
@@ -446,6 +601,9 @@ class SoulMemoryProfiler:
         facts: List[Dict[str, Any]],
         events: List[Dict[str, Any]],
         shared: List[Dict[str, Any]],
+        moments_topics: Optional[List[str]] = None,
+        recent_moments_count: int = 0,
+        tenant_mode: str = "legacy",
     ) -> Dict[str, Any]:
         norm = normalize_chat_name(title)
         cf = norm.casefold()
@@ -467,9 +625,17 @@ class SoulMemoryProfiler:
         warmth = int(analytics_entry.get("warmthScore") or 50)
         care_level = str(analytics_entry.get("careLevel") or "normal")
         peak_slot = str(analytics_entry.get("peakTimeSlot") or "时段样本待补充")
-        categories = list(analytics_entry.get("contentCategories") or ["日常沟通"])
+        raw_categories = list(analytics_entry.get("contentCategories") or [])
+        categories: List[str] = []
+        for topic in raw_categories + list(moments_topics or []):
+            clean_topic = _clean_text(str(topic or ""))
+            if clean_topic and clean_topic not in categories:
+                categories.append(clean_topic)
+        if not categories:
+            categories = ["日常沟通"]
 
-        if "心安" in cf:
+        is_customer = str(tenant_mode or "legacy").strip().lower() == "customer"
+        if (not is_customer) and "心安" in cf:
             personality_tag = "灵动接梗 · 工具与生活双栖密友"
             mbti_est = "ENFP / ENTP (脑洞好奇与分享欲强)"
             psych_summary = (
@@ -479,7 +645,7 @@ class SoulMemoryProfiler:
             comm_prefs = "喜欢简短直给带轻微玩笑感（～/表情），反感生硬客服套话或长篇说教；清晨与午后回复活跃。"
             emotional_baseline = "轻松积极 · 高信任亲密度"
             boundaries = "测试类定时问候可轻松活泼；勿连续刷屏发长篇公文。"
-        elif "openbot" in cf:
+        elif (not is_customer) and "openbot" in cf:
             personality_tag = "极客工程共建 · 高信噪比测试群"
             mbti_est = "INTJ / INTP (系统架构与开源务实派)"
             psych_summary = (
@@ -489,14 +655,14 @@ class SoulMemoryProfiler:
             comm_prefs = "优先结论先行，附带具体仓库名、机制区别或测试数据。"
             emotional_baseline = "专注理性 · 工程协作场"
             boundaries = "仅同步技术进展、SOP 结论与验证回执；不发无关情绪化闲聊。"
-        elif "model agent" in cf:
+        elif (not is_customer) and "model agent" in cf:
             personality_tag = "快节奏大模型极客吐槽社群"
             mbti_est = "ENTP (前沿敏感 · 短句高频)"
             psych_summary = "群内对新权重、新模型发布极度敏锐，交流节奏极快，偏好直白吐槽与一线实测结论。"
             comm_prefs = "短句口语即可，切勿发长篇 AI 八股。"
             emotional_baseline = "热闹高敏 · 极客幽默"
             boundaries = "默认只读旁观提取情报，非必要不主动打扰群友。"
-        elif "苏文璐" in cf:
+        elif (not is_customer) and "苏文璐" in cf:
             personality_tag = "学术深耕 · 低噪高价值科研好友"
             mbti_est = "INTJ / INFJ (沉静专注 · 前沿导向)"
             psych_summary = "沟通极少但每条都围绕 ICLR / 世界模型等高价值科研动态。"
@@ -506,14 +672,18 @@ class SoulMemoryProfiler:
         elif "文件传输" in cf:
             personality_tag = "号主个人第二大脑 & 资料中转库"
             mbti_est = "Self-Archive (个人知识备忘)"
-            psych_summary = "沉淀 AI 工具箱、Personal Agent 云电脑配置对比等自用研究素材。"
+            psych_summary = "沉淀常用资料、对比笔记与日常待办的私有中转节点。"
             comm_prefs = "适合归档 Markdown 摘要、链接清单与每日巡检日报。"
             emotional_baseline = "纯私有工具节点"
             boundaries = "可随时无打扰写入测试归档与文章导出摘要。"
         elif "企业微信" in cf or "服务通知" in cf or "微信团队" in cf:
             personality_tag = "组织协同 / 官方安全通知通道"
             mbti_est = "System / Work-Formal"
-            psych_summary = "承载工作工作室邀请（如安心的AI工作室）或官方安全登录提醒，代表号主真实社交/组织边界。"
+            psych_summary = (
+                "承载工作协同邀请或官方安全登录提醒，代表号主真实社交/组织边界。"
+                if is_customer
+                else "承载工作工作室邀请（如安心的AI工作室）或官方安全登录提醒，代表号主真实社交/组织边界。"
+            )
             comm_prefs = "工作消息礼貌简要；官方系统通知仅做只读解析与记忆提取，禁止自动回复。"
             emotional_baseline = "正式客观"
             boundaries = "微信团队及系统通知严格只读。"
@@ -541,7 +711,7 @@ class SoulMemoryProfiler:
             "target": analytics_entry.get("target") or norm,
             "matchedTitle": title,
             "slug": analytics_entry.get("slug") or _slugify_target(title),
-            "role": analytics_entry.get("role") or ("group" if "openbot" in cf else "friend"),
+            "role": analytics_entry.get("role") or ("group" if (not is_customer and "openbot" in cf) else "friend"),
             "bound": bool(binding is not None or analytics_entry.get("bound")),
             "careLevel": care_level,
             "careLevelLabel": analytics_entry.get("careLevelLabel") or "普通会话",
@@ -554,6 +724,7 @@ class SoulMemoryProfiler:
             "emotionalBaseline": emotional_baseline,
             "taboosAndBoundaries": boundaries,
             "coreTopics": categories,
+            "recentMomentsCount": int(recent_moments_count or 0),
             "peakTimeSlot": peak_slot,
             "peerSpeakingMetrics": peer_metrics,
             "selfSpeakingWithContact": self_metrics,
@@ -574,21 +745,37 @@ class SoulMemoryProfiler:
         contact_profiles: List[Dict[str, Any]],
         all_facts: List[Dict[str, Any]],
         all_shared: List[Dict[str, Any]],
+        tenant_mode: str = "legacy",
+        owner_config: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         speaking = _extract_speaking_metrics(all_self_texts)
         _, slot_dist = extract_time_markers(all_time_markers)
         sorted_slots = [k for k, _ in sorted(slot_dist.items(), key=lambda kv: kv[1], reverse=True)]
         peak_slots = sorted_slots[:3] or ["上午 09:00-11:59", "清晨 05:00-08:59", "晚间 18:00-21:59"]
 
-        # Hints discovered from verified local logs
-        wechat_id = "zhhao_1995"
-        studio_name = "安心的AI工作室"
+        is_customer = str(tenant_mode or "legacy").strip().lower() == "customer"
+        cfg = owner_config or {}
+        # Prefer explicit owner_config when unmatched; never hardcode personal defaults
+        wechat_id = str(cfg.get("wechatId") or cfg.get("ownerName") or "").strip()
+        studio_name = str(cfg.get("businessName") or cfg.get("organizationHint") or "").strip()
         for f in all_facts:
             c = str(f.get("content") or "")
             if "微信号账号标识：" in c:
-                wechat_id = c.split("微信号账号标识：", 1)[1].strip()
+                extracted_wx = c.split("微信号账号标识：", 1)[1].strip()
+                if extracted_wx:
+                    wechat_id = extracted_wx
+            elif "微信号账号标识:" in c:
+                extracted_wx = c.split("微信号账号标识:", 1)[1].strip()
+                if extracted_wx:
+                    wechat_id = extracted_wx
             if "关联组织/工作室：" in c:
-                studio_name = c.split("关联组织/工作室：", 1)[1].strip()
+                extracted_org = c.split("关联组织/工作室：", 1)[1].strip()
+                if extracted_org:
+                    studio_name = extracted_org
+            elif "关联组织/工作室:" in c:
+                extracted_org = c.split("关联组织/工作室:", 1)[1].strip()
+                if extracted_org:
+                    studio_name = extracted_org
 
         role_matrix: List[Dict[str, Any]] = []
         for cp in contact_profiles:
@@ -599,13 +786,13 @@ class SoulMemoryProfiler:
                 for ev in (cp.get("memories", {}).get("episodicEvents") or [])
                 if ev.get("direction") == "self"
             ]
-            if "心安" in cf:
+            if (not is_customer) and "心安" in cf:
                 role_mode = "轻松生活梗 & 共测挚友模式"
                 adj = "句短松弛、接住视频号/生活书名梗，愿陪对方测新机器人和工具"
-            elif "openbot" in cf:
+            elif (not is_customer) and "openbot" in cf:
                 role_mode = "开源技术共建 & 项目测试主导者"
                 adj = "干脆务实、聚焦 GitHub 项目（StaffDeck/OpenBot）、SOP 与自动化测试结论"
-            elif "苏文璐" in cf:
+            elif (not is_customer) and "苏文璐" in cf:
                 role_mode = "科研同行克制模式"
                 adj = "低频高信噪比，专注论文/ICLR/世界模型探讨，不闲聊打扰"
             elif "企业微信" in cf or "服务通知" in cf:
@@ -614,6 +801,9 @@ class SoulMemoryProfiler:
             elif "文件传输" in cf:
                 role_mode = "自我知识沉淀模式"
                 adj = "直接丢链接与调研对比笔记，充当个人外挂记忆体"
+            elif is_customer and quotes:
+                role_mode = f"客户沟通模式（{cp.get('personalityTag') or '顾问式服务'}）"
+                adj = str(cp.get("communicationPreferences") or "自然口语回应，聚焦解决客户需求")
             else:
                 continue
             role_matrix.append({
@@ -623,20 +813,65 @@ class SoulMemoryProfiler:
                 "exampleQuote": quotes[0] if quotes else f"（结合历史话题「{'、'.join(cp.get('coreTopics') or ['日常'])}」自然互动）",
             })
 
-        owner_memories = _dedupe_memory_items(
-            [
-                {
+        if is_customer:
+            owner_display_name = str(cfg.get("ownerName") or wechat_id or "号主").strip()
+            product_summary = str(cfg.get("productSummary") or "").strip()
+            base_owner_memories: List[Dict[str, Any]] = []
+            if wechat_id:
+                base_owner_memories.append({
+                    "id": "owner_fact_wxid",
+                    "category": "fact",
+                    "content": f"号主称呼/标识：{wechat_id}",
+                    "source": "tenant_profile",
+                })
+            if studio_name:
+                base_owner_memories.append({
+                    "id": "owner_fact_studio",
+                    "category": "fact",
+                    "content": f"所属业务/团队：{studio_name}" + (f"（{product_summary}）" if product_summary else ""),
+                    "source": "tenant_profile",
+                })
+            elif product_summary:
+                base_owner_memories.append({
+                    "id": "owner_fact_product",
+                    "category": "fact",
+                    "content": f"主营业务简介：{product_summary}",
+                    "source": "tenant_profile",
+                })
+            owner_memories = _dedupe_memory_items(base_owner_memories + all_facts + all_shared, limit=18)
+            traits = [
+                "顾问式业务沟通：围绕客户具体需求与场景给出清晰务实的方案建议",
+                "自然口语微信风：回复简洁流畅，避免生硬客服模板与机械长段落",
+                "重视合规与边界：关键价格折扣、交付承诺和售后投诉交由人工核实把关",
+            ]
+            org_label = f" / {studio_name}" if studio_name else ""
+            digital_twin_prompt = (
+                f"你正在以{owner_display_name}{org_label}的专属沟通口吻回复微信消息。\n"
+                + (f"【主营业务】{product_summary}\n" if product_summary else "")
+                + f"【说话风格】{speaking['toneTag']}；句长通常 {speaking['avgSentenceLength'] or 12.0} 字左右，"
+                f"习惯「{speaking['punctuationHabits']}」，像真人微信一样自然回应。\n"
+                f"【沟通原则】聚焦客户真实诉求，不编造价格或交付承诺。"
+            )
+            archetype_tag = "务实顾问型 × 自然微信表达"
+            mbti_est = "ENTJ / ENFJ (目标导向且注重客户信任)"
+            display_name = f"号主本我 ({owner_display_name})" if owner_display_name else "号主本我"
+        else:
+            base_legacy_memories: List[Dict[str, Any]] = []
+            if wechat_id:
+                base_legacy_memories.append({
                     "id": "owner_fact_wxid",
                     "category": "fact",
                     "content": f"微信登录标识：{wechat_id}（来自微信团队安全通知实录）",
                     "source": "wechat_team_log",
-                },
-                {
+                })
+            if studio_name:
+                base_legacy_memories.append({
                     "id": "owner_fact_studio",
                     "category": "fact",
-                    "content": f"关联组织与团队：{studio_name}（与成员郝泽华等协同）",
+                    "content": f"关联组织与团队：{studio_name}",
                     "source": "wecom_invite_log",
-                },
+                })
+            base_legacy_memories.extend([
                 {
                     "id": "owner_fact_openbot",
                     "category": "fact",
@@ -649,34 +884,39 @@ class SoulMemoryProfiler:
                     "content": "交互价值观：反感生硬官腔和脚本抢鼠标，强调丝滑体验、防打扰边界与先独立验证再交付",
                     "source": "behavioral_analysis",
                 },
+            ])
+            owner_memories = _dedupe_memory_items(
+                base_legacy_memories
+                + all_facts
+                + [s for s in all_shared if any(k in s["content"] for k in ("OpenBot", "StaffDeck", "YoBot", "AI工具箱", "久病成医"))],
+                limit=18,
+            )
+            traits = [
+                "工程与系统思维强：关注 OpenBot、Agent、StaffDeck、RPA 与云电脑/工具箱实战评测",
+                "高共情分寸感（见人下菜碟）：对「心安」轻松接梗测试，对「openbot」务实讨论方案，对科研好友保持低噪克制",
+                "短句高频、不喜冗长套话：自己发消息偏简洁口语，追求交互丝滑、省心与安全边界",
+                "注重记忆与资产沉淀：习惯把有价值的文章、工具链接沉淀到文件传输助手或知识库",
             ]
-            + all_facts
-            + [s for s in all_shared if any(k in s["content"] for k in ("OpenBot", "StaffDeck", "YoBot", "AI工具箱", "久病成医"))],
-            limit=18,
-        )
-
-        traits = [
-            "工程与系统思维强：关注 OpenBot、Agent、StaffDeck、RPA 与云电脑/工具箱实战评测",
-            "高共情分寸感（见人下菜碟）：对「心安」轻松接梗测试，对「openbot」务实讨论方案，对科研好友保持低噪克制",
-            "短句高频、不喜冗长套话：自己发消息偏简洁口语，追求交互丝滑、省心与安全边界",
-            "注重记忆与资产沉淀：习惯把有价值的文章、工具链接沉淀到文件传输助手或知识库",
-        ]
-
-        digital_twin_prompt = (
-            f"你正在以微信号主本人（微信号 {wechat_id} / {studio_name} 核心开发者）的「数字分身」口吻回复消息。\n"
-            f"【本我性格特征】{'；'.join(traits[:3])}。\n"
-            f"【说话风格】{speaking['toneTag']}；句长通常 {speaking['avgSentenceLength'] or 9.0} 字左右，"
-            f"习惯「{speaking['punctuationHabits']}」，尽量像真人微信秒回一样自然简练，不要客服腔和 AI 味长段落。\n"
-            f"【语态切换】对熟人带轻微幽默或口语助词，对技术/工作群直接给结论和关键项目细节。"
-        )
+            id_desc = f"微信号 {wechat_id}" if wechat_id else "本地号主"
+            org_desc = f" / {studio_name}" if studio_name else ""
+            digital_twin_prompt = (
+                f"你正在以微信号主本人（{id_desc}{org_desc}）的「数字分身」口吻回复消息。\n"
+                f"【本我性格特征】{'；'.join(traits[:3])}。\n"
+                f"【说话风格】{speaking['toneTag']}；句长通常 {speaking['avgSentenceLength'] or 9.0} 字左右，"
+                f"习惯「{speaking['punctuationHabits']}」，尽量像真人微信秒回一样自然简练，不要客服腔和 AI 味长段落。\n"
+                f"【语态切换】对熟人带轻微幽默或口语助词，对技术/工作群直接给结论和关键项目细节。"
+            )
+            archetype_tag = "极客工程派 × 讲分寸的温暖熟人"
+            mbti_est = "ENTJ / INTJ (务实架构与极客推进型，对密友流露 ENTP 幽默感)"
+            display_name = f"号主本我 ({wechat_id})" if wechat_id else "号主本我"
 
         return {
             "ownerId": wechat_id,
-            "displayName": f"号主本我 ({wechat_id})",
+            "displayName": display_name,
             "wechatIdHint": wechat_id,
             "organizationHint": studio_name,
-            "mbtiEstimate": "ENTJ / INTJ (务实架构与极客推进型，对密友流露 ENTP 幽默感)",
-            "archetypeTag": "极客工程派 × 讲分寸的温暖熟人",
+            "mbtiEstimate": mbti_est,
+            "archetypeTag": archetype_tag,
             "personalityTraits": traits,
             "speakingStyle": {
                 **speaking,
@@ -746,6 +986,24 @@ class SoulMemoryProfiler:
             titles_by_key.setdefault(key, str(ap.get("matchedTitle") or ap.get("target") or key))
             records_by_key.setdefault(key, [])
 
+        moments_cache: Dict[str, Any] = {}
+        if target and self.moments_provider is not None:
+            clean_target_norm = normalize_chat_name(target)
+            if clean_target_norm and not any(
+                _matches_target(target, t) or _matches_target(clean_target_norm, normalize_chat_name(t))
+                for t in titles_by_key.values()
+            ):
+                try:
+                    m_payload = self.moments_provider(target)
+                    m_facts, m_topics, m_count = _extract_moments_clues(clean_target_norm, m_payload)
+                    if m_count > 0 or m_facts or m_topics:
+                        t_key = clean_target_norm.casefold()
+                        titles_by_key[t_key] = clean_target_norm
+                        records_by_key.setdefault(t_key, [])
+                        moments_cache[t_key] = m_payload
+                except Exception:
+                    pass
+
         # Gather global owner statistics + per-contact soul & memory profiles
         all_self_texts: List[str] = []
         all_time_markers: List[str] = []
@@ -773,7 +1031,24 @@ class SoulMemoryProfiler:
                             all_self_texts.append(txt)
             all_time_markers.extend(list(ap.get("activeTimeMarkers") or []))
 
-            facts, events, shared = self._extract_facts_from_records(title, records, snippets)
+            facts, events, shared = self._extract_facts_from_records(
+                title,
+                records,
+                snippets,
+                tenant_mode=self.tenant_mode,
+            )
+
+            m_facts: List[Dict[str, Any]] = []
+            m_topics: List[str] = []
+            m_count = 0
+            if self.moments_provider is not None:
+                try:
+                    m_payload = moments_cache.get(key)
+                    if m_payload is None:
+                        m_payload = self.moments_provider(title)
+                    m_facts, m_topics, m_count = _extract_moments_clues(title, m_payload)
+                except Exception:
+                    m_facts, m_topics, m_count = [], [], 0
 
             # Merge manual memories bound to this target
             for m_key, m_list in manual_map.items():
@@ -787,7 +1062,10 @@ class SoulMemoryProfiler:
                         else:
                             facts.insert(0, item)
 
-            facts = _dedupe_memory_items(facts, limit=16)
+            if m_facts:
+                facts = _dedupe_memory_items(facts[:12] + m_facts[:6] + facts[12:], limit=16)
+            else:
+                facts = _dedupe_memory_items(facts, limit=16)
             events = _dedupe_memory_items(events, limit=20)
             shared = _dedupe_memory_items(shared, limit=16)
             all_facts.extend(facts)
@@ -801,6 +1079,9 @@ class SoulMemoryProfiler:
                 facts=facts,
                 events=events,
                 shared=shared,
+                moments_topics=m_topics,
+                recent_moments_count=m_count,
+                tenant_mode=self.tenant_mode,
             )
             contact_profiles_list.append(cp)
 
@@ -820,6 +1101,8 @@ class SoulMemoryProfiler:
             contact_profiles=contact_profiles_list,
             all_facts=all_facts,
             all_shared=all_shared,
+            tenant_mode=self.tenant_mode,
+            owner_config=self.owner_config,
         )
 
         llm_synthesis: Optional[Dict[str, Any]] = None
@@ -992,6 +1275,7 @@ class SoulMemoryProfiler:
                 "communicationPreferences": matched_contact.get("communicationPreferences"),
                 "emotionalBaseline": matched_contact.get("emotionalBaseline"),
                 "rapportScore": matched_contact.get("rapportScore"),
+                "recentMomentsCount": int(matched_contact.get("recentMomentsCount") or 0),
             }
             if matched_contact is not None
             else None
@@ -1149,7 +1433,15 @@ class SoulMemoryProfiler:
         owner_sender: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Convert a WeChatBridge ChatArchiveBundle into bidirectional self/peer records & rebuild profiles."""
-        owner_tokens = {a.casefold() for a in DEFAULT_OWNER_ALIASES}
+        if self.tenant_mode == "customer":
+            owner_tokens = {"我", "self", "owner", "本人", "号主"}
+            if self.owner_config.get("ownerName"):
+                owner_tokens.add(_clean_text(str(self.owner_config["ownerName"])).casefold())
+            for al in self.owner_config.get("ownerAliases") or []:
+                if str(al or "").strip():
+                    owner_tokens.add(_clean_text(str(al)).casefold())
+        else:
+            owner_tokens = {a.casefold() for a in DEFAULT_OWNER_ALIASES}
         if owner_sender and owner_sender.strip():
             owner_tokens.add(_clean_text(owner_sender).casefold())
 

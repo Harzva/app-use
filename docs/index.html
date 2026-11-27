@@ -87,6 +87,13 @@
 
     html {
       scroll-behavior: smooth;
+      accent-color: var(--accent-color);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
     }
 
     body {
@@ -108,6 +115,9 @@
     }
 
     .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
       border-bottom: 1px solid var(--border);
       background-color: var(--bg);
     }
@@ -132,18 +142,37 @@
 
     .nav {
       display: flex;
-      gap: 16px;
+      gap: 14px;
       flex-wrap: wrap;
+      align-items: center;
       font-size: 13.5px;
+      scroll-target-group: auto;
     }
 
     .nav a {
       text-decoration: none;
       color: var(--muted);
+      padding-bottom: 2px;
+      border-bottom: 2px solid transparent;
     }
 
     .nav a:hover {
       color: var(--text);
+    }
+
+    .nav a:is(:target-current, .target-current) {
+      color: var(--text);
+      font-weight: 600;
+      border-bottom-color: var(--accent-color);
+    }
+
+    .nav a.nav-strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    main section[id] {
+      scroll-margin-top: 72px;
     }
 
     main {
@@ -537,13 +566,15 @@
     <div class="topbar-inner">
       <a class="brand" href="#top">App-Use Studio</a>
       <nav class="nav" aria-label="Primary">
+        <a class="nav-strong" href="./user-guide.html">📖 零黑话用户手册</a>
+        <a href="#v3-zero-fde">v3.0.0 零配置升级</a>
         <a href="#why">Why App-Use</a>
         <a href="#architecture">5 大核心算法</a>
         <a href="#risk-tiers">反风控分级</a>
         <a href="#benchmarks">实机回执</a>
         <a href="#quickstart">Quick Start</a>
+        <a href="https://github.com/Harzva/app-use/releases/tag/v3.0.0" target="_blank" rel="noopener">⬇️ 下载 v3.0.0</a>
         <a href="https://github.com/Harzva/app-use">GitHub</a>
-        <a href="https://harzva.github.io/">Harzva</a>
       </nav>
     </div>
   </header>
@@ -554,22 +585,49 @@
       <p class="lead">
         补齐智能体桌面行动最后一块拼图：<strong>Browser-Use → Computer-Use → App-Use</strong>。
         专为 macOS 打造的<strong>窗口级桌面 App-Use 与 Meta-RPA 元能力引擎</strong>——结合
-        <code>AXUIElement</code> + <code>Apple Vision OCR</code>、安全原生 App 无焦点后台并发直调，以及社交客户端三级反风控护栏。
+        <code>AXUIElement</code> + <code>Apple Vision OCR</code>、安全原生 App 无焦点后台并发直调，以及社交客户端三级反风控护栏；<strong>v3.0.0</strong> 全面升级为<strong>零配置客户自助闭环</strong>（4 步向导自学习、测试小号 <code>#</code> 调优、1–5★ 双轨自评分）。
       </p>
       <div class="meta-row">
-        <span class="tag">v2.9.0 (build 2900)</span>
+        <span class="tag">v3.0.0 (build 3000)</span>
         <span class="tag">macOS 14+ Apple Silicon</span>
-        <span class="tag">69 MCP Tools · 16 App-Use</span>
+        <span class="tag">270+ Tests · 31 v3.0 Self-Train</span>
         <span class="tag">Bot Studio (dsh2codex) Ready</span>
       </div>
       <div class="actions">
-        <a class="btn btn-primary" href="https://github.com/Harzva/app-use">GitHub · Harzva/app-use</a>
+        <a class="btn btn-primary" href="./user-guide.html">📖 零黑话用户手册（网页版）</a>
+        <a class="btn" href="https://github.com/Harzva/app-use/releases/tag/v3.0.0" target="_blank" rel="noopener">⬇️ 下载 macOS 安装包 (v3.0.0)</a>
+        <a class="btn" href="https://github.com/Harzva/app-use">GitHub · Harzva/app-use</a>
         <a class="btn" href="#quickstart">5 分钟构建与接入</a>
         <a class="btn" href="https://harzva.github.io/">返回 Harzva 主页</a>
       </div>
     </section>
 
-    <section id="why">
+    <section id="v3-zero-fde" tabindex="-1">
+      <h2>v3.0.0 零配置客户自助升级亮点</h2>
+      <p class="muted">
+        无需现场交付工程师手动配置人设或编写脚本，首次打开即可在 10 分钟内完成身份初始化、历史聊天自学习、测试练兵与白名单托管上线。
+      </p>
+      <div class="grid-2">
+        <article class="card">
+          <h3>1. 零 FDE 微信活跃会话发现与自学习</h3>
+          <p class="muted">自动扫描当前微信高频高价值客户会话，智能过滤公众号、服务号与测试小号；支持 4 步开箱向导与跨会话号主身份自动推断，勾选即可批量开训。</p>
+        </article>
+        <article class="card">
+          <h3>2. 行业词汇挖掘、话术合成与高风险门禁</h3>
+          <p class="muted">入库前自动脱敏手机号、邮箱、地址与客户姓名；结合离线词矿与 L1 通用销售策略包提炼专属话术，凡涉及价格、折扣、退款与交付承诺的条款强制进入待审核草稿门禁。</p>
+        </article>
+        <article class="card">
+          <h3>3. 测试小号 <code>#</code> 指令调优 + 1–5★ 自评分闭环</h3>
+          <p class="muted">测试好友三层隔离沙盒 + 管理员权限门禁（普通客户发 <code>#</code> 严格拦截且防外泄）；支持 <code>#</code> 当场纠偏重生成、5 维自动体检、1–5★ 权重闭环与一键回归验证。</p>
+        </article>
+        <article class="card">
+          <h3>4. 内置聊天记录导出包解析（免装额外插件）</h3>
+          <p class="muted">开箱内置微信「合并转发」与本地 <code>.zip</code> / <code>*聊天记录*.txt</code> 导出包解析引擎，无需额外安装 WeChatBridge 等第三方插件即可一站完成语料导入。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="why" tabindex="-1">
       <h2>为什么需要独立的窗口级 App-Use？</h2>
       <p class="muted">
         Browser-Use 碰不到微信和原生桌面应用；传统 Computer-Use 把整块屏幕塞给模型，视野太泛且单鼠标无法安全并发。App-Use Studio 直接锁定单个 <code>bundleID + windowID</code>。
@@ -615,7 +673,7 @@
       </div>
     </section>
 
-    <section id="architecture">
+    <section id="architecture" tabindex="-1">
       <h2>5 大元能力算法 + 无焦点双通道执行</h2>
       <div class="grid-2">
         <article class="card">
@@ -645,7 +703,7 @@
       </div>
     </section>
 
-    <section id="risk-tiers">
+    <section id="risk-tiers" tabindex="-1">
       <h2>三级反风控调度策略（Anti-Ban Risk Engine）</h2>
       <p class="muted">
         后台无焦点修改原生工具（TextEdit、Calculator 等）与 macOS VoiceOver 同源且无服务端风控；而微信、钉钉、小红书等社交/内容端若在失活状态被后台盲写，易产生“非前景整段注入”异常特征，因此引擎按风险分级严格硬隔离。
@@ -685,25 +743,25 @@
       </div>
     </section>
 
-    <section id="benchmarks">
-      <h2>真机工程实测回执（`v2.9.0`）</h2>
+    <section id="benchmarks" tabindex="-1">
+      <h2>真机工程实测回执（v3.0.0）</h2>
       <div class="grid-3">
         <div class="card">
-          <div class="stat-num">174 / 174 OK</div>
-          <p class="muted">全量单元测试回归（<code>114.759s</code>，0 失败 / 0 跳过），覆盖 Meta 算法、Swift 双向降级与 DSH 编译。</p>
+          <div class="stat-num">270+ 自动化测试</div>
+          <p class="muted">全库共 <code>275</code> 项单元测试（含 <strong>31 项 v3.0 零配置自训练与督导闭环专项测试</strong>），覆盖租户隔离、PII 脱敏、<code>#</code> 门禁、1–5★ 双轨闭环与元算法。</p>
         </div>
         <div class="card">
           <div class="stat-num">1.86x 并行加速</div>
           <p class="muted">后台并发写 <code>TextEdit</code> + 操控 <code>Calculator</code>：前台始终停留 <code>Finder</code>，剪贴板哨兵未改，<code>headlessSharePct = 100%</code>。</p>
         </div>
         <div class="card">
-          <div class="stat-num">69 MCP 工具</div>
-          <p class="muted">标准 stdio JSON-RPC 2.0 暴露 16 个 <code>app_use_*</code> 工具，已接通 Codex CLI 与 Bot Studio DSH。</p>
+          <div class="stat-num">69+ MCP 工具</div>
+          <p class="muted">标准 stdio JSON-RPC 2.0 暴露 16 个 <code>app_use_*</code> 工具与 v3.0 零配置自训练/督导工具，已接通 Codex CLI 与 Bot Studio DSH。</p>
         </div>
       </div>
     </section>
 
-    <section id="quickstart">
+    <section id="quickstart" tabindex="-1">
       <h2>Quick Start &amp; Codex / Bot Studio MCP 接入</h2>
       <div class="code-wrap">
         <button type="button" class="copy-btn" data-copy="cli-code">复制</button>
@@ -726,7 +784,7 @@ WECHAT_BOT_DATA_DIR = "/Users/&lt;your-user&gt;/Library/Application Support/WeCh
   </main>
 
   <footer>
-    <span>App-Use Studio · <a href="https://github.com/Harzva/app-use">Harzva/app-use</a></span>
+    <span>App-Use Studio v3.0.0 (build 3000) · <a href="./user-guide.html">零黑话用户手册</a> · <a href="https://github.com/Harzva/app-use">Harzva/app-use</a></span>
     <span><a href="https://harzva.github.io/">Harzva Portfolio</a></span>
   </footer>
 
@@ -747,6 +805,41 @@ WECHAT_BOT_DATA_DIR = "/Users/&lt;your-user&gt;/Library/Application Support/WeCh
             /* clipboard unavailable */
           }
         });
+      }
+
+      const navLinks = document.querySelectorAll('.nav a[href^="#"]');
+      const sections = document.querySelectorAll("main section[id]");
+      if (navLinks.length > 0 && sections.length > 0) {
+        if (CSS.supports("scroll-target-group: auto")) {
+          const syncAriaCurrent = () => {
+            const currentLink = document.querySelector('.nav a[href^="#"]:target-current');
+            navLinks.forEach((link) => {
+              link.setAttribute("aria-current", link === currentLink ? "true" : "false");
+            });
+          };
+          if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", syncAriaCurrent);
+          } else {
+            syncAriaCurrent();
+          }
+          document.addEventListener("scrollend", syncAriaCurrent);
+        } else {
+          const setActive = (id) => {
+            navLinks.forEach((link) => {
+              const isActive = link.getAttribute("href") === `#${id}`;
+              link.classList.toggle("target-current", isActive);
+              link.setAttribute("aria-current", String(isActive));
+            });
+          };
+          const observer = new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+              if (entry.isIntersecting) {
+                setActive(entry.target.id);
+              }
+            }
+          }, { rootMargin: "-35% 0px -55% 0px", threshold: 0 });
+          sections.forEach((section) => observer.observe(section));
+        }
       }
     })();
   </script>

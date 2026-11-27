@@ -446,12 +446,25 @@ class WeChatKnowledgeStore:
         *,
         openbot_db_path: Optional[Path] = DEFAULT_OPENBOT_KNOWLEDGE_DB,
         auto_seed: bool = True,
+        seed_mode: str = "legacy",
+        sales_pack_path: Optional[Path] = None,
     ) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.openbot_db_path = Path(openbot_db_path) if openbot_db_path else None
+        self.seed_mode = str(seed_mode or "legacy").strip().lower()
+        self.sales_pack_path = Path(sales_pack_path) if sales_pack_path else None
         self._init_schema()
-        if auto_seed:
+        if self.seed_mode == "sales_pack":
+            self.withdraw_legacy_seeds()
+            if self.sales_pack_path is not None and self.sales_pack_path.is_file():
+                try:
+                    pack_data = json.loads(self.sales_pack_path.read_text(encoding="utf-8"))
+                    if isinstance(pack_data, dict):
+                        self.apply_sales_pack(pack_data, withdraw_legacy_seeds=True)
+                except Exception:
+                    pass
+        elif auto_seed:
             self.seed_default_knowledge()
 
     def _connect(self) -> sqlite3.Connection:
@@ -540,6 +553,107 @@ class WeChatKnowledgeStore:
                 self._sync_fts(conn, int(cur.lastrowid), item["title"], item["body"], kw_json, syn_json)
                 inserted += 1
         return {"ok": True, "inserted": inserted}
+
+    def withdraw_legacy_seeds(self, *, space_id: str = "personal") -> Dict[str, Any]:
+        """Withdraw legacy WaveBot/OpenBot seed-* entries so customer workspaces stay clean."""
+        now = _now_ms()
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                UPDATE knowledge_entries
+                SET withdrawn = 1,
+                    status = 'draft',
+                    revision = revision + 1,
+                    updated_at = ?
+                WHERE space_id = ?
+                  AND withdrawn = 0
+                  AND (id LIKE 'seed-%' OR source LIKE 'openbot://%')
+                """,
+                (now, space_id),
+            )
+            withdrawn_count = int(cur.rowcount or 0)
+        return {"ok": True, "withdrawnCount": withdrawn_count}
+
+    def apply_sales_pack(
+        self,
+        pack_data: Dict[str, Any],
+        *,
+        withdraw_legacy_seeds: bool = True,
+        space_id: str = "personal",
+    ) -> Dict[str, Any]:
+        """Load an L1/L2 sales pack into the store and optionally withdraw legacy seed-* entries."""
+        if not isinstance(pack_data, dict):
+            raise ValueError("pack_data must be a JSON object.")
+        withdrawn_count = 0
+        if withdraw_legacy_seeds:
+            w_res = self.withdraw_legacy_seeds(space_id=space_id)
+            withdrawn_count = int(w_res.get("withdrawnCount") or 0)
+
+        pack_id = str(pack_data.get("packId") or "sales_pack").strip() or "sales_pack"
+        raw_entries = pack_data.get("entries") or []
+        if not isinstance(raw_entries, list):
+            raise ValueError("Sales pack entries must be a list.")
+
+        applied = 0
+        now = _now_ms()
+        with self._connect() as conn:
+            for idx, item in enumerate(raw_entries):
+                if not isinstance(item, dict):
+                    continue
+                clean_title = str(item.get("title") or "").strip()
+                clean_body = str(item.get("body") or "").strip()
+                if not clean_title or not clean_body:
+                    continue
+                kind = str(item.get("kind") or "knowledge").strip().lower()
+                if kind not in KINDS:
+                    kind = "knowledge"
+                entry_id = str(item.get("id") or f"pack_{pack_id}_{idx + 1}").strip()
+                source = str(item.get("source") or f"sales_pack:{pack_id}").strip()
+                _guard_secrets(clean_title, clean_body, source)
+
+                kw_list = [str(k).strip() for k in (item.get("keywords") or []) if str(k).strip()]
+                stage = str(item.get("stage") or "").strip()
+                if stage and stage not in kw_list:
+                    kw_list.append(stage)
+                syn_list = [str(s).strip() for s in (item.get("synonyms") or []) if str(s).strip()]
+                kw_json = json.dumps(kw_list, ensure_ascii=False)
+                syn_json = json.dumps(syn_list, ensure_ascii=False)
+
+                existing = conn.execute(
+                    "SELECT rowid, revision FROM knowledge_entries WHERE space_id = ? AND id = ?",
+                    (space_id, entry_id),
+                ).fetchone()
+                if existing:
+                    next_rev = int(existing["revision"]) + 1
+                    conn.execute(
+                        """
+                        UPDATE knowledge_entries
+                        SET kind = ?, title = ?, body = ?, keywords = ?, synonyms = ?,
+                            source = ?, external = 1, status = 'published', withdrawn = 0,
+                            revision = ?, updated_at = ?
+                        WHERE rowid = ?
+                        """,
+                        (kind, clean_title, clean_body, kw_json, syn_json, source, next_rev, now, int(existing["rowid"])),
+                    )
+                    self._sync_fts(conn, int(existing["rowid"]), clean_title, clean_body, kw_json, syn_json)
+                else:
+                    cur = conn.execute(
+                        """
+                        INSERT INTO knowledge_entries(
+                          space_id, owner_bot_id, id, library, kind, title, body, keywords, synonyms,
+                          source, external, status, withdrawn, revision, created_at, updated_at
+                        ) VALUES(?, '', ?, 'shared', ?, ?, ?, ?, ?, ?, 1, 'published', 0, 1, ?, ?)
+                        """,
+                        (space_id, entry_id, kind, clean_title, clean_body, kw_json, syn_json, source, now, now),
+                    )
+                    self._sync_fts(conn, int(cur.lastrowid), clean_title, clean_body, kw_json, syn_json)
+                applied += 1
+        return {
+            "ok": True,
+            "packId": pack_id,
+            "appliedCount": applied,
+            "withdrawnLegacySeeds": withdrawn_count,
+        }
 
     def save_entry(
         self,
@@ -749,6 +863,7 @@ class WeChatKnowledgeStore:
         kind: Optional[str] = None,
         external_only: bool = True,
         limit: int = 6,
+        entry_weights: Optional[Dict[str, float]] = None,
     ) -> Dict[str, Any]:
         terms = split_search_terms(query)
         where = ["e.space_id = ?", "e.withdrawn = 0", "e.status = 'published'"]
@@ -839,6 +954,14 @@ class WeChatKnowledgeStore:
                 score += 1.5
             elif view["kind"] == "script":
                 score += 1.25
+
+            if entry_weights and view["id"] in entry_weights:
+                try:
+                    weight = max(0.05, float(entry_weights[view["id"]]))
+                except (TypeError, ValueError):
+                    weight = 1.0
+                score = score * weight
+                view["qualityWeight"] = round(weight, 4)
 
             view["score"] = round(score, 2)
             view["matchedTerms"] = matched_terms
@@ -1296,6 +1419,7 @@ class PersonaSwitchEngine:
         use_llm: Optional[bool] = None,
         speed_mode: str = "fast",
         task_goal: str = "",
+        entry_weights: Optional[Dict[str, float]] = None,
     ) -> Dict[str, Any]:
         role = str((binding or {}).get("role") or "friend")
         persona_hint = persona_override or (binding or {}).get("aiPersona") or ""
@@ -1309,6 +1433,10 @@ class PersonaSwitchEngine:
         memory_snippet = str(mem_ctx.get("memoryPromptSnippet") or "").strip()
         memory_refs = list(mem_ctx.get("memoryRefs") or [])
         speaker_name = str(mem_ctx.get("groupSpeaker") or "").strip()
+        negative_constraints = [c for c in (mem_ctx.get("negativeConstraints") or []) if isinstance(c, dict)]
+        golden_exemplars = [g for g in (mem_ctx.get("goldenExemplars") or []) if isinstance(g, dict)]
+        supervisor_directive = str(mem_ctx.get("supervisorDirective") or "").strip()
+        resolved_weights = entry_weights if entry_weights is not None else mem_ctx.get("entryWeights")
         clean_speed = "deep" if str(speed_mode or "").strip().lower() in ("deep", "think", "reasoning", "深思") else "fast"
         clean_goal = str(task_goal or "").strip() or "接待咨询，回答产品与技术问题，收集客户需求"
         _MEDIA_NOTE_PREFIXES = (
@@ -1341,7 +1469,12 @@ class PersonaSwitchEngine:
 
         norm_in = unicodedata.normalize("NFKC", incoming_text or "").strip()
         in_cf = norm_in.casefold()
-        kb_res = knowledge_store.search_context(incoming_text, external_only=True, limit=5)
+        kb_res = knowledge_store.search_context(
+            incoming_text,
+            external_only=True,
+            limit=5,
+            entry_weights=resolved_weights if isinstance(resolved_weights, dict) else None,
+        )
         raw_entries = kb_res.get("entries") or []
         has_url = bool(re.search(r"(?:https?://|github\.com/)", in_cf))
         mentions_self_product = any(
@@ -1681,6 +1814,31 @@ class PersonaSwitchEngine:
                 f"{coevolution_hint}"
             )
             card_hint = "\n提示：对方仅发来了公众号/视频号来源卡片标题，请直接结合已识别出的标题与摘要说明要点，看不清全文处坦诚说哪部分没展开。\n" if is_card_source_only else ""
+            negative_block = ""
+            if negative_constraints:
+                neg_lines = []
+                for nc in negative_constraints[:5]:
+                    rule = str(nc.get("ruleText") or nc.get("rule_text") or "").strip()
+                    bad = str(nc.get("badReply") or nc.get("bad_reply") or "").strip()
+                    if rule:
+                        neg_lines.append(f"- 严禁这样说：{rule}" + (f"（反例：{bad[:60]}）" if bad else ""))
+                if neg_lines:
+                    negative_block = "\n负向约束护栏（历史纠偏红线，必须严格避开）：\n" + "\n".join(neg_lines) + "\n"
+            exemplar_block = ""
+            if golden_exemplars:
+                ex_lines = []
+                for ex in golden_exemplars[:3]:
+                    q_ex = str(ex.get("triggerText") or ex.get("trigger_text") or "").strip()
+                    r_ex = str(ex.get("replyText") or ex.get("reply_text") or "").strip()
+                    if r_ex:
+                        ex_lines.append(f"- 客户：{q_ex[:50]} -> 优秀回复：{r_ex[:120]}")
+                if ex_lines:
+                    exemplar_block = "\n高分示范样本（模仿其专业分寸与推进节奏）：\n" + "\n".join(ex_lines) + "\n"
+            directive_block = (
+                f"\n主管即时纠偏要求（本轮务必严格落实）：{supervisor_directive}\n"
+                if supervisor_directive
+                else ""
+            )
             sys_prompt = (
                 f"你正在通过微信与「{target}」聊天。\n"
                 f"当前性格角色：{persona['name']}（MBTI: {persona['mbti']}，互动风格: {persona.get('interactionStyleLabel', '')}）。\n"
@@ -1688,7 +1846,7 @@ class PersonaSwitchEngine:
                 f"角色定位与要求：{persona.get('tone', '')} {persona.get('guidelines', '')}\n"
                 f"表达原则：{persona.get('styleDirective', '')}\n"
                 f"企业知识库与术语参考（仅在对方确实咨询我们的产品、定价、功能、权限或服务政策时引用；若对方询问行业文章、视频号、学术论文或开源项目，请直接围绕那些文章/视频内容本身作答，严禁生硬套用无关产品或旧链接）：\n{kb_snippets}"
-                f"{media_block}{soul_block}{card_hint}\n"
+                f"{media_block}{soul_block}{card_hint}{negative_block}{exemplar_block}{directive_block}\n"
                 "顾问式两段回复与高风险护栏：先共情/给专业判断或安全排查 ➔ 再结合知识库给出具体使用步骤与产品方案；遇未知参数、退款、投诉绝不编造承诺，先礼貌安抚并说明交人工核实。\n"
                 "微信真人感表达铁律（务必严格遵守）：\n"
                 "1) 少语气词、去AI客服味：禁止「哈哈收到啦」「哒～」「呢～」「为您说明」「总的来说」之类虚浮语气词和元评论；专业见解直接说人话。\n"
@@ -1716,6 +1874,35 @@ class PersonaSwitchEngine:
             else:
                 llm_error = llm_res.get("error")
 
+        if generation_mode != "llm_magpie":
+            # Deterministic offline fallback guardrail for negativeConstraints / supervisorDirective / goldenExemplars
+            matched_bad = False
+            corrected_hint = ""
+            for nc in negative_constraints:
+                bad_rep = str(nc.get("badReply") or nc.get("bad_reply") or "").strip()
+                corr_rep = str(nc.get("correctedReply") or nc.get("corrected_reply") or "").strip()
+                if corr_rep and not corrected_hint:
+                    corrected_hint = corr_rep
+                if bad_rep and (bad_rep.casefold() == final_text.casefold() or (len(bad_rep) >= 8 and bad_rep.casefold() in final_text.casefold())):
+                    matched_bad = True
+                    if corr_rep:
+                        corrected_hint = corr_rep
+            if (matched_bad or supervisor_directive):
+                if corrected_hint:
+                    final_text = self._clean_single_line(corrected_hint, max_len=int(persona.get("maxChars") or 160))
+                elif golden_exemplars and golden_exemplars[0].get("replyText"):
+                    final_text = self._clean_single_line(
+                        str(golden_exemplars[0]["replyText"]),
+                        max_len=int(persona.get("maxChars") or 160),
+                    )
+                elif supervisor_directive:
+                    if any(k in supervisor_directive for k in ("需求", "数量", "预算", "场景")):
+                        final_text = "理解您的关注，方便先了解下您的具体使用场景和预计规模吗，我好为您匹配更合适的方案？"
+                    elif any(k in supervisor_directive for k in ("安抚", "人工", "核实", "态度")):
+                        final_text = "非常理解您的情况，请您先别着急，我已记录细节并安排负责人第一时间为您核实处理。"
+                    elif matched_bad:
+                        final_text = "收到您的消息，为了给您更准确的建议，方便补充下您的具体需求和预期吗？"
+
         basis = {
             "personaId": persona["id"],
             "personaName": persona["name"],
@@ -1727,6 +1914,8 @@ class PersonaSwitchEngine:
             "providerUsed": provider_used,
             "latencyMs": latency_ms,
             "affectState": affect_controls.to_dict(),
+            "negativeConstraintsCount": len(negative_constraints),
+            "goldenExemplarsCount": len(golden_exemplars),
             "personaMix": {
                 "strength": partition_mix.get("strength"),
                 "partitionCount": partition_mix.get("partitionCount"),

@@ -1265,80 +1265,96 @@ class WeChatMediaLinkAnalyzer:
                 can_click = False
 
         if can_click and media_type in ("wechat_article", "channels_video", "video", "image", "external_link"):
-            try:
-                before_res = self.engine._run_native(["list-app-windows", "--app", "wechat"], 6.0)
-                before_wids = {
-                    int(w["windowID"])
-                    for w in (before_res.get("windows") or [])
-                    if isinstance(w, dict) and w.get("windowID")
-                }
-                abs_x = float(window_bounds["x"]) + float(bubble["clickRelX"])
-                abs_y = float(window_bounds["y"]) + float(bubble["clickRelY"])
-                self.engine._run_native(["click", "--x", f"{abs_x:.1f}", "--y", f"{abs_y:.1f}"], 6.0)
-                clicked = True
-                time.sleep(1.1)
-                after_res = self.engine._run_native(["list-app-windows", "--app", "wechat"], 6.0)
-                new_wins = [
-                    w for w in (after_res.get("windows") or [])
-                    if isinstance(w, dict)
-                    and w.get("windowID")
-                    and int(w["windowID"]) not in before_wids
-                    and (window_id is None or int(w["windowID"]) != int(window_id))
-                ]
-                viewer_win = new_wins[0] if new_wins else None
-                if not viewer_win:
-                    # Also detect already-named "图片和视频" viewer
-                    viewer_win = next(
-                        (
+            guard_ok = True
+            bypassed = bool(hasattr(self.engine, "is_human_guard_bypassed") and self.engine.is_human_guard_bypassed())
+            if not bypassed and hasattr(self.engine, "human_guard"):
+                hg = self.engine.human_guard.check_can_operate()
+                enforced = bool(hasattr(self.engine, "is_human_guard_enforced") and self.engine.is_human_guard_enforced())
+                if not hg.get("canOperate", True) and (enforced or hg.get("status") != "hid_unavailable"):
+                    guard_ok = False
+            if guard_ok:
+                try:
+                    before_res = self.engine._run_native(["list-app-windows", "--app", "wechat"], 6.0)
+                    before_wids = {
+                        int(w["windowID"])
+                        for w in (before_res.get("windows") or [])
+                        if isinstance(w, dict) and w.get("windowID")
+                    }
+                    abs_x = float(window_bounds["x"]) + float(bubble["clickRelX"])
+                    abs_y = float(window_bounds["y"]) + float(bubble["clickRelY"])
+                    click_res = self.engine._run_native(["click", "--x", f"{abs_x:.1f}", "--y", f"{abs_y:.1f}"], 6.0)
+                    if not isinstance(click_res, dict) or (not click_res.get("blockedByHumanGuard") and click_res.get("error_code") != "human_input_active"):
+                        clicked = True
+                        time.sleep(1.1)
+                        after_res = self.engine._run_native(["list-app-windows", "--app", "wechat"], 6.0)
+                        new_wins = [
                             w for w in (after_res.get("windows") or [])
-                            if isinstance(w, dict) and "图片和视频" in str(w.get("title") or "")
-                        ),
-                        None,
-                    )
-                if viewer_win and viewer_win.get("windowID"):
-                    opened_viewer_wid = int(viewer_win["windowID"])
-                    opened_viewer_title = str(viewer_win.get("title") or "").strip()
-                    seen_v_lines: set[str] = set()
+                            if isinstance(w, dict)
+                            and w.get("windowID")
+                            and int(w["windowID"]) not in before_wids
+                            and (window_id is None or int(w["windowID"]) != int(window_id))
+                        ]
+                        viewer_win = new_wins[0] if new_wins else None
+                        if not viewer_win:
+                            # Also detect already-named "图片和视频" viewer
+                            viewer_win = next(
+                                (
+                                    w for w in (after_res.get("windows") or [])
+                                    if isinstance(w, dict) and "图片和视频" in str(w.get("title") or "")
+                                ),
+                                None,
+                            )
+                        if viewer_win and viewer_win.get("windowID"):
+                            opened_viewer_wid = int(viewer_win["windowID"])
+                            opened_viewer_title = str(viewer_win.get("title") or "").strip()
+                            seen_v_lines: set[str] = set()
 
-                    def _collect_viewer_cap(cap_payload: Dict[str, Any], out_png: Path) -> None:
-                        if cap_payload.get("ok"):
-                            if out_png.is_file() and len(image_candidates) < 3:
-                                image_candidates.append(out_png)
-                            for el in cap_payload.get("elements") or []:
-                                t = str(el.get("text") or "").strip()
-                                if t and len(t) >= 2 and t not in seen_v_lines:
-                                    seen_v_lines.add(t)
-                                    viewer_lines.append(t)
+                            def _collect_viewer_cap(cap_payload: Dict[str, Any], out_png: Path) -> None:
+                                if cap_payload.get("ok"):
+                                    if out_png.is_file() and len(image_candidates) < 3:
+                                        image_candidates.append(out_png)
+                                    for el in cap_payload.get("elements") or []:
+                                        t = str(el.get("text") or "").strip()
+                                        if t and len(t) >= 2 and t not in seen_v_lines:
+                                            seen_v_lines.add(t)
+                                            viewer_lines.append(t)
 
-                    v_p1 = self.analysis_dir / f"{analysis_id}_viewer_p1.png"
-                    cap1 = self.engine._run_native(
-                        ["capture-ocr", "--window-id", str(opened_viewer_wid), "--no-activate", "--out", str(v_p1)],
-                        12.0,
-                    )
-                    _collect_viewer_cap(cap1, v_p1)
+                            v_p1 = self.analysis_dir / f"{analysis_id}_viewer_p1.png"
+                            cap1 = self.engine._run_native(
+                                ["capture-ocr", "--window-id", str(opened_viewer_wid), "--no-activate", "--out", str(v_p1)],
+                                12.0,
+                            )
+                            _collect_viewer_cap(cap1, v_p1)
 
-                    if media_type == "wechat_article" and isinstance(viewer_win.get("bounds"), dict):
-                        vb = viewer_win["bounds"]
-                        vx = float(vb.get("x", 0)) + float(vb.get("width", 500)) * 0.5
-                        vy = float(vb.get("y", 0)) + float(vb.get("height", 600)) * 0.5
-                        self.engine._run_native(["scroll", "--x", f"{vx:.1f}", "--y", f"{vy:.1f}", "--dy", "-12"], 6.0)
-                        time.sleep(0.45)
-                        v_p2 = self.analysis_dir / f"{analysis_id}_viewer_p2.png"
-                        cap2 = self.engine._run_native(
-                            ["capture-ocr", "--window-id", str(opened_viewer_wid), "--no-activate", "--out", str(v_p2)],
-                            12.0,
-                        )
-                        _collect_viewer_cap(cap2, v_p2)
-                    elif media_type in ("channels_video", "video"):
-                        time.sleep(0.6)
-                        v_p2 = self.analysis_dir / f"{analysis_id}_viewer_p2.png"
-                        cap2 = self.engine._run_native(
-                            ["capture-ocr", "--window-id", str(opened_viewer_wid), "--no-activate", "--out", str(v_p2)],
-                            12.0,
-                        )
-                        _collect_viewer_cap(cap2, v_p2)
-            except Exception:
-                pass
+                            if media_type == "wechat_article" and isinstance(viewer_win.get("bounds"), dict):
+                                scroll_ok = True
+                                if not bypassed and hasattr(self.engine, "human_guard"):
+                                    hg_scroll = self.engine.human_guard.check_can_operate()
+                                    enforced = bool(hasattr(self.engine, "is_human_guard_enforced") and self.engine.is_human_guard_enforced())
+                                    if not hg_scroll.get("canOperate", True) and (enforced or hg_scroll.get("status") != "hid_unavailable"):
+                                        scroll_ok = False
+                                if scroll_ok:
+                                    vb = viewer_win["bounds"]
+                                    vx = float(vb.get("x", 0)) + float(vb.get("width", 500)) * 0.5
+                                    vy = float(vb.get("y", 0)) + float(vb.get("height", 600)) * 0.5
+                                    self.engine._run_native(["scroll", "--x", f"{vx:.1f}", "--y", f"{vy:.1f}", "--dy", "-12"], 6.0)
+                                    time.sleep(0.45)
+                                    v_p2 = self.analysis_dir / f"{analysis_id}_viewer_p2.png"
+                                    cap2 = self.engine._run_native(
+                                        ["capture-ocr", "--window-id", str(opened_viewer_wid), "--no-activate", "--out", str(v_p2)],
+                                        12.0,
+                                    )
+                                    _collect_viewer_cap(cap2, v_p2)
+                            elif media_type in ("channels_video", "video"):
+                                time.sleep(0.6)
+                                v_p2 = self.analysis_dir / f"{analysis_id}_viewer_p2.png"
+                                cap2 = self.engine._run_native(
+                                    ["capture-ocr", "--window-id", str(opened_viewer_wid), "--no-activate", "--out", str(v_p2)],
+                                    12.0,
+                                )
+                                _collect_viewer_cap(cap2, v_p2)
+                except Exception:
+                    pass
 
         viewer_text = "\n".join(viewer_lines[:40])
         combined_ocr = "\n".join(

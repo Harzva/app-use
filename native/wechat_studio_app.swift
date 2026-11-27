@@ -773,7 +773,445 @@ private func wechatAXDockCallback(
     }
 }
 
-final class StudioAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate {
+/// 可拖进系统设置列表的「WeChat Bot」小块。拖动时剪贴板上放的是 App 本体的文件地址，
+/// 系统设置的隐私列表接受这种拖放——不必点「+」再自己去找路径。
+private final class PermissionChipView: NSView, NSDraggingSource {
+    var appURL: URL?
+    var onDragEnded: (() -> Void)?
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let appURL = appURL, window != nil else { return }
+        let item = NSPasteboardItem()
+        item.setData(appURL.dataRepresentation, forType: .fileURL)
+        let draggingItem = NSDraggingItem(pasteboardWriter: item)
+        let icon = NSWorkspace.shared.icon(forFile: appURL.path)
+        icon.size = NSSize(width: 44, height: 44)
+        let location = event.locationInWindow
+        draggingItem.setDraggingFrame(
+            NSRect(x: location.x - 22, y: location.y - 22, width: 44, height: 44),
+            contents: icon
+        )
+        beginDraggingSession(with: [draggingItem], event: event, source: self)
+    }
+
+    func draggingSession(
+        _ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext
+    ) -> NSDragOperation {
+        return [.copy]
+    }
+
+    func ignoreModifierKeys(for session: NSDraggingSession) -> Bool { true }
+
+    func draggingSession(
+        _ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation
+    ) {
+        onDragEnded?()
+    }
+}
+
+/// 非激活面板里的按钮：第一下鼠标就要响应，否则点「关闭」「完成」会被吞掉。
+private final class FirstMouseButton: NSButton {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+/// 权限引导小卡片：系统设置打开后浮在它右下角，上面有一块可以拖进设置列表的「WeChat Bot」。
+///
+/// 系统设置的隐私列表支持把应用直接拖进去。列表里已经有本应用时不用拖，打开开关即可；
+/// 卡片对两种情况都给了提示，并自动检测授权。
+final class PermissionDragCardController: NSObject, NSWindowDelegate {
+    enum Service: String {
+        case accessibility
+        case screenCapture
+
+        var title: String { self == .accessibility ? "辅助功能" : "屏幕录制" }
+        /// 系统设置里这个面板的名字
+        var paneTitle: String { self == .accessibility ? "辅助功能" : "录屏与系统录音" }
+        var panePath: String {
+            // 屏幕录制的面板标识是 Privacy_ScreenCapture（不是 ScreenRecording，那样只会打开总页）
+            self == .accessibility ? "Privacy_Accessibility" : "Privacy_ScreenCapture"
+        }
+        var itemId: String { self == .accessibility ? "accessibility" : "screen_capture" }
+
+        /// 让系统把本应用登记进列表（可能直接出现，并弹出系统提示）。
+        func requestRegistration() {
+            switch self {
+            case .accessibility:
+                _ = AXIsProcessTrustedWithOptions(
+                    [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+                )
+                _ = CGRequestPostEventAccess()
+            case .screenCapture:
+                _ = CGRequestScreenCaptureAccess()
+            }
+        }
+    }
+
+    private let consoleUrl: String
+    private let repoRoot: URL
+    private let cardWidth: CGFloat = 372.0
+    private let cardHeight: CGFloat = 212.0
+    private var panel: NSPanel?
+    private var timer: Timer?
+    private var service: Service = .accessibility
+    private var openedAt = Date()
+    private var hadSettingsWindow = false
+    private var settingsMissingTicks = 0
+    private var finished = false
+    private var iconView: NSImageView!
+    private var titleLabel: NSTextField!
+    private var hintLabel: NSTextField!
+    private var statusLabel: NSTextField!
+    private var chip: PermissionChipView!
+    private var chipIconView: NSImageView!
+    private var appURL: URL?
+
+    /// 授权成功时回调一次。
+    var onGranted: ((Service) -> Void)?
+
+    init(consoleUrl: String, repoRoot: URL) {
+        self.consoleUrl = consoleUrl
+        self.repoRoot = repoRoot
+        self.appURL = Self.resolveAppURL(repoRoot: repoRoot)
+        super.init()
+    }
+
+    deinit {
+        timer?.invalidate()
+    }
+
+    var isShowing: Bool { panel?.isVisible ?? false }
+
+    func show(for service: Service) {
+        self.service = service
+        openedAt = Date()
+        settingsMissingTicks = 0
+        finished = false
+        let panel = ensurePanel()
+        chip.appURL = appURL
+        let icon = appURL.map { NSWorkspace.shared.icon(forFile: $0.path) } ?? NSApp.applicationIconImage
+        iconView.image = icon
+        chipIconView.image = icon
+        titleLabel.stringValue = service.title
+        hintLabel.stringValue = "系统设置的「\(service.paneTitle)」列表里已有 WeChat Bot → 直接打开它的开关；\n没有 → 把下面的 WeChat Bot 拖进那个列表。"
+        statusLabel.stringValue = "每秒自动检测；打开开关后这张卡片会自动收起"
+        statusLabel.textColor = .secondaryLabelColor
+        anchorNearSettings()
+        panel.orderFrontRegardless()
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in self?.tick() }
+        RunLoop.main.add(timer!, forMode: .common)
+        tick()
+    }
+
+    func dismiss() {
+        timer?.invalidate()
+        timer = nil
+        panel?.orderOut(nil)
+    }
+
+    // MARK: - 界面
+
+    private func ensurePanel() -> NSPanel {
+        if let panel = panel { return panel }
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: cardWidth, height: cardHeight),
+            styleMask: [.nonactivatingPanel, .borderless],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.hidesOnDeactivate = false
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.isMovableByWindowBackground = true
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.isReleasedWhenClosed = false
+        panel.delegate = self
+        panel.animationBehavior = .utilityWindow
+
+        let card = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: cardWidth, height: cardHeight))
+        card.material = .popover
+        card.state = .active
+        card.blendingMode = .behindWindow
+        card.wantsLayer = true
+        card.maskImage = Self.roundedMask(size: card.frame.size, radius: 16)
+        panel.contentView = card
+
+        let width = cardWidth
+        func place(_ view: NSView, top: CGFloat, height: CGFloat, left: CGFloat, right: CGFloat) {
+            view.frame = NSRect(x: left, y: cardHeight - top - height, width: width - left - right, height: height)
+            card.addSubview(view)
+        }
+
+        iconView = NSImageView()
+        place(iconView, top: 16, height: 20, left: 16, right: width - 36)
+        iconView.imageScaling = .scaleProportionallyUpOrDown
+
+        titleLabel = NSTextField(labelWithString: "权限")
+        titleLabel.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
+        place(titleLabel, top: 15, height: 22, left: 44, right: 56)
+
+        let closeButton = FirstMouseButton(
+            image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "关闭") ?? NSImage(),
+            target: self, action: #selector(onClose)
+        )
+        closeButton.isBordered = false
+        closeButton.toolTip = "关闭"
+        place(closeButton, top: 13, height: 24, left: width - 40, right: 12)
+
+        hintLabel = NSTextField(wrappingLabelWithString: "")
+        hintLabel.font = NSFont.systemFont(ofSize: 12)
+        hintLabel.textColor = .secondaryLabelColor
+        hintLabel.maximumNumberOfLines = 3
+        place(hintLabel, top: 46, height: 36, left: 16, right: 16)
+
+        chip = PermissionChipView()
+        chip.onDragEnded = { [weak self] in self?.dragEnded() }
+        chip.wantsLayer = true
+        chip.layer?.cornerRadius = 10
+        chip.layer?.borderWidth = 1
+        place(chip, top: 90, height: 46, left: 16, right: 70)
+        let chipIcon = NSImageView(frame: NSRect(x: 12, y: 11, width: 24, height: 24))
+        chipIcon.imageScaling = .scaleProportionallyUpOrDown
+        chip.addSubview(chipIcon)
+        chipIconView = chipIcon
+        let chipTitle = NSTextField(labelWithString: "WeChat Bot")
+        chipTitle.font = NSFont.systemFont(ofSize: 14, weight: .semibold)
+        chipTitle.frame = NSRect(x: 44, y: 14, width: 110, height: 20)
+        chip.addSubview(chipTitle)
+        let chipGrip = NSTextField(labelWithString: "⠿ 拖我")
+        chipGrip.font = NSFont.systemFont(ofSize: 12)
+        chipGrip.textColor = .secondaryLabelColor
+        chipGrip.frame = NSRect(x: chip.frame.width - 66, y: 15, width: 56, height: 18)
+        chip.addSubview(chipGrip)
+
+        let autoButton = FirstMouseButton(
+            image: NSImage(systemSymbolName: "arrow.up", accessibilityDescription: "让系统自动加入") ?? NSImage(),
+            target: self, action: #selector(onAutoRegister)
+        )
+        autoButton.bezelStyle = .circular
+        autoButton.toolTip = "让系统自动把 WeChat Bot 加进列表"
+        place(autoButton, top: 90, height: 46, left: width - 62, right: 16)
+
+        statusLabel = NSTextField(wrappingLabelWithString: "")
+        statusLabel.font = NSFont.systemFont(ofSize: 12)
+        statusLabel.maximumNumberOfLines = 2
+        place(statusLabel, top: 144, height: 32, left: 16, right: 16)
+
+        let confirmButton = FirstMouseButton(title: "我已打开开关 → 完成并生效", target: self, action: #selector(onConfirm))
+        confirmButton.bezelStyle = .rounded
+        confirmButton.font = NSFont.systemFont(ofSize: 13, weight: .medium)
+        place(confirmButton, top: 176, height: 30, left: 16, right: 16)
+
+        self.panel = panel
+        applyColors()
+        return panel
+    }
+
+    private func applyColors() {
+        guard let panel = panel, let card = panel.contentView else { return }
+        card.effectiveAppearance.performAsCurrentDrawingAppearance {
+            chip?.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+            chip?.layer?.borderColor = NSColor.separatorColor.cgColor
+        }
+    }
+
+    private static func roundedMask(size: NSSize, radius: CGFloat) -> NSImage {
+        let image = NSImage(size: size, flipped: false) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+            return true
+        }
+        return image
+    }
+
+    // MARK: - 位置
+
+    /// 贴着「系统设置」窗口放：优先放在窗口正下方靠右（列表完整可见，往上拖就是）；下面放不下就放
+    /// 窗口右侧；再不行才叠在窗口右下角。找不到系统设置窗口就放在屏幕右下角，跟着鼠标所在的屏幕。
+    private func anchorNearSettings() {
+        guard let panel = panel else { return }
+        let cardSize = NSSize(width: cardWidth, height: cardHeight)
+        var candidates: [NSPoint] = []
+        if let settings = Self.settingsWindowRect() {
+            hadSettingsWindow = true
+            settingsMissingTicks = 0
+            candidates += [
+                NSPoint(x: settings.maxX - cardSize.width, y: settings.minY - cardSize.height - 14),
+                NSPoint(x: settings.maxX + 14, y: settings.minY),
+                NSPoint(x: settings.maxX - cardSize.width - 20, y: settings.minY + 28),
+            ]
+        } else {
+            settingsMissingTicks += 1
+            let mouse = NSEvent.mouseLocation
+            let screen = NSScreen.screens.first { mouse.x >= $0.frame.minX && mouse.x <= $0.frame.maxX }
+                ?? NSScreen.main ?? NSScreen.screens.first
+            let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+            candidates = [NSPoint(x: visible.maxX - cardSize.width - 24, y: visible.minY + 24)]
+        }
+        let visible = (NSScreen.screens.first { $0.frame.contains(NSPoint(x: candidates[0].x + 10, y: candidates[0].y + 10)) }
+            ?? NSScreen.main)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let fits: (NSPoint) -> Bool = { origin in
+            origin.x >= visible.minX + 8 && origin.x + cardSize.width <= visible.maxX - 8
+                && origin.y >= visible.minY + 8 && origin.y + cardSize.height <= visible.maxY - 8
+        }
+        var origin = candidates.first(where: fits) ?? candidates[0]
+        // 实在放不下也别跑出屏幕
+        origin.x = min(max(origin.x, visible.minX + 8), max(visible.minX + 8, visible.maxX - cardSize.width - 8))
+        origin.y = min(max(origin.y, visible.minY + 8), max(visible.minY + 8, visible.maxY - cardSize.height - 8))
+        panel.setFrame(NSRect(origin: origin, size: cardSize), display: false)
+    }
+
+    private static func settingsWindowRect() -> NSRect? {
+        guard let list = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+        ) as? [[String: Any]] else { return nil }
+        var best: (Double, NSRect)?
+        for entry in list {
+            guard let ownerPID = entry[kCGWindowOwnerPID as String] as? pid_t,
+                  NSRunningApplication(processIdentifier: ownerPID)?.bundleIdentifier == "com.apple.systempreferences",
+                  (entry[kCGWindowLayer as String] as? Int) == 0,
+                  let bounds = entry[kCGWindowBounds as String] as? [String: Any],
+                  let x = (bounds["X"] as? NSNumber)?.doubleValue,
+                  let y = (bounds["Y"] as? NSNumber)?.doubleValue,
+                  let w = (bounds["Width"] as? NSNumber)?.doubleValue,
+                  let h = (bounds["Height"] as? NSNumber)?.doubleValue,
+                  w >= 400, h >= 300 else { continue }
+            let area = w * h
+            if best == nil || area > best!.0 {
+                best = (area, NSRect(x: x, y: y, width: w, height: h))
+            }
+        }
+        guard let (_, cgRect) = best, let primary = NSScreen.screens.first else { return nil }
+        // CG 坐标原点在屏幕左上，AppKit 在左下
+        return NSRect(
+            x: cgRect.minX, y: primary.frame.height - cgRect.maxY,
+            width: cgRect.width, height: cgRect.height
+        )
+    }
+
+    /// 要拖进列表的是哪个 App 包：正常就是本应用所在的那份；单独运行二进制（自检）时用已安装的那份，
+    /// 这样之后系统提示「退出并重新打开」时重开的也是用户实际在用的那一份。
+    static func resolveAppURL(repoRoot: URL) -> URL? {
+        let bundle = Bundle.main.bundleURL
+        let fm = FileManager.default
+        let installed = [
+            fm.homeDirectoryForCurrentUser.appendingPathComponent("Applications/WeChat Bot.app"),
+            URL(fileURLWithPath: "/Applications/WeChat Bot.app"),
+        ]
+        if bundle.pathExtension == "app" {
+            if !bundle.path.contains("/AppTranslocation/") { return bundle }
+            // 隔离运行的 App 被系统挪到了临时目录，拖那个路径登记不了，改用原位置
+            return installed.first { fm.fileExists(atPath: $0.path) } ?? bundle
+        }
+        return (installed + [repoRoot.appendingPathComponent("dist/WeChat Bot.app")])
+            .first { fm.fileExists(atPath: $0.path) }
+    }
+
+    // MARK: - 动作
+
+    @objc private func onClose() {
+        dismiss()
+    }
+
+    @objc private func onAutoRegister() {
+        service.requestRegistration()
+        openPane()
+        statusLabel.stringValue = "已请系统自动登记；列表里若还是没有 WeChat Bot，请把左边的 WeChat Bot 拖进列表"
+        statusLabel.textColor = .secondaryLabelColor
+    }
+
+    @objc private func onConfirm() {
+        refreshStatus(promptOnFailure: true)
+    }
+
+    private func openPane() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?" + service.panePath) {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func dragEnded() {
+        statusLabel.stringValue = "已放下。若列表里出现 WeChat Bot 且开关是关的，请打开它"
+        statusLabel.textColor = .secondaryLabelColor
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.refreshStatus() }
+    }
+
+    private func tick() {
+        if Date().timeIntervalSince(openedAt) > 15 * 60 {
+            dismiss()  // 十五分钟没人理它就收起
+            return
+        }
+        anchorNearSettings()
+        if hadSettingsWindow && settingsMissingTicks >= 3 {
+            dismiss()  // 用户把系统设置关掉了
+            return
+        }
+        refreshStatus()
+    }
+
+    private func refreshStatus(promptOnFailure: Bool = false) {
+        if finished { return }
+        // 两项都以后端的探测为准：它每次新起一个探测进程，反映的是这个 App 当前的真实授权。
+        // 屏幕录制的授权对已经在运行的进程不生效，本进程自己预检会一直是「未授权」；
+        // 单独运行自检时本进程的辅助功能状态也不代表这个 App。
+        let consoleUrl = self.consoleUrl
+        let service = self.service
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let local: Bool = service == .accessibility ? AXIsProcessTrusted() : CGPreflightScreenCaptureAccess()
+            let granted = Self.backendPermissionGranted(baseUrl: consoleUrl, itemId: service.itemId) ?? local
+            DispatchQueue.main.async { [weak self] in
+                self?.settle(granted: granted, promptOnFailure: promptOnFailure)
+            }
+        }
+    }
+
+    private func settle(granted: Bool, promptOnFailure: Bool) {
+        if granted {
+            guard !finished else { return }
+            finished = true
+            statusLabel.stringValue = service == .screenCapture
+                ? "✅ 已授权。屏幕录制要重启 WeChat Bot 才完全生效"
+                : "✅ 已授权"
+            statusLabel.textColor = NSColor.systemGreen
+            onGranted?(service)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in self?.dismiss() }
+            return
+        }
+        statusLabel.stringValue = promptOnFailure
+            ? "还没检测到授权：请确认列表里 WeChat Bot 的开关已经打开"
+            : "每秒自动检测；打开开关后这张卡片会自动收起"
+        statusLabel.textColor = promptOnFailure ? NSColor.systemOrange : .secondaryLabelColor
+    }
+
+    private static func backendPermissionGranted(baseUrl: String, itemId: String) -> Bool? {
+        guard let url = URL(string: "\(baseUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/api/permissions") else {
+            return nil
+        }
+        let sem = DispatchSemaphore(value: 0)
+        var granted: Bool?
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 1.5
+        URLSession.shared.dataTask(with: req) { data, resp, _ in
+            if let http = resp as? HTTPURLResponse, http.statusCode == 200,
+               let d = data,
+               let obj = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any],
+               let items = obj["items"] as? [[String: Any]] {
+                granted = items.first(where: { ($0["id"] as? String) == itemId })?["granted"] as? Bool
+            }
+            sem.signal()
+        }.resume()
+        _ = sem.wait(timeout: .now() + 2.0)
+        return granted
+    }
+}
+
+final class StudioAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKScriptMessageHandler {
     private let repoRoot: URL
     private let consoleUrl: String
     private let initialDockWeChat: Bool
@@ -811,6 +1249,7 @@ final class StudioAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
     private var explicitStandalone = false
     private var dockStatus = "独立窗口"
     private lazy var borderOverlayManager = PopoutBorderOverlayManager(consoleUrl: consoleUrl)
+    private lazy var permissionCard = PermissionDragCardController(consoleUrl: consoleUrl, repoRoot: repoRoot)
 
     private let regularStyleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
 
@@ -824,6 +1263,91 @@ final class StudioAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
 
     // MARK: - 启动权限预检（影刀式：App 一启动就检查，缺权限直接弹原生引导窗）
 
+    /// 由 App 本体（macOS 认定的负责进程）向系统申请缺失的权限登记：系统弹出授权提示，并把 WeChat Bot
+    /// 加进对应面板的列表。不申请的话列表里没有本应用，用户只能手动「+」添加。
+    /// 辅助功能与屏幕录制不同时申请——两个系统弹窗同一瞬间发出时，后一个可能被系统丢弃。
+    private func requestMissingPermissions(axGranted: Bool, screenGranted: Bool) {
+        if !axGranted {
+            _ = AXIsProcessTrustedWithOptions(
+                [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            )
+            _ = CGRequestPostEventAccess()
+        }
+        if !screenGranted {
+            if !axGranted { RunLoop.current.run(until: Date().addingTimeInterval(2.5)) }
+            _ = CGRequestScreenCaptureAccess()
+        }
+    }
+
+    /// 打开某一项权限的授权引导：先让系统把本应用登记进列表，再打开系统设置面板，
+    /// 并在设置窗口右下角浮出带可拖拽「WeChat Bot」的小卡片。
+    ///
+    /// 列表里已经有本应用（哪怕是关着的）→ 用户直接打开开关；没有 → 把卡片里的 WeChat Bot 拖进列表。
+    /// 两种情况都不需要用户点「+」自己找路径。
+    private func openPermissionGuide(for service: PermissionDragCardController.Service) {
+        permissionCard.onGranted = { [weak self] granted in
+            self?.showNextMissingPermissionGuide(after: granted)
+        }
+        permissionCard.show(for: service)
+        service.requestRegistration()
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?" + service.panePath) {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// 一项授权完成后，如果还有缺的，接着引导下一项。
+    private func showNextMissingPermissionGuide(after granted: PermissionDragCardController.Service) {
+        let consoleUrl = self.consoleUrl
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            var pending: [PermissionDragCardController.Service] = []
+            if let grantedByItem = Self.backendPermissionState(baseUrl: consoleUrl) {
+                if grantedByItem["accessibility"] == false { pending.append(.accessibility) }
+                if grantedByItem["screen_capture"] == false { pending.append(.screenCapture) }
+            }
+            DispatchQueue.main.async {
+                // 等这张卡片收起，再弹下一项的
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { [weak self] in
+                    guard let self = self, let next = pending.first, next != granted else { return }
+                    self.openPermissionGuide(for: next)
+                }
+            }
+        }
+    }
+
+    private static func backendPermissionState(baseUrl: String) -> [String: Bool]? {
+        guard let url = URL(string: "\(baseUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/api/permissions") else {
+            return nil
+        }
+        let sem = DispatchSemaphore(value: 0)
+        var state: [String: Bool]?
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 1.5
+        URLSession.shared.dataTask(with: req) { data, resp, _ in
+            if let http = resp as? HTTPURLResponse, http.statusCode == 200,
+               let d = data,
+               let obj = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any],
+               let items = obj["items"] as? [[String: Any]] {
+                var parsed: [String: Bool] = [:]
+                for item in items {
+                    if let id = item["id"] as? String, let flag = item["granted"] as? Bool {
+                        parsed[id] = flag
+                    }
+                }
+                state = parsed
+            }
+            sem.signal()
+        }.resume()
+        _ = sem.wait(timeout: .now() + 2.0)
+        return state
+    }
+
+    /// 控制台向导点「去授权」时走这里（window.webkit.messageHandlers.permissionCard）。
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "permissionCard" else { return }
+        let raw = (message.body as? String) ?? ""
+        openPermissionGuide(for: raw == "screen_capture" ? .screenCapture : .accessibility)
+    }
+
     /// 原生权限预检：辅助功能（AX）+ 屏幕录制。子进程（wechat-vision-ax）由本 App 启动，
     /// 如果本地 backend 已具备完整 TCC 权限（例如继承了宿主终端/Agent 的授权链路），也直接放行不误弹提示。
     private func preflightPermissionsIfNeeded() {
@@ -831,6 +1355,7 @@ final class StudioAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         let screenGranted = CGPreflightScreenCaptureAccess()
         guard !axGranted || !screenGranted else { return }  // 全绿：不打扰
         if isBackendPermissionsAllGranted(consoleUrl) { return }
+        requestMissingPermissions(axGranted: axGranted, screenGranted: screenGranted)
 
         // 窗口先出，再弹引导（延迟到主队列下一拍，避免与首帧竞态）
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
@@ -845,21 +1370,17 @@ final class StudioAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
             alert.informativeText = """
                 缺少权限：\(missing)
 
-                ① 点「打开系统设置」→ 隐私与安全性
-                ② 在「辅助功能」和「屏幕录制」两个面板里，把 WeChat Bot 加进去并打开开关
-                ③ 若列表里有旧条目，先「−」删除再重新添加（旧授权对新版本无效）
-                ④ 授权后回到本应用，控制台首页点「🔄 重新检查」即可生效
+                点「打开系统设置」后，设置窗口右下角会出现一张小卡片：
+                ① 列表里已经有 WeChat Bot → 直接打开它的开关
+                ② 没有 → 把卡片里的 WeChat Bot 拖进上方的列表，再打开开关
+                ③ 屏幕录制打开后若系统提示「退出并重新打开」，点它即可生效
+                授权后回到本应用即可，控制台会自动检测
                 """
             alert.addButton(withTitle: "⚙️ 打开系统设置")
             alert.addButton(withTitle: "稍后再说")
             let resp = alert.runModal()
             if resp == .alertFirstButtonReturn {
-                let pane = axGranted
-                    ? "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
-                    : "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-                if let url = URL(string: pane) {
-                    NSWorkspace.shared.open(url)
-                }
+                self?.openPermissionGuide(for: axGranted ? .screenCapture : .accessibility)
             }
         }
     }
@@ -948,6 +1469,16 @@ final class StudioAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         ])
 
         let webConfig = WKWebViewConfiguration()
+        // 页面用 WECHATBOT_SHELL 判断自己是不是跑在 App 外壳里；「去授权」通过 permissionCard 通道
+        // 让外壳打开系统设置并浮出可拖拽的小卡片。在浏览器里打开控制台时页面退回到直接跳转。
+        webConfig.userContentController.addUserScript(
+            WKUserScript(
+                source: "window.WECHATBOT_SHELL = true;",
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+        )
+        webConfig.userContentController.add(self, name: "permissionCard")
         webView = WKWebView(
             frame: NSRect(x: 0, y: 0, width: frame.width, height: frame.height - barHeight),
             configuration: webConfig
@@ -1755,6 +2286,23 @@ private func mainEntry() {
         } else {
             print("{\"ok\":true}")
         }
+        return
+    }
+
+    if let cardIndex = args.firstIndex(of: "--permission-card"), cardIndex + 1 < args.count {
+        // 自检 / 支持用：单独弹出某一项的授权引导卡片，授权或关闭后退出
+        let raw = args[cardIndex + 1]
+        let service: PermissionDragCardController.Service = raw == "screen_capture" ? .screenCapture : .accessibility
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        let card = PermissionDragCardController(consoleUrl: consoleUrl, repoRoot: repoRoot)
+        card.onGranted = { _ in exit(0) }
+        card.show(for: service)
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?" + service.panePath) {
+            NSWorkspace.shared.open(url)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 600) { exit(0) }  // 自检：十分钟没人管就退出
+        app.run()
         return
     }
 

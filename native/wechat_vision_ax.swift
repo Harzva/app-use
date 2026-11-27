@@ -720,11 +720,143 @@ func readChatTitleFromAX(pid: pid_t) -> (name: String?, memberCount: Int?) {
     return (chatName, memberCount)
 }
 
+var lastSyntheticKeyTimestamp: CFAbsoluteTime = 0
+var lastSyntheticMouseTimestamp: CFAbsoluteTime = 0
+
 func hardwareKeyboardIdleSeconds() -> Double {
     let hidDown = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .keyDown)
     let hidUp = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .keyUp)
     let hidFlags = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .flagsChanged)
     return max(0.0, min(hidDown, hidUp, hidFlags))
+}
+
+func hardwareMouseIdleSeconds() -> Double {
+    let move = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .mouseMoved)
+    let lDown = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .leftMouseDown)
+    let lUp = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .leftMouseUp)
+    let rDown = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .rightMouseDown)
+    let rUp = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .rightMouseUp)
+    let lDrag = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .leftMouseDragged)
+    let rDrag = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .rightMouseDragged)
+    let scroll = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: .scrollWheel)
+    return max(0.0, min(move, lDown, lUp, rDown, rUp, lDrag, rDrag, scroll))
+}
+
+func currentCursorPoint() -> CGPoint {
+    return CGEvent(source: nil)?.location ?? CGPoint(
+        x: NSEvent.mouseLocation.x,
+        y: CGDisplayBounds(CGMainDisplayID()).height - NSEvent.mouseLocation.y
+    )
+}
+
+func humanTypedSinceSyntheticKey(idleLimit: Double) -> (Bool, Double) {
+    let hwIdle = hardwareKeyboardIdleSeconds()
+    if lastSyntheticKeyTimestamp <= 0 {
+        return (hwIdle < idleLimit, hwIdle)
+    }
+    let elapsed = max(0.0, CFAbsoluteTimeGetCurrent() - lastSyntheticKeyTimestamp)
+    let isHuman = (hwIdle + 0.12 < elapsed) && (hwIdle < idleLimit)
+    return (isHuman, hwIdle)
+}
+
+func humanMouseMovedSinceSynthetic(idleLimit: Double) -> (Bool, Double) {
+    let hwMouse = hardwareMouseIdleSeconds()
+    if lastSyntheticMouseTimestamp <= 0 {
+        return (hwMouse < idleLimit, hwMouse)
+    }
+    let elapsed = max(0.0, CFAbsoluteTimeGetCurrent() - lastSyntheticMouseTimestamp)
+    let isHuman = (hwMouse + 0.12 < elapsed) && (hwMouse < idleLimit)
+    return (isHuman, hwMouse)
+}
+
+func parseGuardIdleSeconds(flags: Set<String>, options: [String: String], defaultIdle: Double = 2.0) -> Double? {
+    if flags.contains("ignore-human-guard") || options["ignore-human-guard"] == "1" || flags.contains("skip-human-check") {
+        return nil
+    }
+    if let raw = options["guard-idle"]?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty,
+       let val = Double(raw) {
+        return val > 0 ? val : nil
+    }
+    return defaultIdle > 0 ? defaultIdle : nil
+}
+
+func detectHumanHIDActivity(
+    idleLimit: Double,
+    expectedCursor: CGPoint? = nil,
+    driftTolerance: Double = 24.0
+) -> (active: Bool, reason: String, details: [String: Any]) {
+    let cur = currentCursorPoint()
+    let (kbActive, hwKey) = humanTypedSinceSyntheticKey(idleLimit: idleLimit)
+    let (mouseActive, hwMouse) = humanMouseMovedSinceSynthetic(idleLimit: idleLimit)
+    var driftPx: Double? = nil
+    if let exp = expectedCursor {
+        driftPx = hypot(cur.x - exp.x, cur.y - exp.y)
+    }
+    var reason = "idle"
+    var active = false
+    if let d = driftPx, d > driftTolerance {
+        active = true
+        reason = "cursor_moved_by_human"
+    } else if kbActive {
+        active = true
+        reason = "human_keyboard_active"
+    } else if mouseActive {
+        active = true
+        reason = "human_mouse_active"
+    }
+    var details: [String: Any] = [
+        "retryable": true,
+        "reason": reason,
+        "guardIdleSeconds": idleLimit,
+        "hardwareKeyboardIdleSeconds": (hwKey * 100.0).rounded() / 100.0,
+        "hardwareMouseIdleSeconds": (hwMouse * 100.0).rounded() / 100.0,
+        "cursorPosition": [
+            "x": (cur.x * 10.0).rounded() / 10.0,
+            "y": (cur.y * 10.0).rounded() / 10.0,
+        ],
+    ]
+    if let d = driftPx {
+        details["cursorDriftPx"] = (d * 10.0).rounded() / 10.0
+    }
+    return (active, reason, details)
+}
+
+func restoreCursorQuietly(_ orig: CGPoint) {
+    let cur = currentCursorPoint()
+    if hypot(cur.x - orig.x, cur.y - orig.y) <= 6.0 {
+        return
+    }
+    let src = CGEventSource(stateID: .privateState)
+    if let mv = CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: orig, mouseButton: .left) {
+        mv.post(tap: .cghidEventTap)
+        lastSyntheticMouseTimestamp = CFAbsoluteTimeGetCurrent()
+    }
+}
+
+func guardNoHumanActivityOrFail(
+    flags: Set<String>,
+    options: [String: String],
+    defaultIdle: Double = 2.0,
+    expectedCursor: CGPoint? = nil,
+    driftTolerance: Double = 24.0,
+    restoreCursor: CGPoint? = nil,
+    cleanup: (() -> Void)? = nil
+) {
+    guard let idleLimit = parseGuardIdleSeconds(flags: flags, options: options, defaultIdle: defaultIdle) else {
+        return
+    }
+    let check = detectHumanHIDActivity(idleLimit: idleLimit, expectedCursor: expectedCursor, driftTolerance: driftTolerance)
+    if check.active {
+        cleanup?()
+        if let rc = restoreCursor, check.reason != "cursor_moved_by_human" && check.reason != "human_mouse_active" {
+            restoreCursorQuietly(rc)
+        }
+        failJSON(
+            "Human activity (\(check.reason)) detected; automation stopped cleanly without contending mouse/keyboard/focus.",
+            code: "human_input_active",
+            extra: check.details
+        )
+    }
 }
 
 func queryHIDIdleState() -> [String: Any] {
@@ -745,23 +877,23 @@ func queryHIDIdleState() -> [String: Any] {
         CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .scrollWheel)
     )
     let hwKeyIdle = hardwareKeyboardIdleSeconds()
+    let hwMouseIdle = hardwareMouseIdleSeconds()
     let combinedKeyDown = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown)
     let combinedKeyUp = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyUp)
     let combinedFlags = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .flagsChanged)
 
-    let mouseIdle = min(mouseMove, leftDown, rightDown, scrollWheel)
+    let mouseIdle = min(hwMouseIdle, mouseMove, leftDown, rightDown, scrollWheel)
     let keyboardIdle = min(hwKeyIdle, combinedKeyDown, combinedKeyUp, combinedFlags)
     let anyInputIdle = min(mouseIdle, keyboardIdle)
 
-    let cursorLoc = CGEvent(source: nil)?.location ?? CGPoint(
-        x: NSEvent.mouseLocation.x,
-        y: CGDisplayBounds(CGMainDisplayID()).height - NSEvent.mouseLocation.y
-    )
+    let cursorLoc = currentCursorPoint()
     return [
         "mouseMoveIdleSeconds": mouseMove,
         "mouseClickIdleSeconds": min(leftDown, rightDown),
         "scrollIdleSeconds": scrollWheel,
         "mouseIdleSeconds": mouseIdle,
+        "hardwareMouseIdleSeconds": hwMouseIdle,
+        "mouseActive": hwMouseIdle < 2.0 || mouseIdle < 2.0,
         "keyboardIdleSeconds": keyboardIdle,
         "hardwareKeyboardIdleSeconds": hwKeyIdle,
         "keyboardActive": hwKeyIdle < 2.5 || keyboardIdle < 2.5,
@@ -977,15 +1109,45 @@ func parseTitleFromHeaderOCR(_ window: WindowCandidate) -> String? {
 
 /// 二次贝塞尔轨迹移动（反自动化对抗：模拟真人鼠标轨迹，避免瞬移指纹）。
 /// 光标沿带随机控制点的二次贝塞尔曲线分步逼近目标，步数随距离自适应，
+func pointDistanceToSegment(_ p: CGPoint, _ a: CGPoint, _ b: CGPoint) -> Double {
+    let vx = b.x - a.x
+    let vy = b.y - a.y
+    let lenSq = vx * vx + vy * vy
+    if lenSq <= 0.0001 {
+        return hypot(p.x - a.x, p.y - a.y)
+    }
+    let proj = ((p.x - a.x) * vx + (p.y - a.y) * vy) / lenSq
+    let t = max(0.0, min(1.0, proj))
+    let cx = a.x + t * vx
+    let cy = a.y + t * vy
+    return hypot(p.x - cx, p.y - cy)
+}
+
 /// 每步随机延时 6-18ms，末端两步带轻微手抖。近距离（<12px）直接落点。
-func bezierMouseMove(src: CGEventSource?, from: CGPoint, to: CGPoint) {
+/// guardEnabled=true 时每步检查人工接管（光标偏离轨迹 >14px 或物理键盘/鼠标抢占立即中止，不与用户抢鼠标）。
+@discardableResult
+func bezierMouseMoveGuarded(
+    src: CGEventSource?,
+    from: CGPoint,
+    to: CGPoint,
+    guardEnabled: Bool = true,
+    driftTolerance: Double = 14.0
+) -> (ok: Bool, reason: String) {
+    let moveSrc = src ?? CGEventSource(stateID: .privateState)
     let dx = to.x - from.x, dy = to.y - from.y
     let dist = hypot(dx, dy)
-    guard dist > 12.0 else {
-        if let mv = CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: to, mouseButton: .left) {
-            mv.post(tap: .cghidEventTap)
+    if guardEnabled {
+        let (kbBusy, _) = humanTypedSinceSyntheticKey(idleLimit: 0.35)
+        if kbBusy {
+            return (false, "human_keyboard_during_move")
         }
-        return
+    }
+    guard dist > 12.0 else {
+        if let mv = CGEvent(mouseEventSource: moveSrc, mouseType: .mouseMoved, mouseCursorPosition: to, mouseButton: .left) {
+            mv.post(tap: .cghidEventTap)
+            lastSyntheticMouseTimestamp = CFAbsoluteTimeGetCurrent()
+        }
+        return (true, "ok")
     }
     // 控制点：中点向法线方向随机偏移 12%~30% 距离，保证每次轨迹形状不同
     let mid = CGPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2)
@@ -993,7 +1155,19 @@ func bezierMouseMove(src: CGEventSource?, from: CGPoint, to: CGPoint) {
     let angle = atan2(dy, dx) + Double.pi / 2
     let control = CGPoint(x: mid.x + cos(angle) * bend, y: mid.y + sin(angle) * bend)
     let steps = max(8, min(36, Int(dist / 14.0)))
+    var prevPosted = from
+    var lastPosted = from
     for i in 1...steps {
+        if guardEnabled && i > 1 {
+            let cur = currentCursorPoint()
+            if pointDistanceToSegment(cur, prevPosted, lastPosted) > driftTolerance {
+                return (false, "human_mouse_contended_during_move")
+            }
+            let (kbBusy, _) = humanTypedSinceSyntheticKey(idleLimit: 0.35)
+            if kbBusy {
+                return (false, "human_keyboard_during_move")
+            }
+        }
         let t = Double(i) / Double(steps)
         let u = 1 - t
         var point = CGPoint(x: u * u * from.x + 2 * u * t * control.x + t * t * to.x,
@@ -1003,30 +1177,69 @@ func bezierMouseMove(src: CGEventSource?, from: CGPoint, to: CGPoint) {
             point.x += Double.random(in: -3.0...3.0)
             point.y += Double.random(in: -3.0...3.0)
         }
-        if let mv = CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) {
+        if let mv = CGEvent(mouseEventSource: moveSrc, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) {
             mv.post(tap: .cghidEventTap)
+            lastSyntheticMouseTimestamp = CFAbsoluteTimeGetCurrent()
+            prevPosted = lastPosted
+            lastPosted = point
         }
         usleep(useconds_t.random(in: 6_000...18_000))
     }
-    if let mv = CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: to, mouseButton: .left) {
-        mv.post(tap: .cghidEventTap)
+    if guardEnabled {
+        let cur = currentCursorPoint()
+        if pointDistanceToSegment(cur, prevPosted, lastPosted) > driftTolerance {
+            return (false, "human_mouse_contended_during_move")
+        }
+        let (kbBusy, _) = humanTypedSinceSyntheticKey(idleLimit: 0.35)
+        if kbBusy {
+            return (false, "human_keyboard_during_move")
+        }
     }
+    if let mv = CGEvent(mouseEventSource: moveSrc, mouseType: .mouseMoved, mouseCursorPosition: to, mouseButton: .left) {
+        mv.post(tap: .cghidEventTap)
+        lastSyntheticMouseTimestamp = CFAbsoluteTimeGetCurrent()
+    }
+    return (true, "ok")
+}
+
+func bezierMouseMove(src: CGEventSource?, from: CGPoint, to: CGPoint) {
+    _ = bezierMouseMoveGuarded(src: src, from: from, to: to, guardEnabled: false)
+}
+
+@discardableResult
+func guardedMoveAndRightClick(x: Double, y: Double, guardEnabled: Bool = true) -> (ok: Bool, reason: String) {
+    let point = CGPoint(x: x, y: y)
+    let src = CGEventSource(stateID: .privateState)
+    let start = currentCursorPoint()
+    let moved = bezierMouseMoveGuarded(src: src, from: start, to: point, guardEnabled: guardEnabled)
+    if !moved.ok {
+        return moved
+    }
+    usleep(30_000 + useconds_t.random(in: 0...30_000))
+    if guardEnabled {
+        let cur = currentCursorPoint()
+        if hypot(cur.x - point.x, cur.y - point.y) > 18.0 {
+            return (false, "human_mouse_contended_before_click")
+        }
+        let (kbBusy, _) = humanTypedSinceSyntheticKey(idleLimit: 0.4)
+        if kbBusy {
+            return (false, "human_keyboard_before_click")
+        }
+    }
+    if let down = CGEvent(mouseEventSource: src, mouseType: .rightMouseDown, mouseCursorPosition: point, mouseButton: .right),
+       let up = CGEvent(mouseEventSource: src, mouseType: .rightMouseUp, mouseCursorPosition: point, mouseButton: .right) {
+        down.post(tap: .cghidEventTap)
+        lastSyntheticMouseTimestamp = CFAbsoluteTimeGetCurrent()
+        usleep(useconds_t.random(in: 30_000...70_000))
+        up.post(tap: .cghidEventTap)
+        lastSyntheticMouseTimestamp = CFAbsoluteTimeGetCurrent()
+    }
+    return (true, "ok")
 }
 
 /// 右键单击（打开微信上下文菜单：语音「转文字」等生态能力入口）
 func moveAndRightClick(x: Double, y: Double) {
-    let point = CGPoint(x: x, y: y)
-    let src = CGEventSource(stateID: .hidSystemState)
-    var start = point
-    if let cur = CGEvent(source: nil)?.location { start = cur }
-    bezierMouseMove(src: src, from: start, to: point)
-    usleep(30_000 + useconds_t.random(in: 0...30_000))
-    if let down = CGEvent(mouseEventSource: src, mouseType: .rightMouseDown, mouseCursorPosition: point, mouseButton: .right),
-       let up = CGEvent(mouseEventSource: src, mouseType: .rightMouseUp, mouseCursorPosition: point, mouseButton: .right) {
-        down.post(tap: .cghidEventTap)
-        usleep(useconds_t.random(in: 30_000...70_000))
-        up.post(tap: .cghidEventTap)
-    }
+    _ = guardedMoveAndRightClick(x: x, y: y, guardEnabled: false)
 }
 
 func cmdRightClick(flags: Set<String>, options: [String: String]) {
@@ -1037,20 +1250,46 @@ func cmdRightClick(flags: Set<String>, options: [String: String]) {
           let x = Double(xStr), let y = Double(yStr) else {
         failJSON("Missing valid --x and --y coordinates", code: "missing_argument")
     }
-    moveAndRightClick(x: x, y: y)
-    writeJSON(["ok": true, "x": x, "y": y, "rightClick": true])
+    guardNoHumanActivityOrFail(flags: flags, options: options)
+    let origCursor = currentCursorPoint()
+    let guardEnabled = parseGuardIdleSeconds(flags: flags, options: options) != nil
+    let res = guardedMoveAndRightClick(x: x, y: y, guardEnabled: guardEnabled)
+    if !res.ok {
+        failJSON("Aborted right-click due to human input contention (\(res.reason)).", code: "human_input_active", extra: ["retryable": true, "reason": res.reason])
+    }
+    if !flags.contains("keep-cursor") {
+        restoreCursorQuietly(origCursor)
+    }
+    let finalPt = currentCursorPoint()
+    writeJSON([
+        "ok": true,
+        "x": x,
+        "y": y,
+        "rightClick": true,
+        "finalCursorPosition": ["x": (finalPt.x * 10.0).rounded() / 10.0, "y": (finalPt.y * 10.0).rounded() / 10.0],
+    ])
 }
 
-func moveAndClick(x: Double, y: Double, doubleClick: Bool = false) {
+@discardableResult
+func guardedMoveAndClick(x: Double, y: Double, doubleClick: Bool = false, guardEnabled: Bool = true) -> (ok: Bool, reason: String) {
     let point = CGPoint(x: x, y: y)
-    let src = CGEventSource(stateID: .hidSystemState)
-    // 从当前光标位置出发沿贝塞尔轨迹移动（真人移动曲线，而非瞬移）
-    var start = point
-    if let cur = CGEvent(source: nil)?.location {
-        start = cur
+    let src = CGEventSource(stateID: .privateState)
+    let start = currentCursorPoint()
+    let moved = bezierMouseMoveGuarded(src: src, from: start, to: point, guardEnabled: guardEnabled)
+    if !moved.ok {
+        return moved
     }
-    bezierMouseMove(src: src, from: start, to: point)
     usleep(30_000 + useconds_t.random(in: 0...40_000))
+    if guardEnabled {
+        let cur = currentCursorPoint()
+        if hypot(cur.x - point.x, cur.y - point.y) > 18.0 {
+            return (false, "human_mouse_contended_before_click")
+        }
+        let (kbBusy, _) = humanTypedSinceSyntheticKey(idleLimit: 0.4)
+        if kbBusy {
+            return (false, "human_keyboard_before_click")
+        }
+    }
     let clicks = doubleClick ? 2 : 1
     for clickState in 1...clicks {
         if let down = CGEvent(mouseEventSource: src, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left),
@@ -1058,23 +1297,18 @@ func moveAndClick(x: Double, y: Double, doubleClick: Bool = false) {
             down.setIntegerValueField(.mouseEventClickState, value: Int64(clickState))
             up.setIntegerValueField(.mouseEventClickState, value: Int64(clickState))
             down.post(tap: .cghidEventTap)
+            lastSyntheticMouseTimestamp = CFAbsoluteTimeGetCurrent()
             usleep(useconds_t.random(in: 20_000...60_000))
             up.post(tap: .cghidEventTap)
+            lastSyntheticMouseTimestamp = CFAbsoluteTimeGetCurrent()
             usleep(useconds_t.random(in: 35_000...70_000))
         }
     }
+    return (true, "ok")
 }
 
-var lastSyntheticKeyTimestamp: CFAbsoluteTime = 0
-
-func humanTypedSinceSyntheticKey(idleLimit: Double) -> (Bool, Double) {
-    let hwIdle = hardwareKeyboardIdleSeconds()
-    if lastSyntheticKeyTimestamp <= 0 {
-        return (hwIdle < idleLimit, hwIdle)
-    }
-    let elapsed = max(0.0, CFAbsoluteTimeGetCurrent() - lastSyntheticKeyTimestamp)
-    let isHuman = (hwIdle + 0.06 < elapsed) && (hwIdle < idleLimit)
-    return (isHuman, hwIdle)
+func moveAndClick(x: Double, y: Double, doubleClick: Bool = false) {
+    _ = guardedMoveAndClick(x: x, y: y, doubleClick: doubleClick, guardEnabled: false)
 }
 
 func postKey(keyCode: CGKeyCode, flags: CGEventFlags = []) {
@@ -1770,6 +2004,67 @@ func cmdCaptureOCR(options: [String: String], allowActivation: Bool = true) {
     }
 }
 
+/// 屏幕区域合成截图 + Vision OCR：用于校验不属于主窗口的浮层（朋友圈「赞 / 评论」胶囊是独立窗口，
+/// `capture-ocr` 只截主窗口看不到它）。坐标为屏幕点，元素额外带 `screenCenter`。
+func cmdCaptureRegion(options: [String: String]) {
+    guard CGPreflightScreenCaptureAccess() else {
+        failJSON("Screen Recording permission (CGPreflightScreenCaptureAccess) is not granted.", code: "screen_capture_denied")
+    }
+    guard let x = options["x"].flatMap(Double.init),
+          let y = options["y"].flatMap(Double.init),
+          let w = options["width"].flatMap(Double.init),
+          let h = options["height"].flatMap(Double.init) else {
+        failJSON("Missing valid --x --y --width --height (screen points)", code: "missing_argument")
+    }
+    let rect = CGRect(x: x, y: y, width: min(max(w, 4.0), 4096.0), height: min(max(h, 4.0), 4096.0))
+    guard let cgImage = captureOnScreenRect(rect) else {
+        failJSON("CGWindowListCreateImage returned nil for the on-screen rect.", code: "capture_failed")
+    }
+
+    var savedPath: String? = nil
+    if let outPath = options["out"], !outPath.isEmpty {
+        let parent = URL(fileURLWithPath: outPath).deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        if saveCGImageAsPNG(cgImage, to: outPath) {
+            savedPath = outPath
+        }
+    }
+
+    let sx = Double(cgImage.width) / max(1.0, rect.width)
+    let sy = Double(cgImage.height) / max(1.0, rect.height)
+    let t0 = DispatchTime.now()
+    do {
+        let raw = try runVisionOCR(cgImage: cgImage)
+        let elapsedMs = Double(DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1_000_000.0
+        let elements: [[String: Any]] = raw.map { item in
+            var copy = item
+            if let c = item["center"] as? [String: Int], let px = c["x"], let py = c["y"] {
+                let scrX = rect.minX + Double(px) / sx
+                let scrY = rect.minY + Double(py) / sy
+                copy["screenCenter"] = ["x": (scrX * 10.0).rounded() / 10.0, "y": (scrY * 10.0).rounded() / 10.0]
+            }
+            return copy
+        }
+        var resp: [String: Any] = [
+            "ok": true,
+            "region": ["x": rect.minX, "y": rect.minY, "width": rect.width, "height": rect.height],
+            "imageWidth": cgImage.width,
+            "imageHeight": cgImage.height,
+            "scaleX": sx,
+            "scaleY": sy,
+            "elapsedMs": (elapsedMs * 10.0).rounded() / 10.0,
+            "count": elements.count,
+            "elements": elements,
+        ]
+        if let saved = savedPath {
+            resp["savedPath"] = saved
+        }
+        writeJSON(resp)
+    } catch {
+        failJSON("Vision OCR failed: \(error.localizedDescription)", code: "vision_ocr_failed")
+    }
+}
+
 func cmdSetWindowFrame(options: [String: String]) {
     guard AXIsProcessTrusted() else {
         failJSON("Accessibility permission (AXIsProcessTrusted) is not granted.", code: "ax_permission_denied")
@@ -1895,31 +2190,55 @@ func cmdClick(flags: Set<String>, options: [String: String]) {
           let x = Double(xStr), let y = Double(yStr) else {
         failJSON("Missing valid --x and --y coordinates", code: "missing_argument")
     }
+    guardNoHumanActivityOrFail(flags: flags, options: options)
+    let origCursor = currentCursorPoint()
+    let guardEnabled = parseGuardIdleSeconds(flags: flags, options: options) != nil
     let dbl = flags.contains("double")
-    moveAndClick(x: x, y: y, doubleClick: dbl)
+    let res = guardedMoveAndClick(x: x, y: y, doubleClick: dbl, guardEnabled: guardEnabled)
+    if !res.ok {
+        failJSON("Aborted click due to human input contention (\(res.reason)).", code: "human_input_active", extra: ["retryable": true, "reason": res.reason])
+    }
+    if !flags.contains("keep-cursor") {
+        restoreCursorQuietly(origCursor)
+    }
+    let finalPt = currentCursorPoint()
     writeJSON([
         "ok": true,
         "x": x,
         "y": y,
         "doubleClick": dbl,
+        "finalCursorPosition": ["x": (finalPt.x * 10.0).rounded() / 10.0, "y": (finalPt.y * 10.0).rounded() / 10.0],
     ])
 }
 
-func scrollWheelAtScreenPoint(_ point: CGPoint, dy: Int32, usePixels: Bool = true, steps: Int = 5) {
-    let src = CGEventSource(stateID: .hidSystemState)
-    if let move = CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) {
-        move.post(tap: .cghidEventTap)
+@discardableResult
+func scrollWheelAtScreenPointGuarded(_ point: CGPoint, dy: Int32, usePixels: Bool = true, steps: Int = 5, guardEnabled: Bool = false) -> (ok: Bool, reason: String) {
+    let src = CGEventSource(stateID: .privateState)
+    let start = currentCursorPoint()
+    let moved = bezierMouseMoveGuarded(src: src, from: start, to: point, guardEnabled: guardEnabled)
+    if !moved.ok {
+        return moved
     }
     usleep(40_000)
     let clampedSteps = max(1, min(30, steps))
     let units: CGScrollEventUnit = usePixels ? .pixel : .line
     if clampedSteps == 1 {
+        if guardEnabled {
+            let cur = currentCursorPoint()
+            if hypot(cur.x - point.x, cur.y - point.y) > 22.0 {
+                return (false, "human_mouse_contended_during_scroll")
+            }
+            if humanTypedSinceSyntheticKey(idleLimit: 0.35).0 {
+                return (false, "human_keyboard_during_scroll")
+            }
+        }
         guard let wheel = CGEvent(scrollWheelEvent2Source: src, units: units, wheelCount: 1, wheel1: dy, wheel2: 0, wheel3: 0) else {
             failJSON("Failed to construct CGEvent scroll wheel event.", code: "scroll_event_failed")
         }
         wheel.location = point
         wheel.post(tap: .cghidEventTap)
-        return
+        lastSyntheticMouseTimestamp = CFAbsoluteTimeGetCurrent()
+        return (true, "ok")
     }
     let baseStep = dy / Int32(clampedSteps)
     var remainder = dy - (baseStep * Int32(clampedSteps))
@@ -1935,19 +2254,37 @@ func scrollWheelAtScreenPoint(_ point: CGPoint, dy: Int32, usePixels: Bool = tru
         if stepDy == 0 {
             continue
         }
+        if guardEnabled {
+            let cur = currentCursorPoint()
+            if hypot(cur.x - point.x, cur.y - point.y) > 22.0 {
+                return (false, "human_mouse_contended_during_scroll")
+            }
+            if humanTypedSinceSyntheticKey(idleLimit: 0.35).0 {
+                return (false, "human_keyboard_during_scroll")
+            }
+        }
         guard let wheel = CGEvent(scrollWheelEvent2Source: src, units: units, wheelCount: 1, wheel1: stepDy, wheel2: 0, wheel3: 0) else {
             failJSON("Failed to construct CGEvent scroll wheel event.", code: "scroll_event_failed")
         }
         wheel.location = point
         wheel.post(tap: .cghidEventTap)
+        lastSyntheticMouseTimestamp = CFAbsoluteTimeGetCurrent()
         usleep(18_000)
     }
+    return (true, "ok")
 }
 
-func cmdScroll(options: [String: String]) {
+func scrollWheelAtScreenPoint(_ point: CGPoint, dy: Int32, usePixels: Bool = true, steps: Int = 5) {
+    _ = scrollWheelAtScreenPointGuarded(point, dy: dy, usePixels: usePixels, steps: steps, guardEnabled: false)
+}
+
+func cmdScroll(flags: Set<String> = [], options: [String: String]) {
     guard CGPreflightPostEventAccess() else {
         failJSON("macOS Accessibility/PostEvent permission (CGPreflightPostEventAccess) is not granted.", code: "post_event_permission_denied")
     }
+    guardNoHumanActivityOrFail(flags: flags, options: options)
+    let origCursor = currentCursorPoint()
+    let guardEnabled = parseGuardIdleSeconds(flags: flags, options: options) != nil
     var xOpt = options["x"].flatMap { Double($0) }
     var yOpt = options["y"].flatMap { Double($0) }
     var usedRelative = false
@@ -1975,7 +2312,14 @@ func cmdScroll(options: [String: String]) {
     let defaultSteps = usePixels ? 5 : 1
     let steps = Int(options["steps"] ?? "\(defaultSteps)") ?? defaultSteps
     let point = CGPoint(x: x, y: y)
-    scrollWheelAtScreenPoint(point, dy: dy, usePixels: usePixels, steps: steps)
+    let res = scrollWheelAtScreenPointGuarded(point, dy: dy, usePixels: usePixels, steps: steps, guardEnabled: guardEnabled)
+    if !res.ok {
+        failJSON("Aborted scroll due to human input contention (\(res.reason)).", code: "human_input_active", extra: ["retryable": true, "reason": res.reason])
+    }
+    if !flags.contains("keep-cursor") {
+        restoreCursorQuietly(origCursor)
+    }
+    let finalPt = currentCursorPoint()
     writeJSON([
         "ok": true,
         "x": x,
@@ -1984,10 +2328,12 @@ func cmdScroll(options: [String: String]) {
         "units": usePixels ? "pixel" : "line",
         "steps": max(1, min(30, steps)),
         "usedRelative": usedRelative,
+        "finalCursorPosition": ["x": (finalPt.x * 10.0).rounded() / 10.0, "y": (finalPt.y * 10.0).rounded() / 10.0],
     ])
 }
 
-func cmdActivate(options: [String: String] = [:]) {
+func cmdActivate(flags: Set<String> = [], options: [String: String] = [:]) {
+    guardNoHumanActivityOrFail(flags: flags, options: options)
     let (requestedApp, targetKind) = resolveTargetApp(options: options, allowWindowLookupWhenOmitted: true)
     let ensured = ensureAppMainWindow(kind: targetKind)
     guard let app = ensured.app else {
@@ -2039,12 +2385,37 @@ func cmdActivate(options: [String: String] = [:]) {
     writeJSON(resp, exitCode: exitOK ? 0 : 1)
 }
 
-func cmdRequestPermissions(flags: Set<String>) {
-    let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
-    let options = [promptKey: true] as CFDictionary
-    let axTrusted = AXIsProcessTrustedWithOptions(options)
-    let postEventTrusted = CGRequestPostEventAccess()
-    let screenCaptureTrusted = CGPreflightScreenCaptureAccess() ? true : CGRequestScreenCaptureAccess()
+/// 向 macOS 申请权限登记。`--only accessibility|post-event|screen-capture|all`（默认 all，保持旧调用不变）。
+/// 向导按「当前缺失的那一项」单独申请：辅助功能与屏幕录制在同一瞬间一起申请时，系统可能丢弃
+/// 后一个弹窗——表现为辅助功能恢复了、屏幕录制始终没进系统设置列表。
+func cmdRequestPermissions(flags: Set<String>, options: [String: String] = [:]) {
+    let only = (options["only"] ?? "all").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let wantAX = only == "all" || only == "accessibility"
+    // 「辅助功能」一项同时覆盖系统事件控制（同一个 TCC 服务）；只有单独指定 post-event 时才只申请它
+    let wantPost = only == "all" || only == "accessibility" || only == "post-event" || only == "post_event"
+    let wantScreen = only == "all" || only == "screen-capture" || only == "screen_capture"
+    guard wantAX || wantPost || wantScreen else {
+        failJSON("Unsupported --only value: '\(only)' (expected accessibility|post-event|screen-capture|all)", code: "invalid_argument")
+    }
+
+    var axTrusted = AXIsProcessTrusted()
+    if wantAX && !axTrusted {
+        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        axTrusted = AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
+    }
+    var postEventTrusted = CGPreflightPostEventAccess()
+    if wantPost && !postEventTrusted {
+        postEventTrusted = CGRequestPostEventAccess()
+    }
+    let screenCaptureWasTrusted = CGPreflightScreenCaptureAccess()
+    var screenCaptureTrusted = screenCaptureWasTrusted
+    var screenCapturePrompted = false
+    if wantScreen && !screenCaptureWasTrusted {
+        screenCaptureTrusted = CGRequestScreenCaptureAccess()
+        screenCapturePrompted = true
+        // 系统弹窗由 tccd 异步呈现；本进程发完申请立刻退出，可能让待处理的登记被一并取消，稍作停留。
+        usleep(600_000)
+    }
 
     let settingsURL = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
     let shouldOpenSettings = !flags.contains("no-settings")
@@ -2055,16 +2426,21 @@ func cmdRequestPermissions(flags: Set<String>) {
 
     writeJSON([
         "ok": true,
+        "only": only,
         "accessibilityTrusted": axTrusted,
         "postEventTrusted": postEventTrusted,
         "screenCaptureTrusted": screenCaptureTrusted,
+        "screenCapturePrompted": screenCapturePrompted,
         "openedSystemSettings": openedSystemSettings,
         "settingsURL": settingsURL,
         "promptTriggered": true,
     ])
 }
 
-func cmdFocusInput(options: [String: String] = [:]) {
+func cmdFocusInput(flags: Set<String> = [], options: [String: String] = [:]) {
+    guardNoHumanActivityOrFail(flags: flags, options: options)
+    let origCursor = currentCursorPoint()
+    let guardEnabled = parseGuardIdleSeconds(flags: flags, options: options) != nil
     let (_, targetKind) = resolveTargetApp(options: options, allowWindowLookupWhenOmitted: true)
     let ensured = ensureAppMainWindow(kind: targetKind)
     guard let app = ensured.app else {
@@ -2081,16 +2457,30 @@ func cmdFocusInput(options: [String: String] = [:]) {
         if let pt = pt, let sz = sz {
             let cx = pt.x + sz.width / 2.0
             let cy = pt.y + sz.height / 2.0
-            moveAndClick(x: cx, y: cy)
+            let clickRes = guardedMoveAndClick(x: cx, y: cy, guardEnabled: guardEnabled)
+            if !clickRes.ok {
+                failJSON("Aborted focus-input due to human input contention (\(clickRes.reason)).", code: "human_input_active", extra: ["retryable": true, "reason": clickRes.reason])
+            }
+            if !flags.contains("keep-cursor") {
+                restoreCursorQuietly(origCursor)
+            }
+            let finalPt = currentCursorPoint()
             writeJSON([
                 "ok": true,
                 "appId": targetKind.appId,
                 "method": "ax_and_click",
                 "axFocusErr": focusErr.rawValue,
                 "clickPoint": ["x": cx, "y": cy],
+                "finalCursorPosition": ["x": (finalPt.x * 10.0).rounded() / 10.0, "y": (finalPt.y * 10.0).rounded() / 10.0],
             ])
         } else if focusErr == .success {
-            writeJSON(["ok": true, "appId": targetKind.appId, "method": "ax_focus_only"])
+            let finalPt = currentCursorPoint()
+            writeJSON([
+                "ok": true,
+                "appId": targetKind.appId,
+                "method": "ax_focus_only",
+                "finalCursorPosition": ["x": (finalPt.x * 10.0).rounded() / 10.0, "y": (finalPt.y * 10.0).rounded() / 10.0],
+            ])
         }
     }
 
@@ -2100,13 +2490,21 @@ func cmdFocusInput(options: [String: String] = [:]) {
     }
     let cx = win.x + win.width * 0.60
     let cy = win.y + win.height - 85.0
-    moveAndClick(x: cx, y: cy)
+    let clickRes = guardedMoveAndClick(x: cx, y: cy, guardEnabled: guardEnabled)
+    if !clickRes.ok {
+        failJSON("Aborted focus-input fallback due to human input contention (\(clickRes.reason)).", code: "human_input_active", extra: ["retryable": true, "reason": clickRes.reason])
+    }
+    if !flags.contains("keep-cursor") {
+        restoreCursorQuietly(origCursor)
+    }
+    let finalPt = currentCursorPoint()
     writeJSON([
         "ok": true,
         "appId": targetKind.appId,
         "windowID": win.windowID,
         "method": "window_geometry_fallback",
         "clickPoint": ["x": cx, "y": cy],
+        "finalCursorPosition": ["x": (finalPt.x * 10.0).rounded() / 10.0, "y": (finalPt.y * 10.0).rounded() / 10.0],
     ])
 }
 
@@ -2190,6 +2588,10 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
         return
     }
 
+    guardNoHumanActivityOrFail(flags: flags, options: options)
+    let origCursor = currentCursorPoint()
+    let guardEnabled = parseGuardIdleSeconds(flags: flags, options: options) != nil
+
     let ensured = ensureAppMainWindow(kind: targetKind)
     guard let app = ensured.app else {
         failJSON("\(targetKind.appLabel) is not running.", code: targetKind.notRunningErrorCode, extra: ["appId": targetKind.appId])
@@ -2233,6 +2635,7 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
     // Focus input element via AX or geometry (supporting main or popup chat windows)
     let effectivePID = targetWin?.pid ?? app.processIdentifier
     var axInputEl: AXUIElement? = nil
+    var expectedClickPt: CGPoint? = nil
     if let axWin = findAXWindow(pid: effectivePID, kind: targetKind, targetWin: targetWin, reqTitle: options["window-title"]) {
         if hasWindowSelector {
             _ = AXUIElementSetAttributeValue(axWin, kAXMainAttribute as CFString, kCFBooleanTrue)
@@ -2243,12 +2646,24 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
         if let el = axInputEl {
             _ = AXUIElementSetAttributeValue(el, kAXFocusedAttribute as CFString, kCFBooleanTrue)
             if let pt = axPoint(el, kAXPositionAttribute), let sz = axSize(el, kAXSizeAttribute) {
-                moveAndClick(x: pt.x + sz.width / 2.0, y: pt.y + sz.height / 2.0)
+                let clickPt = CGPoint(x: pt.x + sz.width / 2.0, y: pt.y + sz.height / 2.0)
+                let res = guardedMoveAndClick(x: clickPt.x, y: clickPt.y, guardEnabled: guardEnabled)
+                if !res.ok {
+                    restoreClipboard()
+                    failJSON("Aborted input focus due to human input contention (\(res.reason)).", code: "human_input_active", extra: ["retryable": true, "reason": res.reason])
+                }
+                expectedClickPt = clickPt
             }
         }
     }
     if axInputEl == nil, let win = targetWin {
-        moveAndClick(x: win.x + win.width * 0.60, y: win.y + win.height - 85.0)
+        let clickPt = CGPoint(x: win.x + win.width * 0.60, y: win.y + win.height - 85.0)
+        let res = guardedMoveAndClick(x: clickPt.x, y: clickPt.y, guardEnabled: guardEnabled)
+        if !res.ok {
+            restoreClipboard()
+            failJSON("Aborted input fallback click due to human input contention (\(res.reason)).", code: "human_input_active", extra: ["retryable": true, "reason": res.reason])
+        }
+        expectedClickPt = clickPt
     }
     usleep(180_000)
 
@@ -2256,12 +2671,27 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
     let cleanedStaleDraft = !preExistingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     let trimmedExpected = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
-    // Protect active human keyboard typing BEFORE touching the input box (never wipe user draft!)
+    // Protect active human keyboard typing OR mouse movement BEFORE touching the input box
+    if guardEnabled {
+        let entryCheck = detectHumanHIDActivity(idleLimit: 2.0, expectedCursor: expectedClickPt, driftTolerance: 24.0)
+        if entryCheck.active {
+            restoreClipboard()
+            if entryCheck.reason == "human_keyboard_active" {
+                restoreCursorQuietly(origCursor)
+            }
+            failJSON(
+                "Human input (\(entryCheck.reason)) detected; paused before touching input box to protect user control.",
+                code: "human_input_active",
+                extra: entryCheck.details.merging(["existingDraft": preExistingText]) { a, _ in a }
+            )
+        }
+    }
     let entryHwKeyIdle = hardwareKeyboardIdleSeconds()
-    if entryHwKeyIdle < 2.0 || (cleanedStaleDraft && entryHwKeyIdle < 12.0 && options["force-clear-draft"] != "1") {
+    if cleanedStaleDraft && entryHwKeyIdle < 12.0 && options["force-clear-draft"] != "1" {
         restoreClipboard()
+        restoreCursorQuietly(origCursor)
         failJSON(
-            "Human keyboard input detected; paused before touching input box to protect user typing.",
+            "Existing unsent user draft protected; paused before touching input box.",
             code: "human_keyboard_active",
             extra: [
                 "retryable": true,
@@ -2272,14 +2702,19 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
     }
 
     func performPasteAndReadback() -> (readback: String, source: String) {
-        let (kbActive, kbIdle) = humanTypedSinceSyntheticKey(idleLimit: 1.0)
-        if kbActive {
-            restoreClipboard()
-            failJSON(
-                "Human keyboard activity detected right before paste; paused cleanly.",
-                code: "human_keyboard_active",
-                extra: ["retryable": true, "hardwareKeyboardIdleSeconds": kbIdle]
-            )
+        if guardEnabled {
+            let check = detectHumanHIDActivity(idleLimit: 1.0, expectedCursor: expectedClickPt, driftTolerance: 24.0)
+            if check.active {
+                restoreClipboard()
+                if check.reason == "human_keyboard_active" {
+                    restoreCursorQuietly(origCursor)
+                }
+                failJSON(
+                    "Human input (\(check.reason)) detected right before paste; paused cleanly.",
+                    code: "human_input_active",
+                    extra: check.details
+                )
+            }
         }
         if let el = axInputEl {
             _ = AXUIElementSetAttributeValue(el, kAXFocusedAttribute as CFString, kCFBooleanTrue)
@@ -2399,7 +2834,7 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
         usleep(60_000)
         postKey(keyCode: kKeyDelete)
     } else {
-        // Re-verify frontmost focus AND human keyboard idle right before pressing Return
+        // Re-verify frontmost focus AND human keyboard/mouse idle right before pressing Return
         let (preReturnFront, preReturnDesc) = isAppFrontmost(targetKind)
         guard preReturnFront else {
             postKey(keyCode: kKeyA, flags: .maskCommand)
@@ -2412,17 +2847,22 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
                 extra: ["retryable": true, "frontmost": preReturnDesc]
             )
         }
-        let (preReturnTyping, preReturnHwKey) = humanTypedSinceSyntheticKey(idleLimit: 0.8)
-        if preReturnTyping {
-            postKey(keyCode: kKeyA, flags: .maskCommand)
-            usleep(60_000)
-            postKey(keyCode: kKeyDelete)
-            restoreClipboard()
-            failJSON(
-                "Human started typing before Return; cleaned input and paused send for safe retry.",
-                code: "human_keyboard_active",
-                extra: ["retryable": true, "hardwareKeyboardIdleSeconds": preReturnHwKey]
-            )
+        if guardEnabled {
+            let preReturnCheck = detectHumanHIDActivity(idleLimit: 0.8, expectedCursor: expectedClickPt, driftTolerance: 24.0)
+            if preReturnCheck.active {
+                postKey(keyCode: kKeyA, flags: .maskCommand)
+                usleep(60_000)
+                postKey(keyCode: kKeyDelete)
+                restoreClipboard()
+                if preReturnCheck.reason == "human_keyboard_active" {
+                    restoreCursorQuietly(origCursor)
+                }
+                failJSON(
+                    "Human input (\(preReturnCheck.reason)) detected before Return; cleaned input and paused send for safe retry.",
+                    code: "human_input_active",
+                    extra: preReturnCheck.details
+                )
+            }
         }
 
         postKey(keyCode: kKeyRightArrow)
@@ -2441,6 +2881,9 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
                 usleep(60_000)
                 postKey(keyCode: kKeyDelete)
                 restoreClipboard()
+                if !flags.contains("keep-cursor") {
+                    restoreCursorQuietly(origCursor)
+                }
                 failJSON(
                     "Return keystroke did not dispatch message (text remained in input box); cleaned input for safe retry.",
                     code: "return_not_dispatched",
@@ -2452,6 +2895,10 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
     }
 
     restoreClipboard()
+    if !flags.contains("keep-cursor") {
+        restoreCursorQuietly(origCursor)
+    }
+    let finalPt = currentCursorPoint()
     var resp: [String: Any] = [
         "ok": true,
         "appId": targetKind.appId,
@@ -2463,6 +2910,7 @@ func cmdPasteAndVerify(flags: Set<String>, options: [String: String]) {
         "cleanedStaleDraft": cleanedStaleDraft,
         "readbackLength": readback.count,
         "readbackSource": readbackSource,
+        "finalCursorPosition": ["x": (finalPt.x * 10.0).rounded() / 10.0, "y": (finalPt.y * 10.0).rounded() / 10.0],
     ]
     if let win = targetWin {
         resp["windowID"] = win.windowID
@@ -2475,6 +2923,12 @@ func cmdSendSticker(flags: Set<String>, options: [String: String]) {
     guard AXIsProcessTrusted() else {
         failJSON("Accessibility permission (AXIsProcessTrusted) is not granted.", code: "ax_permission_denied")
     }
+    let dryRun = flags.contains("dry-run") || options["dry-run"] == "1"
+    if !dryRun {
+        guardNoHumanActivityOrFail(flags: flags, options: options)
+    }
+    let origCursor = currentCursorPoint()
+    let guardEnabled = parseGuardIdleSeconds(flags: flags, options: options) != nil
     let (_, targetKind) = resolveTargetApp(options: options, allowWindowLookupWhenOmitted: true)
     let ensured = ensureAppMainWindow(kind: targetKind)
     guard let app = ensured.app else {
@@ -2493,7 +2947,6 @@ func cmdSendSticker(flags: Set<String>, options: [String: String]) {
 
     let tab = (options["tab"] ?? "favorites").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     let slot = max(0, min(24, Int(options["slot"] ?? "0") ?? 0))
-    let dryRun = flags.contains("dry-run") || options["dry-run"] == "1"
 
     let leftPaneOffset: Double = {
         if let rawSplit = options["split-x"], let parsed = Double(rawSplit), parsed > 0 {
@@ -2555,20 +3008,39 @@ func cmdSendSticker(flags: Set<String>, options: [String: String]) {
     }
 
     // 1) Open emoji/sticker popover
-    moveAndClick(x: emojiBtnX, y: emojiBtnY)
+    let r1 = guardedMoveAndClick(x: emojiBtnX, y: emojiBtnY, guardEnabled: guardEnabled)
+    if !r1.ok {
+        failJSON("Aborted send-sticker step 1 due to human contention (\(r1.reason)).", code: "human_input_active", extra: ["retryable": true, "reason": r1.reason])
+    }
     usleep(280_000)
     // 2) Switch to requested tab (favorites ❤️ or default emoji 😊)
-    moveAndClick(x: tabX, y: tabY)
+    let r2 = guardedMoveAndClick(x: tabX, y: tabY, guardEnabled: guardEnabled)
+    if !r2.ok {
+        failJSON("Aborted send-sticker step 2 due to human contention (\(r2.reason)).", code: "human_input_active", extra: ["retryable": true, "reason": r2.reason])
+    }
     usleep(240_000)
     // 3) Click target sticker / emoji cell
-    moveAndClick(x: slotX, y: slotY)
+    let r3 = guardedMoveAndClick(x: slotX, y: slotY, guardEnabled: guardEnabled)
+    if !r3.ok {
+        failJSON("Aborted send-sticker step 3 due to human contention (\(r3.reason)).", code: "human_input_active", extra: ["retryable": true, "reason": r3.reason])
+    }
     usleep(180_000)
     // For emoji text cells, confirm sending with Return (favorite stickers send directly on click)
     if tab == "emoji" {
+        if guardEnabled {
+            let chk = detectHumanHIDActivity(idleLimit: 0.8, expectedCursor: CGPoint(x: slotX, y: slotY), driftTolerance: 24.0)
+            if chk.active {
+                failJSON("Human input detected before Return in send-sticker.", code: "human_input_active", extra: chk.details)
+            }
+        }
         postKey(keyCode: kKeyReturn)
         usleep(220_000)
     }
 
+    if !flags.contains("keep-cursor") {
+        restoreCursorQuietly(origCursor)
+    }
+    let finalPt = currentCursorPoint()
     writeJSON([
         "ok": true,
         "sent": true,
@@ -2577,6 +3049,7 @@ func cmdSendSticker(flags: Set<String>, options: [String: String]) {
         "windowID": targetWin.windowID,
         "windowTitle": targetWin.title,
         "slotPoint": ["x": slotX, "y": slotY],
+        "finalCursorPosition": ["x": (finalPt.x * 10.0).rounded() / 10.0, "y": (finalPt.y * 10.0).rounded() / 10.0],
     ])
 }
 
@@ -2618,13 +3091,9 @@ func cmdPasteImage(flags: Set<String>, options: [String: String]) {
         return
     }
 
-    guard hardwareKeyboardIdleSeconds() >= 1.5 else {
-        failJSON(
-            "Human keyboard activity detected; paused image paste cleanly.",
-            code: "human_keyboard_active",
-            extra: ["retryable": true]
-        )
-    }
+    guardNoHumanActivityOrFail(flags: flags, options: options, defaultIdle: 1.8)
+    let origCursor = currentCursorPoint()
+    let guardEnabled = parseGuardIdleSeconds(flags: flags, options: options, defaultIdle: 1.8) != nil
 
     let ensured = ensureAppMainWindow(kind: targetKind)
     guard let app = ensured.app else {
@@ -2658,20 +3127,44 @@ func cmdPasteImage(flags: Set<String>, options: [String: String]) {
 
     let effectivePID = targetWin?.pid ?? app.processIdentifier
     var focusedInput = false
+    var expectedClickPt: CGPoint? = nil
     if let axWin = findAXWindow(pid: effectivePID, kind: targetKind, targetWin: targetWin, reqTitle: options["window-title"]),
        let inputEl = findInputElement(in: axWin) {
         _ = AXUIElementSetAttributeValue(axWin, kAXMainAttribute as CFString, kCFBooleanTrue)
         _ = AXUIElementPerformAction(axWin, kAXRaiseAction as CFString)
         _ = AXUIElementSetAttributeValue(inputEl, kAXFocusedAttribute as CFString, kCFBooleanTrue)
         if let pt = axPoint(inputEl, kAXPositionAttribute), let sz = axSize(inputEl, kAXSizeAttribute) {
-            moveAndClick(x: pt.x + sz.width / 2.0, y: pt.y + sz.height / 2.0)
+            let clickPt = CGPoint(x: pt.x + sz.width / 2.0, y: pt.y + sz.height / 2.0)
+            let res = guardedMoveAndClick(x: clickPt.x, y: clickPt.y, guardEnabled: guardEnabled)
+            if !res.ok {
+                restoreClipboard()
+                failJSON("Aborted paste-image click due to human contention (\(res.reason)).", code: "human_input_active", extra: ["retryable": true, "reason": res.reason])
+            }
+            expectedClickPt = clickPt
             focusedInput = true
         }
     }
     if !focusedInput, let win = targetWin {
-        moveAndClick(x: win.x + win.width * 0.60, y: win.y + win.height - 85.0)
+        let clickPt = CGPoint(x: win.x + win.width * 0.60, y: win.y + win.height - 85.0)
+        let res = guardedMoveAndClick(x: clickPt.x, y: clickPt.y, guardEnabled: guardEnabled)
+        if !res.ok {
+            restoreClipboard()
+            failJSON("Aborted paste-image fallback click due to human contention (\(res.reason)).", code: "human_input_active", extra: ["retryable": true, "reason": res.reason])
+        }
+        expectedClickPt = clickPt
     }
     usleep(180_000)
+
+    if guardEnabled {
+        let prePasteCheck = detectHumanHIDActivity(idleLimit: 1.0, expectedCursor: expectedClickPt, driftTolerance: 24.0)
+        if prePasteCheck.active {
+            restoreClipboard()
+            if prePasteCheck.reason == "human_keyboard_active" {
+                restoreCursorQuietly(origCursor)
+            }
+            failJSON("Human input detected right before pasting image; paused cleanly.", code: "human_input_active", extra: prePasteCheck.details)
+        }
+    }
 
     pb.clearContents()
     pb.declareTypes([.png, .tiff], owner: nil)
@@ -2682,10 +3175,19 @@ func cmdPasteImage(flags: Set<String>, options: [String: String]) {
 
     var sent = false
     if !silentMode {
-        let (kbTyping, kbIdle) = humanTypedSinceSyntheticKey(idleLimit: 0.8)
-        guard isAppFrontmost(targetKind).0, !kbTyping else {
+        guard isAppFrontmost(targetKind).0 else {
             restoreClipboard()
-            failJSON("Interrupted before sending image; aborted cleanly.", code: "interrupted_before_return", extra: ["retryable": true, "hardwareKeyboardIdleSeconds": kbIdle])
+            failJSON("Interrupted before sending image; lost focus.", code: "interrupted_before_return", extra: ["retryable": true])
+        }
+        if guardEnabled {
+            let preReturnCheck = detectHumanHIDActivity(idleLimit: 0.8, expectedCursor: expectedClickPt, driftTolerance: 24.0)
+            if preReturnCheck.active {
+                restoreClipboard()
+                if preReturnCheck.reason == "human_keyboard_active" {
+                    restoreCursorQuietly(origCursor)
+                }
+                failJSON("Interrupted before sending image due to human input (\(preReturnCheck.reason)); aborted cleanly.", code: "interrupted_before_return", extra: preReturnCheck.details)
+            }
         }
         postKey(keyCode: kKeyReturn)
         usleep(320_000)
@@ -2693,6 +3195,10 @@ func cmdPasteImage(flags: Set<String>, options: [String: String]) {
     }
 
     restoreClipboard()
+    if !flags.contains("keep-cursor") {
+        restoreCursorQuietly(origCursor)
+    }
+    let finalPt = currentCursorPoint()
     writeJSON([
         "ok": true,
         "sent": sent,
@@ -2701,6 +3207,7 @@ func cmdPasteImage(flags: Set<String>, options: [String: String]) {
         "pngBytes": pngData.count,
         "windowID": targetWin?.windowID as Any,
         "windowTitle": targetWin?.title as Any,
+        "finalCursorPosition": ["x": (finalPt.x * 10.0).rounded() / 10.0, "y": (finalPt.y * 10.0).rounded() / 10.0],
     ])
 }
 
@@ -3288,6 +3795,10 @@ func cmdJoinTencentMeeting(flags: Set<String>, options: [String: String]) {
         return
     }
 
+    guardNoHumanActivityOrFail(flags: flags, options: options)
+    let origCursor = currentCursorPoint()
+    let guardEnabled = parseGuardIdleSeconds(flags: flags, options: options) != nil
+
     var clickedCardPt: [String: Double]? = nil
     var clickedMiniProgramJoin = false
     var state = scanTMState()
@@ -3310,7 +3821,10 @@ func cmdJoinTencentMeeting(flags: Set<String>, options: [String: String]) {
                     _ = AXUIElementPerformAction(axWin, kAXRaiseAction as CFString)
                 }
                 usleep(220_000)
-                moveAndClick(x: hit.x, y: hit.y)
+                let cardRes = guardedMoveAndClick(x: hit.x, y: hit.y, guardEnabled: guardEnabled)
+                if !cardRes.ok {
+                    failJSON("Aborted joining meeting card due to human contention (\(cardRes.reason)).", code: "human_input_active", extra: ["retryable": true, "reason": cardRes.reason])
+                }
                 clickedCardPt = ["x": hit.x, "y": hit.y]
                 usleep(1_400_000)
 
@@ -3322,7 +3836,10 @@ func cmdJoinTencentMeeting(flags: Set<String>, options: [String: String]) {
                     if meetingCode.isEmpty {
                         meetingCode = extractDigitsCode(mElems.compactMap { $0["text"] as? String }.joined(separator: " "))
                     }
-                    moveAndClick(x: joinHit.x, y: joinHit.y)
+                    let joinRes = guardedMoveAndClick(x: joinHit.x, y: joinHit.y, guardEnabled: guardEnabled)
+                    if !joinRes.ok {
+                        failJSON("Aborted mini-program join click due to human contention (\(joinRes.reason)).", code: "human_input_active", extra: ["retryable": true, "reason": joinRes.reason])
+                    }
                     clickedMiniProgramJoin = true
                     usleep(2_200_000)
                 }
@@ -3350,7 +3867,10 @@ func cmdJoinTencentMeeting(flags: Set<String>, options: [String: String]) {
                         _ = tmApp.activate(options: [.activateIgnoringOtherApps])
                     }
                     usleep(180_000)
-                    moveAndClick(x: hit.x, y: hit.y)
+                    let tmClick = guardedMoveAndClick(x: hit.x, y: hit.y, guardEnabled: guardEnabled)
+                    if !tmClick.ok {
+                        failJSON("Aborted Tencent Meeting click due to human contention (\(tmClick.reason)).", code: "human_input_active", extra: ["retryable": true, "reason": tmClick.reason])
+                    }
                     usleep(2_000_000)
                     state = scanTMState()
                     break
@@ -3361,6 +3881,10 @@ func cmdJoinTencentMeeting(flags: Set<String>, options: [String: String]) {
 
     if state.needsPwd, let pw = state.pwdWin {
         if password.isEmpty {
+            if !flags.contains("keep-cursor") {
+                restoreCursorQuietly(origCursor)
+            }
+            let finalPt = currentCursorPoint()
             writeJSON([
                 "ok": true,
                 "joined": false,
@@ -3369,6 +3893,7 @@ func cmdJoinTencentMeeting(flags: Set<String>, options: [String: String]) {
                 "passwordWindowID": pw.wid,
                 "clickedCardPoint": clickedCardPt as Any,
                 "clickedMiniProgramJoin": clickedMiniProgramJoin,
+                "finalCursorPosition": ["x": (finalPt.x * 10.0).rounded() / 10.0, "y": (finalPt.y * 10.0).rounded() / 10.0],
             ])
             return
         }
@@ -3378,7 +3903,10 @@ func cmdJoinTencentMeeting(flags: Set<String>, options: [String: String]) {
         }
         usleep(250_000)
         if let fpt = state.pwdFieldPt {
-            moveAndClick(x: fpt.0, y: fpt.1)
+            let fClick = guardedMoveAndClick(x: fpt.0, y: fpt.1, guardEnabled: guardEnabled)
+            if !fClick.ok {
+                failJSON("Aborted password field click due to human contention (\(fClick.reason)).", code: "human_input_active", extra: ["retryable": true, "reason": fClick.reason])
+            }
             usleep(150_000)
             let pb = NSPasteboard.general
             let origClip = pb.string(forType: .string)
@@ -3392,7 +3920,10 @@ func cmdJoinTencentMeeting(flags: Set<String>, options: [String: String]) {
             if let orig = origClip { pb.setString(orig, forType: .string) }
         }
         if let bpt = state.joinBtnPt {
-            moveAndClick(x: bpt.0, y: bpt.1)
+            let bClick = guardedMoveAndClick(x: bpt.0, y: bpt.1, guardEnabled: guardEnabled)
+            if !bClick.ok {
+                failJSON("Aborted password submit click due to human contention (\(bClick.reason)).", code: "human_input_active", extra: ["retryable": true, "reason": bClick.reason])
+            }
             usleep(2_600_000)
         }
         state = scanTMState()
@@ -3400,6 +3931,10 @@ func cmdJoinTencentMeeting(flags: Set<String>, options: [String: String]) {
         if state.inMeeting || !state.needsPwd {
             setupRes = ensureTencentMeetingSubtitlesAndYuanbao()
         }
+        if !flags.contains("keep-cursor") {
+            restoreCursorQuietly(origCursor)
+        }
+        let finalPt = currentCursorPoint()
         writeJSON([
             "ok": true,
             "joined": state.inMeeting || !state.needsPwd,
@@ -3410,6 +3945,7 @@ func cmdJoinTencentMeeting(flags: Set<String>, options: [String: String]) {
             "clickedCardPoint": clickedCardPt as Any,
             "clickedMiniProgramJoin": clickedMiniProgramJoin,
             "meetingSetup": setupRes,
+            "finalCursorPosition": ["x": (finalPt.x * 10.0).rounded() / 10.0, "y": (finalPt.y * 10.0).rounded() / 10.0],
         ])
         return
     }
@@ -3418,6 +3954,10 @@ func cmdJoinTencentMeeting(flags: Set<String>, options: [String: String]) {
     if state.inMeeting {
         setupRes2 = ensureTencentMeetingSubtitlesAndYuanbao()
     }
+    if !flags.contains("keep-cursor") {
+        restoreCursorQuietly(origCursor)
+    }
+    let finalPt = currentCursorPoint()
     writeJSON([
         "ok": true,
         "joined": state.inMeeting,
@@ -3427,6 +3967,7 @@ func cmdJoinTencentMeeting(flags: Set<String>, options: [String: String]) {
         "clickedCardPoint": clickedCardPt as Any,
         "clickedMiniProgramJoin": clickedMiniProgramJoin,
         "meetingSetup": setupRes2,
+        "finalCursorPosition": ["x": (finalPt.x * 10.0).rounded() / 10.0, "y": (finalPt.y * 10.0).rounded() / 10.0],
     ])
 }
 
@@ -3764,12 +4305,21 @@ func wakeAndActivateApp(pid: pid_t, kind: AppKind) {
 
 func preciseClick(x: Double, y: Double) {
     let pt = CGPoint(x: x, y: y)
-    let src = CGEventSource(stateID: .hidSystemState)
-    CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: pt, mouseButton: .left)?.post(tap: .cghidEventTap)
+    let src = CGEventSource(stateID: .privateState)
+    if let mv = CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: pt, mouseButton: .left) {
+        mv.post(tap: .cghidEventTap)
+        lastSyntheticMouseTimestamp = CFAbsoluteTimeGetCurrent()
+    }
     usleep(60_000)
-    CGEvent(mouseEventSource: src, mouseType: .leftMouseDown, mouseCursorPosition: pt, mouseButton: .left)?.post(tap: .cghidEventTap)
+    if let down = CGEvent(mouseEventSource: src, mouseType: .leftMouseDown, mouseCursorPosition: pt, mouseButton: .left) {
+        down.post(tap: .cghidEventTap)
+        lastSyntheticMouseTimestamp = CFAbsoluteTimeGetCurrent()
+    }
     usleep(50_000)
-    CGEvent(mouseEventSource: src, mouseType: .leftMouseUp, mouseCursorPosition: pt, mouseButton: .left)?.post(tap: .cghidEventTap)
+    if let up = CGEvent(mouseEventSource: src, mouseType: .leftMouseUp, mouseCursorPosition: pt, mouseButton: .left) {
+        up.post(tap: .cghidEventTap)
+        lastSyntheticMouseTimestamp = CFAbsoluteTimeGetCurrent()
+    }
     usleep(40_000)
 }
 
@@ -4205,6 +4755,10 @@ func cmdVoiceCall(flags: Set<String>, options: [String: String]) {
     }
 
     if action == "answer" {
+        if !dryRun {
+            guardNoHumanActivityOrFail(flags: flags, options: options)
+        }
+        let origCursor = currentCursorPoint()
         var scan = scanVoipWindows(appFilter: requestedApp, activateOwner: false)
         var calls = (scan["calls"] as? [[String: Any]]) ?? []
         if calls.isEmpty && requestedApp == "all" {
@@ -4241,17 +4795,26 @@ func cmdVoiceCall(flags: Set<String>, options: [String: String]) {
         let clickX = ((freshCall?["greenButton"] as? [String: Any])?["x"] as? Double) ?? gx
         let clickY = ((freshCall?["greenButton"] as? [String: Any])?["y"] as? Double) ?? gy
         preciseClick(x: clickX, y: clickY)
+        if !flags.contains("keep-cursor") {
+            restoreCursorQuietly(origCursor)
+        }
         usleep(1_050_000)
         let after = scanVoipWindows(appFilter: targetAppId, activateOwner: false)
+        let finalPt = currentCursorPoint()
         writeJSON([
             "ok": true,
             "answered": true,
             "clickPoint": ["x": clickX, "y": clickY],
             "afterState": after,
+            "finalCursorPosition": ["x": (finalPt.x * 10.0).rounded() / 10.0, "y": (finalPt.y * 10.0).rounded() / 10.0],
         ])
     }
 
     if action == "hangup" {
+        if !dryRun {
+            guardNoHumanActivityOrFail(flags: flags, options: options)
+        }
+        let origCursor = currentCursorPoint()
         var scan = scanVoipWindows(appFilter: requestedApp, activateOwner: false)
         var calls = (scan["calls"] as? [[String: Any]]) ?? []
         if calls.isEmpty && requestedApp == "all" {
@@ -4288,11 +4851,15 @@ func cmdVoiceCall(flags: Set<String>, options: [String: String]) {
                     usleep(480_000)
                 }
             }
+            if !flags.contains("keep-cursor") {
+                restoreCursorQuietly(origCursor)
+            }
             if !saveFile.isEmpty {
                 restoredAudio = restoreInputDeviceIfSaved(saveFile: saveFile)
             }
         }
         let after = scanVoipWindows(appFilter: requestedApp, activateOwner: false)
+        let finalPt = currentCursorPoint()
         writeJSON([
             "ok": true,
             "dryRun": dryRun,
@@ -4300,6 +4867,7 @@ func cmdVoiceCall(flags: Set<String>, options: [String: String]) {
             "hungUpCount": hungUpCount,
             "restoredAudio": restoredAudio as Any,
             "afterState": after,
+            "finalCursorPosition": ["x": (finalPt.x * 10.0).rounded() / 10.0, "y": (finalPt.y * 10.0).rounded() / 10.0],
         ])
     }
 
@@ -4307,6 +4875,10 @@ func cmdVoiceCall(flags: Set<String>, options: [String: String]) {
         guard AXIsProcessTrusted() else {
             failJSON("Accessibility permission (AXIsProcessTrusted) is not granted.", code: "ax_permission_denied")
         }
+        if !dryRun {
+            guardNoHumanActivityOrFail(flags: flags, options: options)
+        }
+        let origCursor = currentCursorPoint()
         let (_, targetKind) = resolveTargetApp(options: options, allowWindowLookupWhenOmitted: true)
         let windows = listWindows(for: targetKind)
         guard let targetWin = selectTargetWindow(in: windows, options: options) else {
@@ -4442,6 +5014,10 @@ func cmdVoiceCall(flags: Set<String>, options: [String: String]) {
                 usleep(1_300_000)
             }
 
+            if !flags.contains("keep-cursor") {
+                restoreCursorQuietly(origCursor)
+            }
+            let finalPt = currentCursorPoint()
             let callState = scanVoipWindows(appFilter: "wechat", activateOwner: false)
             writeJSON([
                 "ok": true,
@@ -4455,6 +5031,7 @@ func cmdVoiceCall(flags: Set<String>, options: [String: String]) {
                 "popupDetected": popupDetected,
                 "menuPoint": ["x": menuPt.0, "y": menuPt.1, "ocrMatched": ocrClicked] as [String: Any],
                 "callState": callState,
+                "finalCursorPosition": ["x": (finalPt.x * 10.0).rounded() / 10.0, "y": (finalPt.y * 10.0).rounded() / 10.0],
             ])
         } else {
             // WeCom / Feishu / DingTalk Electron & native dial flow
@@ -4538,6 +5115,10 @@ func cmdVoiceCall(flags: Set<String>, options: [String: String]) {
             } else {
                 failJSON("No voice/video call AX button found in \(targetKind.appLabel) chat header.", code: "call_button_not_found", extra: ["appId": targetKind.appId, "windowID": targetWin.windowID])
             }
+            if !flags.contains("keep-cursor") {
+                restoreCursorQuietly(origCursor)
+            }
+            let finalPt = currentCursorPoint()
             let callState = scanVoipWindows(appFilter: targetKind.appId, activateOwner: false)
             writeJSON([
                 "ok": true,
@@ -4547,6 +5128,7 @@ func cmdVoiceCall(flags: Set<String>, options: [String: String]) {
                 "windowID": targetWin.windowID,
                 "callButtonPoint": callBtnCenter.map { ["x": $0.0, "y": $0.1] } as Any,
                 "callState": callState,
+                "finalCursorPosition": ["x": (finalPt.x * 10.0).rounded() / 10.0, "y": (finalPt.y * 10.0).rounded() / 10.0],
             ])
         }
     }
@@ -5324,6 +5906,8 @@ func cmdPressKey(flags: Set<String>, options: [String: String]) {
     guard CGPreflightPostEventAccess() else {
         failJSON("macOS Accessibility/PostEvent permission (CGPreflightPostEventAccess) is not granted.", code: "post_event_permission_denied")
     }
+    guardNoHumanActivityOrFail(flags: flags, options: options)
+    let guardEnabled = parseGuardIdleSeconds(flags: flags, options: options) != nil
     let hasAppTarget = !(options["bundle-id"] ?? "").isEmpty || !(options["app-name"] ?? "").isEmpty || !(options["app-path"] ?? "").isEmpty
     var targetApp: NSRunningApplication? = nil
     if hasAppTarget {
@@ -5361,6 +5945,12 @@ func cmdPressKey(flags: Set<String>, options: [String: String]) {
     let delayMs = max(20, min(1500, Int(options["delay-ms"] ?? "85") ?? 85))
     var postedLabels: [String] = []
     for (idx, item) in parsedCombos.enumerated() {
+        if guardEnabled {
+            let chk = detectHumanHIDActivity(idleLimit: 0.5)
+            if chk.active {
+                failJSON("Human input detected during press-key sequence; paused cleanly.", code: "human_input_active", extra: chk.details)
+            }
+        }
         postKey(keyCode: item.keyCode, flags: item.flags)
         postedLabels.append(item.label)
         if idx < parsedCombos.count - 1 {
@@ -5997,6 +6587,8 @@ case "ocr":
     cmdOCR(options: parsed.options)
 case "capture-ocr":
     cmdCaptureOCR(options: parsed.options, allowActivation: !parsed.flags.contains("no-activate"))
+case "capture-region":
+    cmdCaptureRegion(options: parsed.options)
 case "set-window-frame":
     cmdSetWindowFrame(options: parsed.options)
 case "extract-pdf-text":
@@ -6010,13 +6602,13 @@ case "click":
 case "right-click":
     cmdRightClick(flags: parsed.flags, options: parsed.options)
 case "scroll":
-    cmdScroll(options: parsed.options)
+    cmdScroll(flags: parsed.flags, options: parsed.options)
 case "activate":
-    cmdActivate(options: parsed.options)
+    cmdActivate(flags: parsed.flags, options: parsed.options)
 case "request-permissions":
-    cmdRequestPermissions(flags: parsed.flags)
+    cmdRequestPermissions(flags: parsed.flags, options: parsed.options)
 case "focus-input":
-    cmdFocusInput(options: parsed.options)
+    cmdFocusInput(flags: parsed.flags, options: parsed.options)
 case "paste-and-verify":
     cmdPasteAndVerify(flags: parsed.flags, options: parsed.options)
 case "send-sticker":
@@ -6038,6 +6630,6 @@ case "voice-call":
 default:
     writeJSON([
         "ok": true,
-        "usage": "wechat-vision-ax <status|list-mac-apps|app-use-activate|app-use-inspect|app-use-paste|app-use-ax-action|app-use-ax-set-value|app-use-focus-snapshot|press-key|list-app-windows|dhash-windows|hid-idle|ax-tree|ocr|capture-ocr|set-window-frame|extract-pdf-text|extract-video-frames|render-test-image|click|right-click|scroll|activate|request-permissions|focus-input|paste-and-verify|send-sticker|paste-image|annotate-image|join-tencent-meeting|setup-tencent-meeting|audio-devices|set-input-device|voice-call> [options]",
+        "usage": "wechat-vision-ax <status|list-mac-apps|app-use-activate|app-use-inspect|app-use-paste|app-use-ax-action|app-use-ax-set-value|app-use-focus-snapshot|press-key|list-app-windows|dhash-windows|hid-idle|ax-tree|ocr|capture-ocr|capture-region|set-window-frame|extract-pdf-text|extract-video-frames|render-test-image|click|right-click|scroll|activate|request-permissions|focus-input|paste-and-verify|send-sticker|paste-image|annotate-image|join-tencent-meeting|setup-tencent-meeting|audio-devices|set-input-device|voice-call> [options]",
     ])
 }

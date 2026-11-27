@@ -72,7 +72,8 @@ class DiagnosticsTests(unittest.TestCase):
     def test_web_console_perm_modal_dismissable(self):
         from wechat_control.web_console import render_web_console_html
         html = render_web_console_html()
-        for marker in ("PERM_MODAL_DISMISSED", "为什么之前授权过", "旧 WeChat Bot 条目"):
+        # 文案必须解释真实原因（旧记录绑在旧版本上）并指向「重新登记」，而不是笼统地说"授权失效"
+        for marker in ("PERM_MODAL_DISMISSED", "为什么开关已经打开", "重新登记授权"):
             self.assertIn(marker, html, f"权限弹窗缺少 dismissable/文案标记: {marker}")
 
     def test_web_console_has_diagnostics_ui(self):

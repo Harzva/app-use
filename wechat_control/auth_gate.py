@@ -19,8 +19,11 @@ ALL_CAPABILITIES = (
     "read_contacts",
     "read_messages",
     "import_chatlog",
+    "read_moments",
     "send_text_dry_run",
+    "moments_interact_dry_run",
     "send_text_live",
+    "moments_interact_live",
 )
 
 READ_ONLY_CAPABILITIES = (
@@ -30,9 +33,12 @@ READ_ONLY_CAPABILITIES = (
     "read_contacts",
     "read_messages",
     "import_chatlog",
+    "read_moments",
 )
 
-DEFAULT_GRANT_CAPABILITIES = READ_ONLY_CAPABILITIES + ("send_text_dry_run",)
+# 默认授权 = 只读 + 两类 dry-run。发文字、发朋友圈点赞/评论的 live 能力必须单独授予：
+# 朋友圈互动对所有好友可见，不能借发文字的授权顺带放开。
+DEFAULT_GRANT_CAPABILITIES = READ_ONLY_CAPABILITIES + ("send_text_dry_run", "moments_interact_dry_run")
 
 
 class StudioPluginUnauthorizedError(PermissionError):

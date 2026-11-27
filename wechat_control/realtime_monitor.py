@@ -17,6 +17,7 @@ import struct
 import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
@@ -304,6 +305,14 @@ class WeChatRealtimeMonitor:
         windows = status.get("windows") or []
         if not status.get("wechatRunning") or not windows:
             act = self.engine._run_native(["activate"], 12.0)
+            if isinstance(act, dict) and (act.get("blockedByHumanGuard") or act.get("error_code") == "human_input_active"):
+                return {
+                    "ok": False,
+                    "pausedByHumanGuard": True,
+                    "error_code": "human_input_active",
+                    "humanGuard": act.get("humanGuard") or act,
+                    "error": "Human active: paused WeChat window activation.",
+                }
             time.sleep(0.35)
             status = self.engine._run_native(["status"], 10.0)
             windows = status.get("windows") or []
@@ -327,6 +336,14 @@ class WeChatRealtimeMonitor:
         # 统一走 capture_wechat_ocr 封装：窗口定向 + 遮挡重试（裸调用曾占 poll_error 的 71%）
         ocr_payload = self.engine.capture_wechat_ocr(snap_path, timeout=30.0)
         if not ocr_payload.get("ok"):
+            if ocr_payload.get("pausedByHumanGuard"):
+                return {
+                    "ok": False,
+                    "pausedByHumanGuard": True,
+                    "error_code": ocr_payload.get("error_code", "human_input_active"),
+                    "humanGuard": ocr_payload.get("humanGuard"),
+                    "error": ocr_payload.get("error", "Human active: paused occluded window activation."),
+                }
             return {
                 "ok": False,
                 "error_code": ocr_payload.get("error_code", "ocr_failed"),
@@ -744,11 +761,33 @@ class WeChatRealtimeMonitor:
         ignore_human_guard: bool = False,
     ) -> Dict[str, Any]:
         """Run one incremental scan & optional guarded auto-reply cycle across bound contacts."""
-        state = self._load_state()
-        popout_windows: List[Dict[str, Any]] = []
-        if hasattr(self.engine, "inspector") and hasattr(self.engine.inspector, "list_popout_windows"):
-            popout_windows = self.engine.inspector.list_popout_windows()
+        enforce_ctx = (
+            self.engine.enforce_human_guard(not ignore_human_guard)
+            if hasattr(self.engine, "enforce_human_guard")
+            else nullcontext()
+        )
+        bypass_ctx = (
+            self.engine.bypass_human_guard(True)
+            if (ignore_human_guard and hasattr(self.engine, "bypass_human_guard"))
+            else nullcontext()
+        )
+        with enforce_ctx, bypass_ctx:
+            return self._poll_once_impl(
+                target_filter=target_filter,
+                auto_reply=auto_reply,
+                confirm_send=confirm_send,
+                ignore_human_guard=ignore_human_guard,
+            )
 
+    def _poll_once_impl(
+        self,
+        *,
+        target_filter: Optional[str] = None,
+        auto_reply: bool = True,
+        confirm_send: bool = False,
+        ignore_human_guard: bool = False,
+    ) -> Dict[str, Any]:
+        state = self._load_state()
         all_bindings = self.engine.bindings.list_bindings()
         hosting_targets = None
         try:
@@ -769,42 +808,34 @@ class WeChatRealtimeMonitor:
                 continue
             targets.append(b)
 
-        has_sandbox_bot = any(_is_ai_bot_sandbox_target(str(b.get("target") or "")) for b in targets)
+        paused_in_cycle = False
+        last_pause_guard: Dict[str, Any] = {}
         guard_can_operate = True
-        guard_kb_idle: Optional[float] = None
         guard_state: Dict[str, Any] = {}
         if not ignore_human_guard and hasattr(self.engine, "human_guard"):
             guard_state = self.engine.human_guard.check_can_operate()
             guard_can_operate = bool(guard_state.get("canOperate", True))
-            if guard_state.get("keyboardIdleSeconds") is not None:
-                try:
-                    guard_kb_idle = float(guard_state.get("keyboardIdleSeconds"))
-                except (TypeError, ValueError):
-                    guard_kb_idle = None
             if not guard_can_operate:
-                kb_busy = guard_kb_idle is not None and guard_kb_idle < 1.2
-                is_security_agent = str(guard_state.get("status") or "") == "security_agent_paused"
-                if (not has_sandbox_bot) or is_security_agent or kb_busy:
-                    state["daemon"]["pausedByHumanGuard"] = True
-                    state["daemon"]["lastPollAt"] = _utc_iso_now()
-                    state["daemon"]["humanGuard"] = guard_state
-                    self._save_state(state)
-                    self._append_event(
-                        "human_active_paused",
-                        {
-                            "status": guard_state.get("status"),
-                            "remainingCooldownSeconds": guard_state.get("remainingCooldownSeconds", 0.0),
-                            "anyInputIdleSeconds": guard_state.get("anyInputIdleSeconds"),
-                            "triggerReason": guard_state.get("triggerReason", ""),
-                        },
-                    )
-                    return {
-                        "ok": True,
-                        "pausedByHumanGuard": True,
-                        "humanGuard": guard_state,
-                        "repliesDispatched": 0,
-                        "cyclesCompleted": state["daemon"].get("cyclesCompleted", 0),
-                    }
+                state["daemon"]["pausedByHumanGuard"] = True
+                state["daemon"]["lastPollAt"] = _utc_iso_now()
+                state["daemon"]["humanGuard"] = guard_state
+                self._save_state(state)
+                self._append_event(
+                    "human_active_paused",
+                    {
+                        "status": guard_state.get("status"),
+                        "remainingCooldownSeconds": guard_state.get("remainingCooldownSeconds", 0.0),
+                        "anyInputIdleSeconds": guard_state.get("anyInputIdleSeconds"),
+                        "triggerReason": guard_state.get("triggerReason", ""),
+                    },
+                )
+                return {
+                    "ok": True,
+                    "pausedByHumanGuard": True,
+                    "humanGuard": guard_state,
+                    "repliesDispatched": 0,
+                    "cyclesCompleted": state["daemon"].get("cyclesCompleted", 0),
+                }
             if guard_can_operate and state["daemon"].get("pausedByHumanGuard"):
                 state["daemon"]["pausedByHumanGuard"] = False
                 state["daemon"]["humanGuard"] = guard_state
@@ -815,6 +846,10 @@ class WeChatRealtimeMonitor:
                         "idleResumeSeconds": guard_state.get("idleResumeSeconds"),
                     },
                 )
+
+        popout_windows: List[Dict[str, Any]] = []
+        if hasattr(self.engine, "inspector") and hasattr(self.engine.inspector, "list_popout_windows"):
+            popout_windows = self.engine.inspector.list_popout_windows()
 
         # Priority scanning: Special Care (P0) -> VIP (P1) -> Normal (P2)
         targets.sort(
@@ -854,6 +889,28 @@ class WeChatRealtimeMonitor:
         else:
             cap = self._capture_live_window()
             if not cap.get("ok"):
+                if cap.get("pausedByHumanGuard"):
+                    pause_hg = cap.get("humanGuard") if isinstance(cap.get("humanGuard"), dict) else {}
+                    state["daemon"]["pausedByHumanGuard"] = True
+                    state["daemon"]["lastPollAt"] = _utc_iso_now()
+                    if pause_hg:
+                        state["daemon"]["humanGuard"] = pause_hg
+                    self._save_state(state)
+                    self._append_event(
+                        "human_active_paused",
+                        {
+                            "status": pause_hg.get("status", "human_active_cooldown"),
+                            "remainingCooldownSeconds": pause_hg.get("remainingCooldownSeconds", 0.0),
+                            "triggerReason": pause_hg.get("triggerReason", "capture_live_window_blocked"),
+                        },
+                    )
+                    return {
+                        "ok": True,
+                        "pausedByHumanGuard": True,
+                        "humanGuard": pause_hg,
+                        "repliesDispatched": 0,
+                        "cyclesCompleted": state["daemon"].get("cyclesCompleted", 0),
+                    }
                 if popout_windows:
                     bounds = {}
                     elements = []
@@ -899,24 +956,26 @@ class WeChatRealtimeMonitor:
         for binding in targets:
             target = str(binding["target"])
             is_sandbox_bot = _is_ai_bot_sandbox_target(target)
-            if not ignore_human_guard and hasattr(self.engine, "human_guard") and not is_sandbox_bot:
+            sup_eval = getattr(self.engine, "supervisor_eval", None)
+            is_test_contact = bool(sup_eval is not None and sup_eval.is_test_contact(target))
+            if not ignore_human_guard and hasattr(self.engine, "human_guard"):
                 mid_guard = self.engine.human_guard.check_can_operate()
                 if not mid_guard.get("canOperate", True):
-                    if not has_sandbox_bot:
-                        state["daemon"]["pausedByHumanGuard"] = True
-                        state["daemon"]["humanGuard"] = mid_guard
-                        self._append_event(
-                            "human_active_paused",
-                            {
-                                "status": mid_guard.get("status"),
-                                "remainingCooldownSeconds": mid_guard.get("remainingCooldownSeconds", 0.0),
-                                "anyInputIdleSeconds": mid_guard.get("anyInputIdleSeconds"),
-                                "triggerReason": mid_guard.get("triggerReason", ""),
-                            },
-                        )
-                        break
-                    actions.append({"target": target, "status": "paused_by_human_guard"})
-                    continue
+                    paused_in_cycle = True
+                    last_pause_guard = mid_guard
+                    state["daemon"]["pausedByHumanGuard"] = True
+                    state["daemon"]["humanGuard"] = mid_guard
+                    self._append_event(
+                        "human_active_paused",
+                        {
+                            "status": mid_guard.get("status"),
+                            "remainingCooldownSeconds": mid_guard.get("remainingCooldownSeconds", 0.0),
+                            "anyInputIdleSeconds": mid_guard.get("anyInputIdleSeconds"),
+                            "triggerReason": mid_guard.get("triggerReason", ""),
+                        },
+                    )
+                    actions.append({"target": target, "status": "paused_human_active"})
+                    break
             care_level = normalize_care_level(binding.get("careLevel"), binding.get("specialCare"))
             is_special_care = care_level in ("special_care", "vip") or bool(binding.get("specialCare"))
             c_state = self._contact_entry(state, target)
@@ -1014,48 +1073,6 @@ class WeChatRealtimeMonitor:
                 })
                 continue
 
-            # 转人工意图：客户明确要真人时，自动切换到「人工接管」状态（机器人停答）
-            if (not is_sandbox_bot) and _is_human_handoff_request(incoming_text):
-                c_state["takenOver"] = True
-                c_state["takeoverReason"] = "customer_requested_human"
-                c_state["takeoverAt"] = _utc_iso_now()
-                handoff_line = "好的，已为您转接人工客服，请稍候；人工不在时您可以留言，看到会第一时间回复您。"
-                self._append_event("takeover", {"target": target, "reason": c_state["takeoverReason"], **popout_meta})
-                self._append_event(
-                    "handoff_requested",
-                    {"target": target, "incomingText": incoming_text, "replyText": handoff_line,
-                     "careLevel": care_level, "specialCare": is_special_care, **popout_meta},
-                )
-                takeover_res = {"ok": True, "contactState": dict(c_state)}
-                try:
-                    if hasattr(self.engine, "human_guard"):
-                        self.engine.human_guard.record_rpa_action(action="paste-and-verify")
-                    send_res = self.engine.send_text(
-                        target, handoff_line,
-                        dry_run=not auto_reply or not confirm_send,
-                        silent_mode=not (auto_reply and confirm_send),
-                        confirm_send=bool(auto_reply and confirm_send),
-                        skip_navigation=True,
-                        target_window_id=popout_meta.get("popoutWindowID"),
-                    )
-                except Exception:
-                    send_res = {"ok": False}
-                c_state["lastProcessedPeerSig"] = msg_sig
-                c_state["pendingDraft"] = None
-                if new_row_preview:
-                    c_state["lastSeenPreview"] = new_row_preview
-                c_state.pop("pendingGapRetry", None)
-                c_state.pop("lastRateLimitReason", None)
-                actions.append({
-                    "target": target,
-                    "status": "handoff_taken_over",
-                    "incomingText": incoming_text,
-                    "send": send_res,
-                    "takeover": takeover_res,
-                    **popout_meta,
-                })
-                continue
-
             if any(normalize_chat_name(incoming_text) == normalize_chat_name(o) for o in recent_out if o):
                 if new_row_preview:
                     c_state["lastSeenPreview"] = new_row_preview
@@ -1074,6 +1091,208 @@ class WeChatRealtimeMonitor:
             query_incoming = incoming_text
             if sender_name and incoming_text.startswith(f"{sender_name}: "):
                 query_incoming = incoming_text[len(sender_name) + 2 :].strip() or incoming_text
+
+            # 管理员 / 测试好友 `#` 纠偏指令闭环：普通外部客户发 `#` 一律视为正常业务消息
+            admin_contacts: Tuple[str, ...] = ()
+            if hasattr(self.engine, "tenant"):
+                try:
+                    admin_contacts = tuple(self.engine.tenant.get_profile().get("adminContacts") or ())
+                except Exception:
+                    admin_contacts = ()
+            directive_text = (
+                query_incoming
+                if (sup_eval is not None and sup_eval.is_hashtag_directive(query_incoming))
+                else incoming_text
+            )
+            if (
+                sup_eval is not None
+                and sup_eval.is_hashtag_directive(directive_text)
+                and sup_eval.is_authorized_supervisor(target, channel="wechat", admin_contacts=admin_contacts)
+            ):
+                directive_res = self.engine.handle_supervisor_hashtag(
+                    target,
+                    directive_text,
+                    channel="wechat",
+                )
+                ack_text = str(directive_res.get("ackMessage") or "").strip()
+                if not auto_reply or not confirm_send:
+                    c_state["lastPreviewedPeerSig"] = msg_sig
+                    c_state["pendingDraft"] = {
+                        "signature": msg_sig,
+                        "incomingText": incoming_text,
+                        "replyText": ack_text,
+                        "directiveResult": directive_res,
+                        "draftedAt": _utc_iso_now(),
+                        **popout_meta,
+                    }
+                    if new_row_preview:
+                        c_state["lastSeenPreview"] = new_row_preview
+                    self._append_event(
+                        "supervisor_hashtag_preview",
+                        {"target": target, "incomingText": incoming_text, "ackMessage": ack_text, "intent": directive_res.get("intent"), **popout_meta},
+                    )
+                    actions.append({
+                        "target": target,
+                        "status": "supervisor_directive_preview",
+                        "incomingText": incoming_text,
+                        "replyText": ack_text,
+                        "directiveResult": directive_res,
+                        **popout_meta,
+                    })
+                    continue
+                if not ignore_human_guard and hasattr(self.engine, "human_guard"):
+                    hg = self.engine.human_guard.check_can_operate()
+                    if not hg.get("canOperate", True):
+                        paused_in_cycle = True
+                        last_pause_guard = hg
+                        state["daemon"]["pausedByHumanGuard"] = True
+                        state["daemon"]["humanGuard"] = hg
+                        self._append_event("human_active_paused", {"status": hg.get("status"), "remainingCooldownSeconds": hg.get("remainingCooldownSeconds", 0.0)})
+                        actions.append({"target": target, "status": "paused_human_active", "incomingText": incoming_text, **popout_meta})
+                        break
+                send_res = self.engine.send_text(
+                    target,
+                    ack_text,
+                    dry_run=False,
+                    silent_mode=False,
+                    confirm_send=True,
+                    skip_navigation=True,
+                    target_window_id=popout_meta.get("popoutWindowID"),
+                    ignore_human_guard=ignore_human_guard,
+                )
+                if send_res.get("ok") and send_res.get("status") == "sent":
+                    c_state["lastProcessedPeerSig"] = msg_sig
+                    c_state["lastProcessedPeerText"] = raw_last_text
+                    c_state["lastOutboundText"] = ack_text
+                    if new_row_preview:
+                        c_state["lastSeenPreview"] = new_row_preview
+                    updated_recent = [t for t in recent_out if t and t != ack_text]
+                    updated_recent.append(ack_text)
+                    c_state["recentOutboundTexts"] = updated_recent[-10:]
+                    c_state["pendingDraft"] = None
+                    c_state["lastRepliedAt"] = _utc_iso_now()
+                    replies_this_cycle += 1
+                    self._append_event(
+                        "supervisor_hashtag_handled",
+                        {
+                            "target": target,
+                            "incomingText": incoming_text,
+                            "ackMessage": ack_text,
+                            "intent": directive_res.get("intent"),
+                            "revisedReply": directive_res.get("revisedReply", ""),
+                            **popout_meta,
+                        },
+                    )
+                    actions.append({
+                        "target": target,
+                        "status": "supervisor_directive_handled",
+                        "incomingText": incoming_text,
+                        "replyText": ack_text,
+                        "directiveResult": directive_res,
+                        "send": send_res,
+                        **popout_meta,
+                    })
+                    continue
+                actions.append({
+                    "target": target,
+                    "status": str(send_res.get("status") or "send_failed"),
+                    "incomingText": incoming_text,
+                    "replyText": ack_text,
+                    "directiveResult": directive_res,
+                    "send": send_res,
+                    **popout_meta,
+                })
+                continue
+
+            # 转人工意图：客户明确要真人时，自动切换到「人工接管」状态（机器人停答）
+            if (not is_sandbox_bot) and _is_human_handoff_request(incoming_text):
+                c_state["takenOver"] = True
+                c_state["takeoverReason"] = "customer_requested_human"
+                c_state["takeoverAt"] = _utc_iso_now()
+                handoff_line = "好的，已为您转接人工客服，请稍候；人工不在时您可以留言，看到会第一时间回复您。"
+                self._append_event("takeover", {"target": target, "reason": c_state["takeoverReason"], **popout_meta})
+                self._append_event(
+                    "handoff_requested",
+                    {"target": target, "incomingText": incoming_text, "replyText": handoff_line,
+                     "careLevel": care_level, "specialCare": is_special_care, **popout_meta},
+                )
+                takeover_res = {"ok": True, "contactState": dict(c_state)}
+                if not ignore_human_guard and hasattr(self.engine, "human_guard"):
+                    pre_handoff_guard = self.engine.human_guard.check_can_operate()
+                    if not pre_handoff_guard.get("canOperate", True):
+                        paused_in_cycle = True
+                        last_pause_guard = pre_handoff_guard
+                        state["daemon"]["pausedByHumanGuard"] = True
+                        state["daemon"]["humanGuard"] = pre_handoff_guard
+                        self._append_event(
+                            "human_active_paused",
+                            {
+                                "status": pre_handoff_guard.get("status"),
+                                "remainingCooldownSeconds": pre_handoff_guard.get("remainingCooldownSeconds", 0.0),
+                                "triggerReason": pre_handoff_guard.get("triggerReason", ""),
+                            },
+                        )
+                        actions.append({
+                            "target": target,
+                            "status": "paused_human_active",
+                            "incomingText": incoming_text,
+                            "takeover": takeover_res,
+                            **popout_meta,
+                        })
+                        break
+                try:
+                    send_res = self.engine.send_text(
+                        target, handoff_line,
+                        dry_run=not auto_reply or not confirm_send,
+                        silent_mode=not (auto_reply and confirm_send),
+                        confirm_send=bool(auto_reply and confirm_send),
+                        skip_navigation=True,
+                        target_window_id=popout_meta.get("popoutWindowID"),
+                        ignore_human_guard=ignore_human_guard,
+                    )
+                except Exception:
+                    send_res = {"ok": False}
+                if send_res.get("blockedByHumanGuard") or send_res.get("status") in (
+                    "paused_human_active", "human_input_active", "human_keyboard_active", "interrupted_before_return"
+                ):
+                    paused_in_cycle = True
+                    last_pause_guard = send_res.get("humanGuard") or (
+                        self.engine.human_guard.check_can_operate() if hasattr(self.engine, "human_guard") else {}
+                    )
+                    state["daemon"]["pausedByHumanGuard"] = True
+                    state["daemon"]["humanGuard"] = last_pause_guard
+                    self._append_event(
+                        "human_active_paused",
+                        {
+                            "status": last_pause_guard.get("status", send_res.get("status")),
+                            "remainingCooldownSeconds": last_pause_guard.get("remainingCooldownSeconds", 0.0),
+                            "triggerReason": last_pause_guard.get("triggerReason", send_res.get("status", "")),
+                        },
+                    )
+                    actions.append({
+                        "target": target,
+                        "status": "paused_human_active",
+                        "incomingText": incoming_text,
+                        "send": send_res,
+                        "takeover": takeover_res,
+                        **popout_meta,
+                    })
+                    break
+                c_state["lastProcessedPeerSig"] = msg_sig
+                c_state["pendingDraft"] = None
+                if new_row_preview:
+                    c_state["lastSeenPreview"] = new_row_preview
+                c_state.pop("pendingGapRetry", None)
+                c_state.pop("lastRateLimitReason", None)
+                actions.append({
+                    "target": target,
+                    "status": "handoff_taken_over",
+                    "incomingText": incoming_text,
+                    "send": send_res,
+                    "takeover": takeover_res,
+                    **popout_meta,
+                })
+                continue
 
             # 微信原生 AI 助手（元宝 / 腾讯元宝 / 小微）气泡自动收割并防机器人互回死循环
             harvested_ai_notes = extract_assistant_insights_from_bubbles(bubbles[-8:])
@@ -1151,6 +1370,7 @@ class WeChatRealtimeMonitor:
                 "binding": binding,
                 "target": target,
                 "is_sandbox_bot": is_sandbox_bot,
+                "is_test_contact": is_test_contact,
                 "care_level": care_level,
                 "is_special_care": is_special_care,
                 "c_state": c_state,
@@ -1191,10 +1411,22 @@ class WeChatRealtimeMonitor:
             recent_msgs = list(job["recent_peer_msgs"])
             if extra_notes:
                 recent_msgs = recent_msgs + extra_notes
-            mem_ctx = self._memory_context_with_history(t_name)
+            mem_ctx = dict(self._memory_context_with_history(t_name) or {})
             if job["sender_name"]:
-                mem_ctx = dict(mem_ctx or {})
                 mem_ctx["groupSpeaker"] = job["sender_name"]
+            sup_eval = getattr(self.engine, "supervisor_eval", None)
+            neg_constraints: List[Dict[str, Any]] = []
+            entry_weights: Optional[Dict[str, float]] = None
+            if sup_eval is not None:
+                try:
+                    neg_constraints = sup_eval.match_negative_constraints(job["query_incoming"], limit=3)
+                    golden_exemplars = sup_eval.match_golden_exemplars(job["query_incoming"], limit=2)
+                    entry_weights = sup_eval.get_entry_weights()
+                    mem_ctx["negativeConstraints"] = neg_constraints
+                    mem_ctx["goldenExemplars"] = golden_exemplars
+                    mem_ctx["entryWeights"] = entry_weights
+                except Exception:
+                    pass
             smart = self.engine.personas.generate_smart_reply(
                 t_name,
                 job["query_incoming"],
@@ -1202,7 +1434,23 @@ class WeChatRealtimeMonitor:
                 binding=job["binding"],
                 recent_messages=recent_msgs,
                 memory_context=mem_ctx,
+                entry_weights=entry_weights,
             )
+            if sup_eval is not None:
+                try:
+                    auto_score = sup_eval.auto_score_reply(
+                        job["query_incoming"],
+                        str(smart.get("replyText") or ""),
+                        matched_entries=smart.get("matchedEntries") or (),
+                        negative_constraints=neg_constraints,
+                    )
+                    smart["autoScore"] = auto_score
+                    if int(auto_score.get("overallScore", 100)) < 70:
+                        smart["needsHumanReview"] = True
+                        if not smart.get("humanReviewReason"):
+                            smart["humanReviewReason"] = "自动评分低于 70 分，建议人工复核后再发送"
+                except Exception:
+                    pass
             return {
                 "job": job,
                 "smart": smart,
@@ -1224,6 +1472,7 @@ class WeChatRealtimeMonitor:
             dispatched_receipt = item["dispatched_receipt"]
             target = job["target"]
             is_sandbox_bot = job["is_sandbox_bot"]
+            is_test_contact = bool(job.get("is_test_contact"))
             care_level = job["care_level"]
             is_special_care = job["is_special_care"]
             c_state = job["c_state"]
@@ -1243,6 +1492,8 @@ class WeChatRealtimeMonitor:
                 "replyText": reply_text,
                 "personaId": smart["persona"]["id"],
                 "basis": smart["basis"],
+                "autoScore": smart.get("autoScore"),
+                "needsHumanReview": bool(smart.get("needsHumanReview")),
                 "dispatchedAgentTask": dispatched_receipt,
                 "draftedAt": _utc_iso_now(),
                 **popout_meta,
@@ -1310,6 +1561,8 @@ class WeChatRealtimeMonitor:
                     "replyText": reply_text,
                     "persona": smart["persona"],
                     "basis": smart["basis"],
+                    "autoScore": smart.get("autoScore"),
+                    "needsHumanReview": bool(smart.get("needsHumanReview")),
                     "send": send_res,
                     **popout_meta,
                 })
@@ -1319,8 +1572,8 @@ class WeChatRealtimeMonitor:
                 job["active_cards"]
                 and any(k in query_incoming for k in ("看不到", "没读到", "最新的", "微信文章", "视频号"))
             )
-            if is_sandbox_bot:
-                can_send, limit_reason = True, "sandbox_bot_exempt"
+            if is_sandbox_bot or is_test_contact:
+                can_send, limit_reason = True, ("sandbox_bot_exempt" if is_sandbox_bot else "test_contact_exempt")
             elif is_correction_followup and not c_state.get("correctionBypassUsed"):
                 can_send, limit_reason = self.engine.antiban.check_can_send(target)
                 if not can_send and str(limit_reason).startswith("contact_gap"):
@@ -1351,6 +1604,69 @@ class WeChatRealtimeMonitor:
                 })
                 continue
 
+            def _pause_for_human_before_or_during_send(reason: str, send_payload: Optional[Dict[str, Any]] = None) -> None:
+                nonlocal paused_in_cycle, last_pause_guard
+                c_state["pendingDraft"] = draft_record
+                prev_attempts = (
+                    int(c_state["interruptedSend"].get("attempts") or 0)
+                    if isinstance(c_state.get("interruptedSend"), dict) and c_state["interruptedSend"].get("signature") == msg_sig
+                    else 0
+                )
+                hg_snap = (
+                    (send_payload.get("humanGuard") if isinstance(send_payload, dict) else None)
+                    or (self.engine.human_guard.check_can_operate() if hasattr(self.engine, "human_guard") else {})
+                )
+                c_state["interruptedSend"] = {
+                    "signature": msg_sig,
+                    "target": target,
+                    "pendingReply": reply_text,
+                    "incomingText": incoming_text,
+                    "replyText": reply_text,
+                    "smart": smart,
+                    "extraNotes": list(extra_notes or []),
+                    "dispatchedReceipt": dispatched_receipt,
+                    "attempts": prev_attempts + 1,
+                    "reason": reason,
+                    "lastStatus": reason,
+                    "remainingCooldownSeconds": hg_snap.get("remainingCooldownSeconds", 0.0),
+                    "lastError": str((send_payload or {}).get("error") or ""),
+                    "updatedAt": _utc_iso_now(),
+                }
+                paused_in_cycle = True
+                last_pause_guard = hg_snap
+                state["daemon"]["pausedByHumanGuard"] = True
+                state["daemon"]["humanGuard"] = hg_snap
+                self._append_event(
+                    "human_active_paused",
+                    {
+                        "target": target,
+                        "status": hg_snap.get("status", reason),
+                        "reason": reason,
+                        "remainingCooldownSeconds": hg_snap.get("remainingCooldownSeconds", 0.0),
+                        "triggerReason": hg_snap.get("triggerReason", reason),
+                    },
+                )
+                actions.append({
+                    "target": target,
+                    "careLevel": care_level,
+                    "specialCare": is_special_care,
+                    "status": "paused_human_active",
+                    "incomingText": incoming_text,
+                    "replyText": reply_text,
+                    "send": send_payload,
+                    "humanGuard": hg_snap,
+                    **popout_meta,
+                })
+
+            if not ignore_human_guard and hasattr(self.engine, "human_guard"):
+                post_think_guard = self.engine.human_guard.check_can_operate()
+                if not post_think_guard.get("canOperate", True):
+                    _pause_for_human_before_or_during_send(
+                        "paused_human_active_before_send",
+                        {"ok": False, "status": "paused_human_active", "humanGuard": post_think_guard},
+                    )
+                    break
+
             # 自动识别腾讯会议邀请卡片或后续会议密码，并拉起 Bot Studio 语音参会
             meeting_action_res = None
             joined_meetings = c_state.get("joinedMeetings") if isinstance(c_state.get("joinedMeetings"), dict) else {}
@@ -1367,7 +1683,11 @@ class WeChatRealtimeMonitor:
                     dry_run=False,
                     confirm_send=True,
                     target_window_id=popout_meta.get("popoutWindowID"),
+                    ignore_human_guard=ignore_human_guard,
                 )
+                if meeting_action_res.get("blockedByHumanGuard") or meeting_action_res.get("status") == "paused_human_active":
+                    _pause_for_human_before_or_during_send("paused_human_active_before_meeting", meeting_action_res)
+                    break
                 if meeting_action_res.get("joined"):
                     c_state.pop("pendingMeetingPassword", None)
                     if code:
@@ -1384,7 +1704,11 @@ class WeChatRealtimeMonitor:
                     dry_run=False,
                     confirm_send=True,
                     target_window_id=popout_meta.get("popoutWindowID"),
+                    ignore_human_guard=ignore_human_guard,
                 )
+                if meeting_action_res.get("blockedByHumanGuard") or meeting_action_res.get("status") == "paused_human_active":
+                    _pause_for_human_before_or_during_send("paused_human_active_before_meeting", meeting_action_res)
+                    break
                 if meeting_action_res.get("needsPassword"):
                     c_state["pendingMeetingPassword"] = {"meetingCode": code, "updatedAt": _utc_iso_now()}
                     reply_text = f"看到腾讯会议邀请了（{code}），我已点开卡片唤起腾讯会议，界面提示需要输入会议密码，把密码发我一下我填进去就用 Bot Studio 语音参与讨论 [机智]"
@@ -1401,8 +1725,15 @@ class WeChatRealtimeMonitor:
                 call_type = voice_call_req.get("callType") or "audio"
                 reply_text = "好嘞，我现在就给你拨视频通话过去，注意接听 [机智]" if call_type == "video" else "好嘞，我现在就给你拨微信语音电话过去，接通咱直接说 [机智]"
 
-            if hasattr(self.engine, "human_guard"):
-                self.engine.human_guard.record_rpa_action(action="paste-and-verify")
+            if not ignore_human_guard and hasattr(self.engine, "human_guard"):
+                pre_send_guard = self.engine.human_guard.check_can_operate()
+                if not pre_send_guard.get("canOperate", True):
+                    _pause_for_human_before_or_during_send(
+                        "paused_human_active_before_send",
+                        {"ok": False, "status": "paused_human_active", "humanGuard": pre_send_guard},
+                    )
+                    break
+
             send_res = self.engine.send_text(
                 target,
                 reply_text,
@@ -1411,11 +1742,10 @@ class WeChatRealtimeMonitor:
                 confirm_send=True,
                 skip_navigation=True,
                 target_window_id=popout_meta.get("popoutWindowID"),
+                ignore_human_guard=ignore_human_guard,
             )
             if send_res.get("ok") and send_res.get("status") == "sent":
-                if hasattr(self.engine, "human_guard"):
-                    self.engine.human_guard.record_rpa_action(action="paste-and-verify")
-                if not is_sandbox_bot:
+                if (not is_sandbox_bot) and (not is_test_contact):
                     self.engine.antiban.record_sent(target)
                 c_state["lastProcessedPeerSig"] = msg_sig
                 c_state["lastProcessedPeerText"] = str(job.get("raw_last_text") or raw_last_text)
@@ -1435,19 +1765,29 @@ class WeChatRealtimeMonitor:
                 c_state["lastPostSendSnapshot"] = send_res.get("postSendSnapshot")
                 replies_this_cycle += 1
                 if voice_call_req:
-                    try:
-                        self.engine.voice_call(
-                            target,
-                            action="dial",
-                            app="wechat",
-                            call_type=str(voice_call_req.get("callType") or "audio"),
-                            confirm_send=True,
-                            dry_run=False,
-                            skip_navigation=True,
-                            target_window_id=popout_meta.get("popoutWindowID"),
-                        )
-                    except Exception:
-                        pass
+                    voice_ok = True
+                    if not ignore_human_guard and hasattr(self.engine, "human_guard"):
+                        vg = self.engine.human_guard.check_can_operate()
+                        voice_ok = bool(vg.get("canOperate", True))
+                    if voice_ok:
+                        try:
+                            vc_res = self.engine.voice_call(
+                                target,
+                                action="dial",
+                                app="wechat",
+                                call_type=str(voice_call_req.get("callType") or "audio"),
+                                confirm_send=True,
+                                dry_run=False,
+                                skip_navigation=True,
+                                target_window_id=popout_meta.get("popoutWindowID"),
+                                ignore_human_guard=ignore_human_guard,
+                            )
+                            if isinstance(vc_res, dict) and vc_res.get("blockedByHumanGuard"):
+                                paused_in_cycle = True
+                                last_pause_guard = vc_res.get("humanGuard") or last_pause_guard
+                                state["daemon"]["pausedByHumanGuard"] = True
+                        except Exception:
+                            pass
                 if hasattr(self.engine, "soul_profiler") and hasattr(self.engine.soul_profiler, "ingest_live_turn"):
                     try:
                         self.engine.soul_profiler.ingest_live_turn(
@@ -1476,6 +1816,26 @@ class WeChatRealtimeMonitor:
                         coev_turn = coev_res.get("turn")
                     except Exception:
                         coev_turn = None
+                sup_turn_id = None
+                sup_eval = getattr(self.engine, "supervisor_eval", None)
+                if is_test_contact and sup_eval is not None:
+                    try:
+                        matched_ids = [
+                            str(e.get("id"))
+                            for e in (smart.get("matchedEntries") or [])
+                            if isinstance(e, dict) and e.get("id")
+                        ]
+                        turn_rec = sup_eval.record_turn(
+                            target,
+                            query_incoming,
+                            reply_text,
+                            channel="wechat",
+                            matched_entry_ids=matched_ids,
+                            auto_score=smart.get("autoScore"),
+                        )
+                        sup_turn_id = turn_rec.get("turnId")
+                    except Exception:
+                        sup_turn_id = None
                 self._append_event(
                     "auto_reply_sent",
                     {
@@ -1486,6 +1846,8 @@ class WeChatRealtimeMonitor:
                         "replyText": reply_text,
                         "personaId": smart["persona"]["id"],
                         "postSendSnapshot": send_res.get("postSendSnapshot"),
+                        **({"turnId": sup_turn_id} if sup_turn_id is not None else {}),
+                        **({"autoScore": smart.get("autoScore")} if smart.get("autoScore") is not None else {}),
                         **({"resumedFromInterruption": True} if resumed_flag else {}),
                         **({"coevolutionScore": coev_turn.get("humanLikenessScore")} if isinstance(coev_turn, dict) else {}),
                         **popout_meta,
@@ -1500,12 +1862,24 @@ class WeChatRealtimeMonitor:
                     "replyText": reply_text,
                     "persona": smart["persona"],
                     "basis": smart["basis"],
+                    "autoScore": smart.get("autoScore"),
+                    "needsHumanReview": bool(smart.get("needsHumanReview")),
+                    **({"turnId": sup_turn_id} if sup_turn_id is not None else {}),
                     "send": send_res,
                     **({"resumedFromInterruption": True} if resumed_flag else {}),
                     **({"coevolution": coev_turn} if isinstance(coev_turn, dict) else {}),
                     **popout_meta,
                 })
             else:
+                fail_status = str(send_res.get("status") or "send_failed")
+                if send_res.get("blockedByHumanGuard") or fail_status in (
+                    "paused_human_active",
+                    "human_input_active",
+                    "human_keyboard_active",
+                    "interrupted_before_return",
+                ):
+                    _pause_for_human_before_or_during_send(fail_status, send_res)
+                    break
                 c_state["pendingDraft"] = draft_record
                 prev_attempts = (
                     int(c_state["interruptedSend"].get("attempts") or 0)
@@ -1514,13 +1888,15 @@ class WeChatRealtimeMonitor:
                 )
                 c_state["interruptedSend"] = {
                     "signature": msg_sig,
+                    "target": target,
+                    "pendingReply": reply_text,
                     "incomingText": incoming_text,
                     "replyText": reply_text,
                     "smart": smart,
                     "extraNotes": list(extra_notes or []),
                     "dispatchedReceipt": dispatched_receipt,
                     "attempts": prev_attempts + 1,
-                    "lastStatus": send_res.get("status", "send_failed"),
+                    "lastStatus": fail_status,
                     "lastError": str(send_res.get("error") or ""),
                     "updatedAt": _utc_iso_now(),
                 }
@@ -1540,7 +1916,7 @@ class WeChatRealtimeMonitor:
                     "target": target,
                     "careLevel": care_level,
                     "specialCare": is_special_care,
-                    "status": send_res.get("status", "send_failed"),
+                    "status": fail_status,
                     "incomingText": incoming_text,
                     "replyText": reply_text,
                     "send": send_res,
@@ -1566,6 +1942,9 @@ class WeChatRealtimeMonitor:
             "actions": actions,
             "stateFile": str(self.state_path),
         }
+        if paused_in_cycle:
+            poll_resp["pausedByHumanGuard"] = True
+            poll_resp["humanGuard"] = last_pause_guard
         if popout_ids_used:
             poll_resp["zeroSwitch"] = True
             poll_resp["popoutWindowIDs"] = popout_ids_used

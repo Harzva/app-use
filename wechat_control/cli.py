@@ -153,6 +153,44 @@ def build_parser() -> argparse.ArgumentParser:
     p_uinav.add_argument("--dry-run", action="store_true", help="Resolve coordinates without clicking.")
     p_uinav.add_argument("--ignore-human-guard", action="store_true", help="Bypass the anti-steal-mouse guard for explicit manual invocation.")
 
+    p_mom = sub.add_parser(
+        "moments",
+        help="Read friends' Moments (朋友圈) feed, per-contact stats, and like/comment with dry-run safety.",
+    )
+    p_mom.add_argument(
+        "action", nargs="?", default="stats",
+        choices=["read", "posts", "post", "stats", "policy", "plan", "like", "unlike", "comment", "suggest-comment", "run-plan", "log"],
+        help="read: 滚动读取信息流；stats: 按联系人汇总；like/unlike/comment: 对一条帖子互动（默认 dry-run）；suggest-comment: AI 拟写评论。",
+    )
+    p_mom.add_argument("--key", default=None, help="Post key (mom_xxx) returned by `moments posts`.")
+    p_mom.add_argument("--author", default=None, help="Contact display name; picks their newest eligible post.")
+    p_mom.add_argument("--text", default=None, help="Comment text (required for `comment`).")
+    p_mom.add_argument("--style", default="natural", help="Comment suggestion style for `suggest-comment` (e.g. natural).")
+    p_mom.add_argument(
+        "--mode", choices=["dry_run", "silent_verify", "live"], default="dry_run",
+        help="dry_run: verify the 赞/评论 menu without clicking; silent_verify: paste the comment and read it back, "
+             "then discard; live: actually send (needs moments_interact_live grant).",
+    )
+    p_mom.add_argument("--limit", type=int, default=30, help="Max posts / contacts / log items to return.")
+    p_mom.add_argument("--max-posts", type=int, default=40, help="`read`: stop after this many complete posts.")
+    p_mom.add_argument("--max-pages", type=int, default=90, help="`read`: max scroll frames.")
+    p_mom.add_argument("--include-partial", action="store_true", help="`posts`: include posts only partially read.")
+    p_mom.add_argument("--set-policy", default=None, help="`policy`: JSON object merged into the auto-interaction policy.")
+
+    p_cb = sub.add_parser(
+        "call-brief",
+        help="Generate a pre-call brief and spoken phone script card for a WeChat contact.",
+    )
+    p_cb.add_argument("target", help="Contact display name or remark.")
+    p_cb.add_argument(
+        "--goal",
+        choices=["general", "followup", "quote", "care", "recovery", "custom"],
+        default="general",
+        help="Call goal preset.",
+    )
+    p_cb.add_argument("--custom-goal", dest="custom_goal", default="", help="Custom goal description when --goal custom.")
+    p_cb.add_argument("--no-llm", action="store_true", help="Build fast local summary without calling LLM.")
+
     p_guard = sub.add_parser("human-guard", help="Inspect or configure human mouse/keyboard idle detection & cooldown guard.")
     p_guard.add_argument("--enable", action="store_true", help="Enable human activity guard.")
     p_guard.add_argument("--disable", action="store_true", help="Disable human activity guard.")
@@ -414,6 +452,40 @@ def build_parser() -> argparse.ArgumentParser:
     p_http.add_argument("--host", default="127.0.0.1")
     p_http.add_argument("--port", type=int, default=18788)
 
+    p_tp = sub.add_parser(
+        "train-playbook",
+        help="Zero-FDE self-training: discover corpora, mine terms, synthesize playbooks, and approve drafts.",
+    )
+    p_tp.add_argument("--discover", action="store_true", help="Discover high-value WeChat sessions and local archives.")
+    p_tp.add_argument("--archive", action="append", default=[], help="Repeatable path to .zip or *聊天记录*.txt archive.")
+    p_tp.add_argument("--contact", action="append", default=[], help="Repeatable contact name from local observed histories.")
+    p_tp.add_argument("--owner", default=None, help="Owner name for sender disambiguation.")
+    p_tp.add_argument("--pack", default=None, help="Industry sales pack ID (default general_sales).")
+    p_tp.add_argument("--approve", action="append", default=[], help="Approve draft KB entry ID(s).")
+    p_tp.add_argument("--use-llm", action="store_true", help="Use configured LLM to enrich mined terms and scripts.")
+    p_tp.add_argument("--no-auto-publish", action="store_true", help="Keep all synthesized entries as drafts.")
+
+    p_tc = sub.add_parser(
+        "test-contact",
+        help="Manage internal test contacts (sandboxed from SalesCRM and allowed `#` directives).",
+    )
+    p_tc.add_argument("action", nargs="?", default="list", choices=["list", "add", "remove"], help="Action to perform.")
+    p_tc.add_argument("target", nargs="?", default=None, help="Contact display name.")
+    p_tc.add_argument("--name", default=None, help="Contact display name.")
+    p_tc.add_argument("--note", default="", help="Optional note for test contact.")
+
+    p_qd = sub.add_parser(
+        "quality-dashboard",
+        help="Inspect 1-5 star quality dashboard, run sparring regression, or rate a turn.",
+    )
+    p_qd.add_argument("--days", type=int, default=7, help="Lookback window in days.")
+    p_qd.add_argument("--regression", action="store_true", help="Run regression suite over low-star/`#`-critiqued turns.")
+    p_qd.add_argument("--limit", type=int, default=20, help="Max regression cases.")
+    p_qd.add_argument("--rate-turn", type=int, default=None, help="Submit rating for turn ID.")
+    p_qd.add_argument("--stars", type=int, default=None, help="Star rating 1..5.")
+    p_qd.add_argument("--tag", action="append", default=[], help="Repeatable issue tag.")
+    p_qd.add_argument("--comment", default="", help="Rating or critique comment.")
+
     return parser
 
 
@@ -476,6 +548,48 @@ def main(argv: Optional[List[str]] = None) -> int:
                 allowed_groups=args.allowed_groups,
             )
             return _print_json(res)
+        if args.command == "moments":
+            action = args.action or "stats"
+            if action == "read":
+                return _print_json(engine.moments_read_feed(max_posts=args.max_posts, max_pages=args.max_pages))
+            if action == "posts":
+                return _print_json(engine.moments_list_posts(
+                    limit=args.limit, author=args.author or "", include_partial=args.include_partial,
+                ))
+            if action == "post":
+                return _print_json(engine.moments.get_post(args.key or ""))
+            if action == "stats":
+                return _print_json(engine.moments_stats(limit=args.limit))
+            if action == "policy":
+                if args.set_policy is None:
+                    return _print_json(engine.moments_get_policy())
+                try:
+                    updates = json.loads(args.set_policy)
+                except json.JSONDecodeError as exc:
+                    return _print_json({"ok": False, "error": f"--set-policy 不是合法的 JSON：{exc}"})
+                return _print_json(engine.moments_set_policy(updates))
+            if action == "plan":
+                return _print_json(engine.moments_plan(limit=args.limit))
+            if action == "run-plan":
+                return _print_json(engine.moments_execute_plan(mode=args.mode, limit=args.limit))
+            if action == "log":
+                return _print_json(engine.moments_log(limit=args.limit))
+            if action == "suggest-comment":
+                return _print_json(engine.moments_suggest_comment(args.key or "", style=args.style or "natural"))
+            if action == "comment" and not (args.text or "").strip():
+                return _print_json({"ok": False, "error_code": "comment_text_required", "error": "comment 需要用 --text 提供评论内容"})
+            return _print_json(engine.moments_interact(
+                args.key or "", author=args.author or "", action=action, text=args.text or "", mode=args.mode,
+            ))
+        if args.command == "call-brief":
+            return _print_json(
+                engine.get_pre_call_brief(
+                    args.target,
+                    goal=args.goal,
+                    custom_goal=args.custom_goal,
+                    use_llm=not bool(args.no_llm),
+                )
+            )
         if args.command == "import-chatlog":
             res = engine.import_chatlog(args.input, output_dir=args.out_dir)
             return _print_json(res)
@@ -902,6 +1016,49 @@ def main(argv: Optional[List[str]] = None) -> int:
             from .resource_governor import govern as _govern
             print(json.dumps(_govern(engine.plugin_root), ensure_ascii=False, indent=2))
             return 0
+        if args.command == "train-playbook":
+            if args.approve:
+                return _print_json(engine.approve_training_drafts(args.approve))
+            if args.discover and not args.archive and not args.contact:
+                return _print_json(engine.discover_training_corpus())
+            return _print_json(
+                engine.run_self_training(
+                    archive_paths=args.archive or None,
+                    contact_targets=args.contact or None,
+                    owner_name=args.owner,
+                    industry_pack=args.pack,
+                    use_llm=bool(args.use_llm),
+                    auto_publish_safe=not bool(args.no_auto_publish),
+                )
+            )
+        if args.command == "test-contact":
+            if args.action == "list":
+                return _print_json(engine.list_test_contacts())
+            cname = (args.name or args.target or "").strip()
+            if not cname:
+                parser.error("test-contact add/remove requires a contact name (--name or positional target)")
+            return _print_json(
+                engine.set_test_contact(
+                    cname,
+                    enabled=(args.action == "add"),
+                    note=args.note,
+                )
+            )
+        if args.command == "quality-dashboard":
+            if args.rate_turn is not None:
+                if args.stars is None:
+                    parser.error("quality-dashboard --rate-turn requires --stars 1..5")
+                return _print_json(
+                    engine.submit_reply_rating(
+                        args.rate_turn,
+                        stars=args.stars,
+                        tags=args.tag,
+                        comment=args.comment,
+                    )
+                )
+            if args.regression:
+                return _print_json(engine.run_sparring_regression(limit=args.limit))
+            return _print_json(engine.get_quality_dashboard(days=args.days))
         parser.print_help()
         return 2
     except StudioPluginUnauthorizedError as exc:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+from html import escape as _escape_html
 import json
 import os
 import sys
@@ -33,6 +34,45 @@ def _maybe_unquote_target(t: str) -> str:
 from .web_console import render_mobile_remote_html, render_web_console_html
 from .workbench import ReviewLedger, Workbench, WorkbenchError
 from .workbench_library import records as workbench_records
+
+
+def _render_user_guide_fallback_html(engine: WeChatControlEngine) -> str:
+    """Render a clean friendly fallback HTML guide when docs/user-guide.html is absent."""
+    md_res = engine.get_user_guide_markdown()
+    md_text = str(md_res.get("markdown") or "").strip()
+    if md_text:
+        body_block = (
+            '<pre style="white-space:pre-wrap;word-break:break-word;font-family:inherit;'
+            'line-height:1.75;background:rgba(128,128,128,0.08);padding:20px;border-radius:12px;">'
+            f"{_escape_html(md_text)}</pre>"
+        )
+    else:
+        body_block = (
+            '<div style="padding:24px;border-radius:12px;background:rgba(128,128,128,0.08);">'
+            "<p>本地网页版使用手册正在准备中。您可以直接返回控制台查看内置使用手册，或访问在线网页版手册。</p>"
+            "</div>"
+        )
+    return (
+        "<!DOCTYPE html>\n"
+        '<html lang="zh-CN">\n'
+        "<head>\n"
+        '  <meta charset="utf-8" />\n'
+        '  <meta name="viewport" content="width=device-width, initial-scale=1" />\n'
+        "  <title>WeChat Bot 使用手册</title>\n"
+        '  <style>:root{color-scheme:light dark;}body{max-width:860px;margin:0 auto;padding:28px 20px;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif;line-height:1.7;}header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:20px;padding-bottom:14px;border-bottom:1px solid rgba(128,128,128,0.25);}a.btn{display:inline-block;padding:6px 12px;border-radius:8px;border:1px solid rgba(128,128,128,0.35);text-decoration:none;color:inherit;font-size:13px;}</style>\n'
+        "</head>\n"
+        "<body>\n"
+        "  <header>\n"
+        '    <h1 style="margin:0;font-size:22px;">📖 WeChat Bot 使用手册</h1>\n'
+        '    <div style="display:flex;gap:8px;flex-wrap:wrap;">\n'
+        '      <a class="btn" href="/">返回控制台</a>\n'
+        '      <a class="btn" href="https://harzva.github.io/app-use/user-guide.html" target="_blank" rel="noopener">🔗 在线网页版</a>\n'
+        "    </div>\n"
+        "  </header>\n"
+        f"  <main>{body_block}</main>\n"
+        "</body>\n"
+        "</html>\n"
+    )
 
 MCP_PROTOCOL_VERSION = "2024-11-05"
 def _read_plugin_version() -> str:
@@ -683,6 +723,108 @@ MCP_TOOLS: List[Dict[str, Any]] = [
         },
     },
     {
+        "name": "wechat_moments_read",
+        "description": "Scroll the WeChat Moments (朋友圈) feed from the newest post and store the posts seen (author, text, time, likes, comments). Read-only; returns WeChat to the chat view afterwards.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "max_posts": {"type": "integer", "default": 40},
+                "max_pages": {"type": "integer", "default": 90},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "wechat_moments_posts",
+        "description": "List stored Moments posts (newest first), optionally for one contact, or fetch one by post_key.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "default": 30},
+                "author": {"type": "string", "default": ""},
+                "post_key": {"type": "string", "default": ""},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "wechat_moments_stats",
+        "description": "Per-contact Moments statistics: posts seen, likes and comments given/received, recent posts still awaiting a like, plus rate-limiter and policy state.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"limit": {"type": "integer", "default": 40}},
+            "required": [],
+        },
+    },
+    {
+        "name": "wechat_moments_policy",
+        "description": "Read the Moments auto-interaction policy, or update it by passing a partial `updates` object (autoLike.enabled / scope / contacts / exclude / maxAgeDays, comment.enabled / templates).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"updates": {"type": "object", "default": None}},
+            "required": [],
+        },
+    },
+    {
+        "name": "wechat_moments_plan",
+        "description": "List the Moments interactions the policy allows (likes to give, comment templates), for review before executing.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "default": 20},
+                "max_age_days": {"type": "integer", "default": None},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "wechat_moments_interact",
+        "description": "Like / unlike / comment on a Moments post. Defaults to dry_run: opens the post's 赞/评论 menu, verifies it is where expected and stops. silent_verify pastes the comment and reads it back without sending. live sends and requires the moments_interact_live grant.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "post_key": {"type": "string", "default": ""},
+                "author": {"type": "string", "default": ""},
+                "action": {"type": "string", "enum": ["like", "unlike", "comment"], "default": "like"},
+                "text": {"type": "string", "default": ""},
+                "mode": {"type": "string", "enum": ["dry_run", "silent_verify", "live"], "default": "dry_run"},
+                "execute_plan": {"type": "boolean", "default": False},
+                "limit": {"type": "integer", "default": 5},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "wechat_moments_suggest_comment",
+        "description": "Generate a natural, spoken-style Moments comment suggestion (plus 2 alternatives) for a stored post key using Soul profile and post context.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "post_key": {"type": "string", "default": "", "description": "Stored Moments post key (mom_xxx)."},
+                "style": {"type": "string", "default": "natural"},
+            },
+            "required": ["post_key"],
+        },
+    },
+    {
+        "name": "wechat_call_brief",
+        "description": "Generate a pre-call brief and spoken phone script card for a WeChat contact by aggregating chat history, Soul memory, Moments posts, bindings, and SalesCRM data.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "target": {"type": "string", "description": "Contact display name or remark."},
+                "goal": {
+                    "type": "string",
+                    "enum": ["general", "followup", "quote", "care", "recovery", "custom"],
+                    "default": "general",
+                },
+                "custom_goal": {"type": "string", "default": ""},
+                "use_llm": {"type": "boolean", "default": True},
+            },
+            "required": ["target"],
+        },
+    },
+    {
         "name": "wechat_salescrm_analyze",
         "description": "Run Aurora-73/SalesCRM 15-dimensional quantitative analysis, stage recognition, timeline detection, and Top 1-3 follow-up draft generation for a WeChat contact.",
         "inputSchema": {
@@ -1007,6 +1149,159 @@ MCP_TOOLS: List[Dict[str, Any]] = [
             },
             "required": [],
         },
+    },
+    {
+        "name": "wechat_onboarding_status",
+        "description": "Get zero-FDE tenant onboarding status, active mode (legacy vs customer), available L1 sales packs, and test contacts.",
+        "inputSchema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "wechat_onboarding_setup",
+        "description": "Complete zero-FDE tenant onboarding: configure owner/business/product, apply industry sales pack, withdraw legacy seeds, and register test contacts.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "owner_name": {"type": "string"},
+                "business_name": {"type": "string", "default": ""},
+                "product_summary": {"type": "string", "default": ""},
+                "industry_pack": {"type": "string", "default": "general_sales"},
+                "owner_aliases": {"type": "array", "items": {"type": "string"}},
+                "admin_contacts": {"type": "array", "items": {"type": "string"}},
+                "test_contacts": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "wechat_sales_packs",
+        "description": "List bundled L1/L2 sales packs available for customer onboarding.",
+        "inputSchema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "wechat_training_discover",
+        "description": "Discover high-value WeChat sales conversations and local exported .zip/.txt chat archives for zero-FDE self-training.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "search_dirs": {"type": "array", "items": {"type": "string"}},
+                "limit": {"type": "integer", "default": 20},
+                "include_live_sessions": {"type": "boolean", "default": True},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "wechat_training_run",
+        "description": "Run self-training pipeline over chat archives/sessions/docs to mine vocabulary, synthesize risk-gated playbooks, and publish safe entries.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "archive_paths": {"type": "array", "items": {"type": "string"}},
+                "contact_targets": {"type": "array", "items": {"type": "string"}},
+                "raw_conversations": {"type": "array", "items": {"type": "object"}},
+                "doc_texts": {"type": "array", "items": {"type": "object"}},
+                "owner_name": {"type": "string"},
+                "industry_pack": {"type": "string"},
+                "use_llm": {"type": "boolean", "default": False},
+                "auto_publish_safe": {"type": "boolean", "default": True},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "wechat_training_approve",
+        "description": "Approve and publish risk-flagged draft playbooks from self-training with optional title/body edits.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entry_ids": {"type": "array", "items": {"type": "string"}},
+                "edits": {"type": "object"},
+            },
+            "required": ["entry_ids"],
+        },
+    },
+    {
+        "name": "wechat_test_contact",
+        "description": "List, mark, or unmark internal test contacts (sandboxed from SalesCRM and allowed `#` supervisor directives).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["list", "add", "remove"], "default": "list"},
+                "name": {"type": "string", "default": ""},
+                "note": {"type": "string", "default": ""},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "wechat_sparring_chat",
+        "description": "Run a simulated customer sparring turn without live WeChat UI and return reply + 5D autoScore + turnId.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "message": {"type": "string"},
+                "contact_name": {"type": "string", "default": "模拟测试客户"},
+                "persona_id": {"type": "string"},
+                "use_llm": {"type": "boolean"},
+                "record": {"type": "boolean", "default": True},
+            },
+            "required": ["message"],
+        },
+    },
+    {
+        "name": "wechat_sparring_regression",
+        "description": "Re-run historical `#`-critiqued and low-star sparring turns to verify constraints are no longer violated.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "default": 20},
+                "use_llm": {"type": "boolean", "default": False},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "wechat_supervisor_directive",
+        "description": "Execute an authorized `#` supervisor directive (critique rewrite, `#评分`, `#话术`, `#词汇`, `#接管`/`#恢复`).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "contact": {"type": "string", "default": "模拟测试客户"},
+                "text": {"type": "string"},
+                "channel": {"type": "string", "default": "workbench"},
+                "use_llm": {"type": "boolean", "default": False},
+            },
+            "required": ["text"],
+        },
+    },
+    {
+        "name": "wechat_supervisor_rate",
+        "description": "Submit 1-5 star rating, issue tags, and optional rewrite for a sparring turn (adjusts KB weights & constraints).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "turn_id": {"type": "integer"},
+                "stars": {"type": "integer"},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "comment": {"type": "string", "default": ""},
+                "rewritten_reply": {"type": "string", "default": ""},
+            },
+            "required": ["turn_id", "stars"],
+        },
+    },
+    {
+        "name": "wechat_quality_dashboard",
+        "description": "Get 1-5 star rating distribution, 5D auto-score averages, top issue tags, and KB entry quality weights.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"days": {"type": "integer", "default": 7}},
+            "required": [],
+        },
+    },
+    {
+        "name": "wechat_user_guide",
+        "description": "Read the user-facing operation manual (docs/USER_GUIDE.md).",
+        "inputSchema": {"type": "object", "properties": {}, "required": []},
     },
 ]
 
@@ -1384,6 +1679,54 @@ class WeChatMCPServer:
                     send_mode=str(args.get("send_mode") or "adopt_only"),
                 )
             return self.engine.crm_overview(auto_sync=bool(args.get("auto_sync", True)))
+        if name == "wechat_moments_read":
+            return self.engine.moments_read_feed(
+                max_posts=int(args.get("max_posts", 40)), max_pages=int(args.get("max_pages", 90))
+            )
+        if name == "wechat_moments_posts":
+            if args.get("post_key"):
+                return self.engine.moments.get_post(str(args.get("post_key")))
+            return self.engine.moments_list_posts(
+                limit=int(args.get("limit", 30)), author=str(args.get("author") or "")
+            )
+        if name == "wechat_moments_stats":
+            return self.engine.moments_stats(limit=int(args.get("limit", 40)))
+        if name == "wechat_moments_policy":
+            updates = args.get("updates")
+            if isinstance(updates, dict):
+                return self.engine.moments_set_policy(updates)
+            return self.engine.moments_get_policy()
+        if name == "wechat_moments_plan":
+            raw_days = args.get("max_age_days")
+            return self.engine.moments_plan(
+                limit=int(args.get("limit", 20)), max_age_days=int(raw_days) if raw_days is not None else None
+            )
+        if name == "wechat_moments_interact":
+            mode = str(args.get("mode") or "dry_run")
+            if bool(args.get("execute_plan", False)):
+                return self.engine.moments_execute_plan(mode=mode, limit=int(args.get("limit", 5)))
+            return self.engine.moments_interact(
+                str(args.get("post_key") or ""), author=str(args.get("author") or ""),
+                action=str(args.get("action") or "like"), text=str(args.get("text") or ""), mode=mode,
+            )
+        if name == "wechat_moments_suggest_comment":
+            return self.engine.moments_suggest_comment(
+                str(args.get("post_key") or args.get("postKey") or ""),
+                style=str(args.get("style") or "natural"),
+            )
+        if name == "wechat_call_brief":
+            raw_use_llm = args.get("use_llm") if "use_llm" in args else args.get("useLlm", True)
+            use_llm = (
+                raw_use_llm.strip().lower() not in ("0", "false", "no")
+                if isinstance(raw_use_llm, str)
+                else bool(raw_use_llm)
+            )
+            return self.engine.get_pre_call_brief(
+                str(args.get("target") or ""),
+                goal=str(args.get("goal") or "general"),
+                custom_goal=str(args.get("custom_goal") or args.get("customGoal") or ""),
+                use_llm=use_llm,
+            )
         if name == "wechat_salescrm_analyze":
             return self.engine.crm_analyze_contact(
                 str(args.get("target") or "心安"),
@@ -1566,6 +1909,83 @@ class WeChatMCPServer:
                 app_name=str(args.get("app_name") or ""),
                 app_path=str(args.get("app_path") or ""),
             )
+        if name == "wechat_onboarding_status":
+            return self.engine.get_onboarding_status()
+        if name == "wechat_onboarding_setup":
+            return self.engine.setup_tenant_onboarding(
+                owner_name=args.get("owner_name"),
+                business_name=args.get("business_name"),
+                product_summary=args.get("product_summary"),
+                industry_pack=args.get("industry_pack"),
+                owner_aliases=args.get("owner_aliases"),
+                admin_contacts=args.get("admin_contacts"),
+                test_contacts=args.get("test_contacts"),
+            )
+        if name == "wechat_sales_packs":
+            return {"ok": True, "packs": self.engine.list_available_sales_packs()}
+        if name == "wechat_training_discover":
+            return self.engine.discover_training_corpus(
+                search_dirs=args.get("search_dirs"),
+                limit=int(args.get("limit", 20)),
+                include_live_sessions=bool(args.get("include_live_sessions", True)),
+            )
+        if name == "wechat_training_run":
+            return self.engine.run_self_training(
+                archive_paths=args.get("archive_paths"),
+                contact_targets=args.get("contact_targets"),
+                raw_conversations=args.get("raw_conversations"),
+                doc_texts=args.get("doc_texts"),
+                owner_name=args.get("owner_name"),
+                industry_pack=args.get("industry_pack"),
+                use_llm=bool(args.get("use_llm", False)),
+                auto_publish_safe=bool(args.get("auto_publish_safe", True)),
+            )
+        if name == "wechat_training_approve":
+            return self.engine.approve_training_drafts(
+                args.get("entry_ids") or [],
+                edits=args.get("edits"),
+            )
+        if name == "wechat_test_contact":
+            action = str(args.get("action") or "list").strip().lower()
+            if action == "list":
+                return self.engine.list_test_contacts()
+            return self.engine.set_test_contact(
+                str(args.get("name") or ""),
+                enabled=(action != "remove"),
+                note=str(args.get("note") or ""),
+            )
+        if name == "wechat_sparring_chat":
+            return self.engine.sparring_simulate_turn(
+                str(args.get("message") or ""),
+                contact_name=str(args.get("contact_name") or "模拟测试客户"),
+                persona_id=args.get("persona_id") or None,
+                use_llm=args.get("use_llm") if "use_llm" in args else None,
+                record=bool(args.get("record", True)),
+            )
+        if name == "wechat_sparring_regression":
+            return self.engine.run_sparring_regression(
+                limit=int(args.get("limit", 20)),
+                use_llm=bool(args.get("use_llm", False)),
+            )
+        if name == "wechat_supervisor_directive":
+            return self.engine.handle_supervisor_hashtag(
+                str(args.get("contact") or "模拟测试客户"),
+                str(args.get("text") or ""),
+                channel=str(args.get("channel") or "workbench"),
+                use_llm=bool(args.get("use_llm", False)),
+            )
+        if name == "wechat_supervisor_rate":
+            return self.engine.submit_reply_rating(
+                int(args["turn_id"]),
+                stars=int(args["stars"]),
+                tags=args.get("tags") or (),
+                comment=str(args.get("comment") or ""),
+                rewritten_reply=str(args.get("rewritten_reply") or ""),
+            )
+        if name == "wechat_quality_dashboard":
+            return self.engine.get_quality_dashboard(days=int(args.get("days", 7)))
+        if name == "wechat_user_guide":
+            return self.engine.get_user_guide_markdown()
         raise KeyError(f"Unknown tool: {name}")
 
     def handle_request(self, req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -1912,6 +2332,12 @@ def create_http_server(
                     self._send_html(200, render_web_console_html())
                 elif path in ("/mobile", "/mobile/"):
                     self._send_html(200, render_mobile_remote_html())
+                elif path == "/user-guide":
+                    guide_res = engine.get_user_guide_html()
+                    if guide_res.get("ok") and guide_res.get("html"):
+                        self._send_html(200, str(guide_res["html"]))
+                    else:
+                        self._send_html(200, _render_user_guide_fallback_html(engine))
                 elif path == "/api/workos/harness":
                     self._send_json(200, engine.get_workos_harness_summary())
                 elif path == "/api/workos/windows":
@@ -1996,6 +2422,37 @@ def create_http_server(
                 elif path == "/api/crm/overview":
                     auto_sync = str((query.get("auto_sync") or ["1"])[0]).lower() not in ("0", "false", "no")
                     self._send_json(200, engine.crm_overview(auto_sync=auto_sync))
+                elif path == "/api/moments/posts":
+                    self._send_json(200, engine.moments_list_posts(
+                        limit=int((query.get("limit") or ["30"])[0]),
+                        author=(query.get("author") or [""])[0],
+                        include_partial=str((query.get("include_partial") or ["0"])[0]) in ("1", "true", "yes"),
+                    ))
+                elif path == "/api/moments/stats":
+                    self._send_json(200, engine.moments_stats(limit=int((query.get("limit") or ["40"])[0])))
+                elif path == "/api/moments/policy":
+                    self._send_json(200, engine.moments_get_policy())
+                elif path == "/api/moments/plan":
+                    raw_days = (query.get("max_age_days") or [None])[0]
+                    self._send_json(200, engine.moments_plan(
+                        limit=int((query.get("limit") or ["20"])[0]),
+                        max_age_days=int(raw_days) if raw_days not in (None, "") else None,
+                    ))
+                elif path == "/api/moments/log":
+                    self._send_json(200, engine.moments_log(limit=int((query.get("limit") or ["50"])[0])))
+                elif path == "/api/call-brief":
+                    target = _maybe_unquote_target((query.get("target") or [""])[0])
+                    goal = str((query.get("goal") or ["general"])[0] or "general")
+                    custom_goal = str((query.get("custom_goal") or query.get("customGoal") or [""])[0] or "")
+                    raw_use_llm = str((query.get("use_llm") or query.get("useLlm") or ["1"])[0]).strip().lower()
+                    use_llm = raw_use_llm not in ("0", "false", "no")
+                    res = engine.get_pre_call_brief(
+                        target,
+                        goal=goal,
+                        custom_goal=custom_goal,
+                        use_llm=use_llm,
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
                 elif path == "/api/crm/reminders":
                     self._send_json(200, engine.crm_list_reminders())
                 elif path == "/api/omni/channels":
@@ -2046,6 +2503,22 @@ def create_http_server(
                     aname = str((query.get("app_name") or query.get("appName") or [""])[0])
                     apath = str((query.get("app_path") or query.get("appPath") or [""])[0])
                     self._send_json(200, engine.app_use_risk_profile(bundle_id=bid, app_name=aname, app_path=apath))
+                elif path == "/api/onboarding/status":
+                    self._send_json(200, engine.get_onboarding_status())
+                elif path == "/api/sales-packs":
+                    self._send_json(200, {"ok": True, "packs": engine.list_available_sales_packs()})
+                elif path == "/api/test-contacts":
+                    self._send_json(200, engine.list_test_contacts())
+                elif path == "/api/sparring/turns":
+                    cname = (query.get("contact") or query.get("contactName") or [None])[0]
+                    limit_val = int((query.get("limit") or ["30"])[0] or 30)
+                    self._send_json(200, engine.list_sparring_turns(contact_name=cname, limit=limit_val))
+                elif path == "/api/supervisor/dashboard":
+                    days_val = int((query.get("days") or ["7"])[0] or 7)
+                    self._send_json(200, engine.get_quality_dashboard(days=days_val))
+                elif path == "/api/docs/user-guide":
+                    res = engine.get_user_guide_markdown()
+                    self._send_json(200 if res.get("ok") else 404, res)
                 elif path.startswith("/api/app-use/artifact/"):
                     raw_name = unquote(path[len("/api/app-use/artifact/"):]).strip()
                     if (
@@ -2214,6 +2687,14 @@ def create_http_server(
                 return
             try:
                 body = self._read_json()
+                if path in {"/api/search-send-image", "/api/annotate-send-image"}:
+                    manual_trigger = body.get("manualTrigger", body.get("manual_trigger")) is True
+                    if manual_trigger and not self._workbench_allowed(post=True):
+                        self._send_json(403, {"ok": False, "error_code": "local_origin_required"}, private=True)
+                        return
+                    if manual_trigger and self.headers.get_content_type() != "application/json":
+                        self._send_json(415, {"ok": False, "error_code": "json_required"}, private=True)
+                        return
                 if path == "/api/auth-toggle":
                     action = str(body.get("action") or "grant").strip().lower()
                     if action == "revoke":
@@ -2424,6 +2905,68 @@ def create_http_server(
                         idle_resume_seconds=body.get("idleResumeSeconds", body.get("idle_resume_seconds")),
                         cooldown_seconds=body.get("cooldownSeconds", body.get("cooldown_seconds")),
                         reset_cooldown=bool(body.get("resetCooldown", body.get("reset_cooldown", False))),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/permissions/repair":
+                    # 清除本 App 的失效授权记录并重新登记当前版本：会改动系统隐私设置，必须显式确认。
+                    # services 只处理指定项（向导传当前缺失的那一项），不再连已正常的辅助功能一起清掉。
+                    if not bool(body.get("confirm")):
+                        self._send_json(400, {"ok": False, "error": "CONFIRM_REQUIRED"})
+                    else:
+                        raw_services = body.get("services")
+                        if raw_services is None and body.get("service"):
+                            raw_services = [body.get("service")]
+                        services = [str(s) for s in raw_services] if isinstance(raw_services, list) else None
+                        try:
+                            self._send_json(200, engine.repair_permissions(services=services))
+                        except ValueError as exc:
+                            self._send_json(400, {"ok": False, "error": "INVALID_SERVICES", "detail": str(exc)})
+                elif path == "/api/permissions/request":
+                    # 只向 macOS 申请登记（系统弹窗 + 把本 App 加进对应面板列表），不清除任何已有授权
+                    only = body.get("service") or body.get("only") or None
+                    try:
+                        self._send_json(200, engine.request_permissions(open_settings=False, only=str(only) if only else None))
+                    except ValueError as exc:
+                        self._send_json(400, {"ok": False, "error": "INVALID_SERVICE", "detail": str(exc)})
+                elif path == "/api/moments/read":
+                    # 读取朋友圈：会在用户的微信里滚动，受人工活动守卫约束；结束后切回聊天页
+                    self._send_json(200, engine.moments_read_feed(
+                        max_posts=int(body.get("maxPosts", body.get("max_posts", 40))),
+                        max_pages=int(body.get("maxPages", body.get("max_pages", 90))),
+                    ))
+                elif path == "/api/moments/policy":
+                    updates = body.get("updates") if isinstance(body.get("updates"), dict) else body
+                    self._send_json(200, engine.moments_set_policy(updates))
+                elif path == "/api/moments/interact":
+                    self._send_json(200, engine.moments_interact(
+                        str(body.get("postKey") or body.get("post_key") or ""),
+                        author=str(body.get("author") or ""),
+                        action=str(body.get("action") or "like"),
+                        text=str(body.get("text") or ""),
+                        mode=str(body.get("mode") or "dry_run"),
+                    ))
+                elif path == "/api/moments/run-plan":
+                    self._send_json(200, engine.moments_execute_plan(
+                        mode=str(body.get("mode") or "dry_run"), limit=int(body.get("limit") or 5),
+                    ))
+                elif path == "/api/moments/suggest-comment":
+                    res = engine.moments_suggest_comment(
+                        str(body.get("postKey") or body.get("post_key") or ""),
+                        style=str(body.get("style") or "natural"),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/call-brief":
+                    raw_use_llm = body.get("use_llm") if "use_llm" in body else body.get("useLlm", True)
+                    use_llm = (
+                        raw_use_llm.strip().lower() not in ("0", "false", "no")
+                        if isinstance(raw_use_llm, str)
+                        else bool(raw_use_llm)
+                    )
+                    res = engine.get_pre_call_brief(
+                        _maybe_unquote_target(str(body.get("target") or "")),
+                        goal=str(body.get("goal") or "general"),
+                        custom_goal=str(body.get("custom_goal") or body.get("customGoal") or ""),
+                        use_llm=use_llm,
                     )
                     self._send_json(200 if res.get("ok") else 400, res)
                 elif path == "/api/soul-profiles/rebuild":
@@ -2704,6 +3247,7 @@ def create_http_server(
                         silent_mode=bool(body.get("silent_mode", True)),
                         confirm_send=bool(body.get("confirm_send", False)),
                         allowed_groups=body.get("allowed_groups"),
+                        manual_trigger=bool(body.get("manualTrigger", body.get("manual_trigger", True))),
                     )
                     # 人工手动发送标记：成功且真发时写事件，供历史回写把它标为 self/人工
                     if res.get("ok") and not bool(body.get("dry_run", True)) and bool(body.get("confirm_send", False)):
@@ -2726,6 +3270,7 @@ def create_http_server(
                         confirm_send=bool(body.get("confirm_send", body.get("confirmSend", True))),
                         skip_navigation=bool(body.get("skip_navigation", body.get("skipNavigation", False))),
                         target_window_id=int(body["target_window_id"]) if body.get("target_window_id") else None,
+                        manual_trigger=bool(body.get("manualTrigger", body.get("manual_trigger", True))),
                     )
                     self._send_json(200 if res.get("ok") else 400, res)
                 elif path == "/api/search-send-image":
@@ -2736,6 +3281,7 @@ def create_http_server(
                         dry_run=bool(body.get("dry_run", body.get("dryRun", False))),
                         confirm_send=bool(body.get("confirm_send", body.get("confirmSend", True))),
                         target_window_id=int(body["target_window_id"]) if body.get("target_window_id") else None,
+                        manual_trigger=manual_trigger,
                     )
                     self._send_json(200 if res.get("ok") else 400, res)
                 elif path == "/api/annotate-send-image":
@@ -2754,6 +3300,7 @@ def create_http_server(
                         dry_run=bool(body.get("dry_run", body.get("dryRun", False))),
                         confirm_send=bool(body.get("confirm_send", body.get("confirmSend", True))),
                         target_window_id=int(body["target_window_id"]) if body.get("target_window_id") else None,
+                        manual_trigger=manual_trigger,
                     )
                     self._send_json(200 if res.get("ok") else 400, res)
                 elif path == "/api/join-meeting-botstudio":
@@ -2766,6 +3313,7 @@ def create_http_server(
                         dry_run=bool(body.get("dry_run", body.get("dryRun", False))),
                         confirm_send=bool(body.get("confirm_send", body.get("confirmSend", True))),
                         target_window_id=int(body["target_window_id"]) if body.get("target_window_id") else None,
+                        manual_trigger=bool(body.get("manualTrigger", body.get("manual_trigger", True))),
                     )
                     self._send_json(200 if res.get("ok") else 400, res)
                 elif path == "/api/voice-call":
@@ -2782,6 +3330,7 @@ def create_http_server(
                         confirm_send=bool(body.get("confirm_send", body.get("confirmSend", True))),
                         skip_navigation=bool(body.get("skip_navigation", body.get("skipNavigation", False))),
                         target_window_id=int(body["target_window_id"]) if body.get("target_window_id") else None,
+                        manual_trigger=bool(body.get("manualTrigger", body.get("manual_trigger", True))),
                     )
                     self._send_json(200 if res.get("ok") else 400, res)
                 elif path == "/import-chatlog":
@@ -3111,6 +3660,93 @@ def create_http_server(
                         self_heal=bool(body.get("self_heal", body.get("selfHeal", True))),
                         max_workers=mw,
                         dispatch_mode=str(body.get("dispatch_mode") or body.get("dispatchMode") or "auto"),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/onboarding/setup":
+                    res = engine.setup_tenant_onboarding(
+                        owner_name=body.get("owner_name") if "owner_name" in body else body.get("ownerName"),
+                        business_name=body.get("business_name") if "business_name" in body else body.get("businessName"),
+                        product_summary=body.get("product_summary") if "product_summary" in body else body.get("productSummary"),
+                        industry_pack=body.get("industry_pack") if "industry_pack" in body else body.get("industryPack"),
+                        owner_aliases=body.get("owner_aliases") if "owner_aliases" in body else body.get("ownerAliases"),
+                        admin_contacts=body.get("admin_contacts") if "admin_contacts" in body else body.get("adminContacts"),
+                        test_contacts=body.get("test_contacts") if "test_contacts" in body else body.get("testContacts"),
+                        apply_pack=bool(body.get("apply_pack", body.get("applyPack", True))),
+                        withdraw_legacy_seeds=bool(body.get("withdraw_legacy_seeds", body.get("withdrawLegacySeeds", True))),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/training/discover":
+                    res = engine.discover_training_corpus(
+                        search_dirs=body.get("search_dirs") if "search_dirs" in body else body.get("searchDirs"),
+                        limit=int(body.get("limit") or 20),
+                        include_live_sessions=bool(body.get("include_live_sessions", body.get("includeLiveSessions", True))),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/training/run":
+                    res = engine.run_self_training(
+                        archive_paths=body.get("archive_paths") if "archive_paths" in body else body.get("archivePaths"),
+                        contact_targets=body.get("contact_targets") if "contact_targets" in body else body.get("contactTargets"),
+                        raw_conversations=body.get("raw_conversations") if "raw_conversations" in body else body.get("rawConversations"),
+                        doc_texts=body.get("doc_texts") if "doc_texts" in body else body.get("docTexts"),
+                        owner_name=body.get("owner_name") if "owner_name" in body else body.get("ownerName"),
+                        industry_pack=body.get("industry_pack") if "industry_pack" in body else body.get("industryPack"),
+                        use_llm=bool(body.get("use_llm", body.get("useLlm", False))),
+                        auto_publish_safe=bool(body.get("auto_publish_safe", body.get("autoPublishSafe", True))),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/training/approve":
+                    entry_ids = body.get("entry_ids") if "entry_ids" in body else body.get("entryIds")
+                    res = engine.approve_training_drafts(
+                        entry_ids if isinstance(entry_ids, list) else [],
+                        edits=body.get("edits") if isinstance(body.get("edits"), dict) else None,
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/test-contacts":
+                    action = str(body.get("action") or "").strip().lower()
+                    enabled = bool(body.get("enabled", action not in ("remove", "unmark", "disable", "delete")))
+                    name = str(body.get("name") or body.get("target") or "").strip()
+                    res = engine.set_test_contact(
+                        name,
+                        enabled=enabled,
+                        note=str(body.get("note") or ""),
+                        auto_bind=bool(body.get("auto_bind", body.get("autoBind", True))),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/sparring/chat":
+                    res = engine.sparring_simulate_turn(
+                        str(body.get("message") or body.get("incoming_text") or body.get("incomingText") or ""),
+                        contact_name=str(body.get("contact_name") or body.get("contactName") or "模拟测试客户"),
+                        persona_id=body.get("persona_id") or body.get("personaId") or None,
+                        use_llm=body.get("use_llm") if "use_llm" in body else body.get("useLlm"),
+                        model_id=body.get("model_id") or body.get("modelId") or None,
+                        record=bool(body.get("record", True)),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/sparring/regression":
+                    res = engine.run_sparring_regression(
+                        limit=int(body.get("limit") or 20),
+                        use_llm=bool(body.get("use_llm", body.get("useLlm", False))),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/supervisor/directive":
+                    res = engine.handle_supervisor_hashtag(
+                        str(body.get("contact") or body.get("target") or "模拟测试客户"),
+                        str(body.get("text") or body.get("directive") or ""),
+                        channel=str(body.get("channel") or "workbench"),
+                        use_llm=bool(body.get("use_llm", body.get("useLlm", False))),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/supervisor/rate":
+                    raw_tid = body.get("turn_id") if "turn_id" in body else body.get("turnId")
+                    if raw_tid is None:
+                        self._send_json(400, {"ok": False, "error": "turnId is required"})
+                        return
+                    res = engine.submit_reply_rating(
+                        int(raw_tid),
+                        stars=int(body.get("stars") or 0),
+                        tags=body.get("tags") or (),
+                        comment=str(body.get("comment") or ""),
+                        rewritten_reply=str(body.get("rewritten_reply") or body.get("rewrittenReply") or ""),
                     )
                     self._send_json(200 if res.get("ok") else 400, res)
                 else:

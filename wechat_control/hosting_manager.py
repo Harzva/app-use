@@ -184,19 +184,34 @@ class HostingManager:
         while not self._stop.is_set():
             try:
                 res = self._engine.monitor_once(auto_reply=True, confirm_send=True)
+                hg_info = res.get("humanGuard") if isinstance(res.get("humanGuard"), dict) else {}
                 self._last_round = {
                     "at": self._utc_now(),
                     "ok": bool(res.get("ok")),
                     "repliesDispatched": int(res.get("repliesDispatched", 0) or 0),
+                    "pausedByHumanGuard": bool(res.get("pausedByHumanGuard", False)),
+                    **({
+                        "remainingCooldownSeconds": hg_info.get("remainingCooldownSeconds", 0.0),
+                        "triggerReason": hg_info.get("triggerReason", ""),
+                    } if res.get("pausedByHumanGuard") else {}),
                 }
                 self._engine.audit.log(
                     "hosting_loop",
-                    "round",
-                    {"targets": list(self._targets), "repliesDispatched": self._last_round["repliesDispatched"]},
+                    "paused_human_active" if self._last_round["pausedByHumanGuard"] else "round",
+                    {
+                        "targets": list(self._targets),
+                        "repliesDispatched": self._last_round["repliesDispatched"],
+                        **({"pausedByHumanGuard": True} if self._last_round["pausedByHumanGuard"] else {}),
+                    },
                 )
                 try:
-                    sync_res = self._engine.sync_hosting_histories()
-                    self._history_appended_total += int(sync_res.get("appended", 0) or 0)
+                    can_sync = not bool(res.get("pausedByHumanGuard"))
+                    if can_sync and hasattr(self._engine, "human_guard"):
+                        sync_guard = self._engine.human_guard.check_can_operate()
+                        can_sync = bool(sync_guard.get("canOperate", True))
+                    if can_sync:
+                        sync_res = self._engine.sync_hosting_histories()
+                        self._history_appended_total += int(sync_res.get("appended", 0) or 0)
                 except Exception:
                     pass  # 历史回写失败不影响托管主循环
             except Exception as exc:  # 单轮失败不终止托管：记录后继续下一轮
