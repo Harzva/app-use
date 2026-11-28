@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import contextlib
+import copy
 import hashlib
 import json
 import os
@@ -55,6 +56,29 @@ SUPPORTED_STEP_ACTIONS = (
     "scroll",
     "wait_and_read",
     "pause_for_human",
+    "switch_app",
+    "llm_extract",
+    "llm_draft",
+    "branch_if",
+    "builtin_tool",
+    "assert_check",
+)
+
+WHITELISTED_BUILTIN_TOOLS = (
+    "crm_enroll",
+    "memory_add",
+    "kb_search",
+    "extract_wechat_accounts",
+    "omni_read",
+    "wechat_add_friend",
+)
+
+INDEPENDENT_EVIDENCE_SOURCES = (
+    "post_ui_readback",
+    "tool_result",
+    "crm_db",
+    "memory_store",
+    "captured_var_from_read",
 )
 
 AGENT_APP_HINTS: Tuple[str, ...] = (
@@ -324,6 +348,7 @@ class AppUseStudio:
         )
         self.store_path.parent.mkdir(parents=True, exist_ok=True)
         self.pipelines_path = self.store_path.parent / "app_use_pipelines.json"
+        self.idempotency_path = self.store_path.parent / "workflow_idempotency_ledger.json"
         self.runs_log_path = self.store_path.parent / "app_use_runs.jsonl"
         self.state_graph = AppUIStateGraph(self.store_path.parent / "app_use_state_graphs.json")
         self._hid_lease = ForegroundHIDLease()
@@ -332,6 +357,7 @@ class AppUseStudio:
         self._cli_runner = cli_runner or subprocess.run
         self._state: Dict[str, Any] = self._load_store()
         self._pipelines_state: Dict[str, Any] = self._load_pipelines()
+        self._idempotency_ledger: Dict[str, Any] = self._load_idempotency_ledger()
         self._rec_lock = threading.RLock()
         self._rec_active = False
         self._rec_thread: Optional[threading.Thread] = None
@@ -372,6 +398,20 @@ class AppUseStudio:
     def _save_pipelines(self) -> None:
         self.pipelines_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(self.pipelines_path, self._pipelines_state)
+
+    def _load_idempotency_ledger(self) -> Dict[str, Any]:
+        if self.idempotency_path.is_file():
+            try:
+                data = json.loads(self.idempotency_path.read_text(encoding="utf-8"))
+                if isinstance(data, dict) and isinstance(data.get("entries"), dict):
+                    return data
+            except Exception:
+                pass
+        return {"schema": "openbot.workflow-idempotency-ledger/1", "entries": {}}
+
+    def _save_idempotency_ledger(self) -> None:
+        self.idempotency_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(self.idempotency_path, self._idempotency_ledger)
 
     def _append_run_log(self, record: Dict[str, Any]) -> None:
         try:
@@ -1169,7 +1209,8 @@ class AppUseStudio:
             cmd = [bin_path, "run", combined_prompt]
             stdin_text = None
         elif bin_name == "omini":
-            cmd = [bin_path, "ask", "--role", "advisor"]
+            omini_id = str(uuid.uuid4())
+            cmd = [bin_path, "ask", "--role", "proposer", "--id", omini_id]
             stdin_text = combined_prompt
         else:
             # gemini-api and generic read-only CLI wrappers
@@ -1191,6 +1232,27 @@ class AppUseStudio:
 
         latency_ms = round((time.perf_counter() - t0) * 1000.0, 1)
         out = (proc.stdout or "").strip()
+        if bin_name == "omini" and out.startswith("{"):
+            try:
+                omini_json = json.loads(out)
+                resp_txt = str(omini_json.get("responseText") or "").strip()
+                if resp_txt:
+                    return {
+                        "ok": True,
+                        "replyText": resp_txt,
+                        "latencyMs": latency_ms,
+                        "providerId": f"cli:{bin_name}",
+                        "modelId": str(omini_json.get("actualModel") or bin_name),
+                        "requestId": str(omini_json.get("requestId") or ""),
+                    }
+                if proc.returncode != 0:
+                    return {
+                        "ok": False,
+                        "error": str(omini_json.get("error") or proc.stderr or "omini returned empty response"),
+                        "latencyMs": latency_ms,
+                    }
+            except Exception:
+                pass
         if proc.returncode == 0 and out:
             return {
                 "ok": True,
@@ -1225,6 +1287,14 @@ class AppUseStudio:
                 "wait": "wait_and_read",
                 "read": "wait_and_read",
                 "pause": "pause_for_human",
+                "handoff": "switch_app",
+                "switch": "switch_app",
+                "extract": "llm_extract",
+                "draft": "llm_draft",
+                "if": "branch_if",
+                "branch": "branch_if",
+                "tool": "builtin_tool",
+                "assert": "assert_check",
             }
             action = alias_map.get(action, action)
             if action not in SUPPORTED_STEP_ACTIONS:
@@ -1615,14 +1685,22 @@ class AppUseStudio:
         if not revs:
             return {"ok": False, "error_code": "no_revisions", "error": "该流程尚无历史版本可回滚"}
         try:
-            snap = revs[int(revision_index)]
+            idx = int(revision_index)
+            snap = revs[idx]
         except Exception:
+            idx = -1
             snap = revs[-1]
         restored = dict(cur)
-        restored["steps"] = list(snap.get("steps") or restored.get("steps") or [])
+        if snap.get("name"):
+            restored["name"] = str(snap["name"])
+        if isinstance(snap.get("parameters"), list):
+            restored["parameters"] = copy.deepcopy(snap["parameters"])
+        restored["steps"] = copy.deepcopy(list(snap.get("steps") or restored.get("steps") or []))
         restored["sopMarkdown"] = str(snap.get("sopMarkdown") or self._render_sop_markdown(restored))
         restored["version"] = int(cur.get("version") or 1) + 1
         restored["rolledBackFromVersion"] = snap.get("version")
+        if idx == -1:
+            restored["revisionHistory"] = revs[:-1]
         restored["updatedAt"] = _utc_iso_now()
         wf_map[wid] = restored
         self._save_store()
@@ -1837,8 +1915,9 @@ class AppUseStudio:
         auto_patch_workflow: bool = False,
         heal_agent_id: str = "",
         dispatch_mode: str = "auto",
+        execution_mode: str = "",
     ) -> Dict[str, Any]:
-        """Validate (dry_run=True) or safely execute (dry_run=False, confirm_run=True) any App-Use workflow."""
+        """Validate (dry_run), shadow-test (execution_mode='shadow'), or execute live (confirm_run=True)."""
         if workflow_id:
             stored = (self._state.get("workflows") or {}).get(str(workflow_id).strip())
             if not isinstance(stored, dict):
@@ -1849,14 +1928,22 @@ class AppUseStudio:
         else:
             return {"ok": False, "error_code": "missing_workflow", "error": "请提供 workflow_id 或 workflow 定义。"}
 
-        if not dry_run and not confirm_run:
+        eff_mode = str(execution_mode or "").strip().lower()
+        if not eff_mode:
+            eff_mode = "dry_run" if dry_run else "live"
+        if eff_mode not in ("dry_run", "shadow", "live"):
+            eff_mode = "dry_run" if dry_run else "live"
+        dry_run = eff_mode == "dry_run"
+        shadow_mode = eff_mode == "shadow"
+
+        if eff_mode == "live" and not confirm_run:
             return {
                 "ok": False,
                 "error_code": "confirmation_required",
                 "error": "实机执行 App-Use 流程须显式传 confirm_run=true。",
             }
 
-        if not dry_run and respect_human_guard:
+        if eff_mode == "live" and respect_human_guard:
             guard = self.engine.human_guard.check_can_operate()
             if not guard.get("canOperate", True):
                 return {
@@ -1867,16 +1954,20 @@ class AppUseStudio:
                 }
 
         merged_params: Dict[str, Any] = {}
+        provenance: Dict[str, str] = {}
         for p in wf.get("parameters") or []:
             if isinstance(p, dict) and p.get("name"):
-                merged_params[str(p["name"])] = p.get("defaultValue", "")
+                pname = str(p["name"])
+                merged_params[pname] = p.get("defaultValue", "")
+                provenance[pname] = "input_param"
         if isinstance(params, dict):
             for k, v in params.items():
                 if v is not None and str(v) != "":
                     merged_params[str(k)] = v
+                    provenance[str(k)] = "input_param"
 
         raw_steps = self._normalize_steps(wf.get("steps"))[: max(1, min(30, int(max_steps)))]
-        tapp = wf.get("targetApp") or {}
+        tapp: Dict[str, Any] = dict(wf.get("targetApp") or {})
         bid = str(tapp.get("bundleID") or "")
         app_name = str(tapp.get("name") or "")
         app_path = str(tapp.get("appPath") or "")
@@ -1915,8 +2006,12 @@ class AppUseStudio:
 
         step_results: List[Dict[str, Any]] = []
         paused_for_human = False
+        paused_reason = ""
         final_readback: Dict[str, Any] = {}
         captured_vars: Dict[str, str] = {}
+        tool_results: Dict[str, Any] = {}
+        shadow_previews: List[Dict[str, Any]] = []
+        assertion_results: List[Dict[str, Any]] = []
         baseline_ocr_lines: List[str] = []
         healing_events: List[Dict[str, Any]] = []
         workflow_patched = False
@@ -1924,24 +2019,37 @@ class AppUseStudio:
         last_pre_state: Optional[Dict[str, Any]] = compute_ui_state(latest_inspect, bundle_id=bid) if latest_inspect else None
         last_action_sig = ""
 
-        risk_profile = classify_app_risk_tier(
-            bid,
-            app_name,
-            app_path,
-            category=str(tapp.get("category") or ""),
-        )
         req_mode = (dispatch_mode or "auto").strip().lower()
         if req_mode not in ("auto", "headless_ax_first", "foreground_hid_only"):
             req_mode = "auto"
-        risk_guard_enforced = False
-        if req_mode == "foreground_hid_only":
-            effective_headless_allowed = False
-        elif not risk_profile.get("allowHeadlessAxWrite"):
-            effective_headless_allowed = False
-            if req_mode == "headless_ax_first":
-                risk_guard_enforced = True
-        else:
-            effective_headless_allowed = True
+
+        def _compute_target_policies(target_dict: Dict[str, Any]) -> Tuple[Dict[str, Any], bool, bool]:
+            rp = classify_app_risk_tier(
+                str(target_dict.get("bundleID") or ""),
+                str(target_dict.get("name") or ""),
+                str(target_dict.get("appPath") or ""),
+                category=str(target_dict.get("category") or ""),
+            )
+            rge = False
+            if req_mode == "foreground_hid_only":
+                ehl = False
+            elif not rp.get("allowHeadlessAxWrite"):
+                ehl = False
+                if req_mode == "headless_ax_first":
+                    rge = True
+            else:
+                ehl = True
+            return rp, ehl, rge
+
+        def _switch_current_target(new_target: Dict[str, Any]) -> None:
+            nonlocal tapp, bid, app_name, app_path, risk_profile, effective_headless_allowed, risk_guard_enforced
+            tapp = dict(new_target)
+            bid = str(tapp.get("bundleID") or "")
+            app_name = str(tapp.get("name") or "")
+            app_path = str(tapp.get("appPath") or "")
+            risk_profile, effective_headless_allowed, risk_guard_enforced = _compute_target_policies(tapp)
+
+        risk_profile, effective_headless_allowed, risk_guard_enforced = _compute_target_policies(tapp)
 
         headless_ax_steps = 0
         foreground_hid_steps = 0
@@ -2031,7 +2139,7 @@ class AppUseStudio:
                 ic.extend(["--max-nodes", str(max_nodes)])
             if step_obj.get("launchIfNeeded"):
                 ic.append("--launch")
-            if (req_mode == "headless_ax_first" or (headless_ax_steps > 0 and foreground_hid_steps == 0)) and not step_obj.get("forceForeground"):
+            if (shadow_mode or req_mode == "headless_ax_first" or (headless_ax_steps > 0 and foreground_hid_steps == 0)) and not step_obj.get("forceForeground"):
                 ic.append("--no-activate")
             return ic
 
@@ -2076,6 +2184,7 @@ class AppUseStudio:
             )
             captured_vars[var_name] = val
             merged_params[var_name] = val
+            provenance[var_name] = "captured_var_from_read"
             return var_name, val
 
         if not dry_run:
@@ -2097,13 +2206,106 @@ class AppUseStudio:
         if _guard_bypass_ctx is not None:
             _guard_bypass_ctx.__enter__()
         try:
-            for raw_st in raw_steps:
+            step_pos = 0
+            executed_hops = 0
+            max_hops = max(2, min(60, int(max_steps) * 2))
+            while step_pos < len(raw_steps):
+                executed_hops += 1
+                if executed_hops > max_hops:
+                    lane_error = "CYCLE_DETECTED: 超过最大步数跳转上限"
+                    return {
+                        "ok": False,
+                        "runId": run_id,
+                        "dryRun": bool(dry_run),
+                        "executionMode": eff_mode,
+                        "error_code": "CYCLE_DETECTED",
+                        "error": lane_error,
+                        "stepResults": step_results,
+                    }
+                raw_st = raw_steps[step_pos]
+                step_pos += 1
                 st = _substitute_params(raw_st, merged_params)
                 idx = int(st.get("step") or len(step_results) + 1)
                 action = str(st.get("action") or "")
                 step_t0 = time.perf_counter()
 
                 if dry_run:
+                    if action == "builtin_tool":
+                        tname = str(st.get("tool") or "").strip()
+                        if tname not in WHITELISTED_BUILTIN_TOOLS:
+                            lane_error = f"UNWHITELISTED_TOOL: {tname}"
+                            return {
+                                "ok": False,
+                                "runId": run_id,
+                                "dryRun": True,
+                                "executionMode": eff_mode,
+                                "failedStep": idx,
+                                "error_code": "UNWHITELISTED_TOOL",
+                                "error": lane_error,
+                                "stepResults": step_results,
+                            }
+                    elif action == "branch_if" and st.get("jumpToStep") is not None:
+                        try:
+                            j_step = int(st["jumpToStep"])
+                        except Exception:
+                            j_step = 0
+                        if j_step <= idx:
+                            lane_error = f"CYCLE_DETECTED: branch_if 不允许向后跳转 (step {idx} -> {j_step})"
+                            return {
+                                "ok": False,
+                                "runId": run_id,
+                                "dryRun": True,
+                                "executionMode": eff_mode,
+                                "failedStep": idx,
+                                "error_code": "CYCLE_DETECTED",
+                                "error": lane_error,
+                                "stepResults": step_results,
+                            }
+                    elif action == "assert_check":
+                        ev_src = str(st.get("evidenceSource") or "").strip()
+                        t_var = str(st.get("targetVar") or "").strip()
+                        if ev_src not in INDEPENDENT_EVIDENCE_SOURCES:
+                            lane_error = f"SELF_CERTIFIED_ASSERTION: assert_check 必须声明独立 evidenceSource ({', '.join(INDEPENDENT_EVIDENCE_SOURCES)})"
+                            return {
+                                "ok": False,
+                                "runId": run_id,
+                                "dryRun": True,
+                                "executionMode": eff_mode,
+                                "failedStep": idx,
+                                "error_code": "SELF_CERTIFIED_ASSERTION",
+                                "error": lane_error,
+                                "stepResults": step_results,
+                            }
+                        if ev_src == "captured_var_from_read" and t_var and provenance.get(t_var) == "input_param":
+                            lane_error = f"SELF_CERTIFIED_ASSERTION: 变量 {t_var} 为输入参数而非读取产物"
+                            return {
+                                "ok": False,
+                                "runId": run_id,
+                                "dryRun": True,
+                                "executionMode": eff_mode,
+                                "failedStep": idx,
+                                "error_code": "SELF_CERTIFIED_ASSERTION",
+                                "error": lane_error,
+                                "stepResults": step_results,
+                            }
+                        assertion_results.append(
+                            {
+                                "step": idx,
+                                "title": st.get("title", ""),
+                                "evidenceSource": ev_src,
+                                "status": "dry_run_schema_ok",
+                                "passed": True,
+                            }
+                        )
+                    elif action == "llm_extract":
+                        cap_v = str(st.get("captureAs") or st.get("outputVar") or "extracted_value").strip()
+                        if cap_v:
+                            provenance[cap_v] = "captured_var_from_read"
+                    elif action == "llm_draft":
+                        cap_v = str(st.get("captureAs") or st.get("outputVar") or "draft_text").strip()
+                        if cap_v:
+                            provenance[cap_v] = "draft_generated"
+
                     pt, source = self._resolve_element_point(st, latest_inspect)
                     if pt is None and self_heal:
                         f_pt, f_src = self._fuzzy_resolve_point(st, latest_inspect)
@@ -2123,14 +2325,38 @@ class AppUseStudio:
                     continue
 
                 if action == "pause_for_human":
+                    gate_msg = str(st.get("message") or st.get("description") or "等待人工接管确认")
+                    if shadow_mode and not bool(st.get("pauseInShadow")):
+                        shadow_previews.append(
+                            {
+                                "step": idx,
+                                "action": action,
+                                "kind": "safety_gate_verified",
+                                "targetApp": tapp,
+                                "message": gate_msg,
+                            }
+                        )
+                        step_results.append(
+                            {
+                                "step": idx,
+                                "action": action,
+                                "title": st.get("title", ""),
+                                "ok": True,
+                                "status": "shadow_gate_verified",
+                                "message": gate_msg,
+                                "elapsedMs": round((time.perf_counter() - step_t0) * 1000.0, 1),
+                            }
+                        )
+                        continue
                     paused_for_human = True
+                    paused_reason = gate_msg
                     step_results.append(
                         {
                             "step": idx,
                             "action": action,
                             "title": st.get("title", ""),
                             "status": "paused_for_human",
-                            "message": str(st.get("message") or st.get("description") or "等待人工接管确认"),
+                            "message": gate_msg,
                         }
                     )
                     break
@@ -2222,12 +2448,16 @@ class AppUseStudio:
                             "artifactName": Path(str(res.get("savedPath") or "")).name if res.get("savedPath") else "",
                         }
                     cap = _capture_from_inspect(st, res)
+                    fb_var = str(st.get("optionalIfVar") or "").strip()
+                    fb_ready = bool(fb_var and str(merged_params.get(fb_var) or "").strip())
                     step_results.append(
                         {
                             "step": idx,
                             "action": action,
                             "title": st.get("title", ""),
-                            "ok": bool(res.get("ok")),
+                            "ok": bool(res.get("ok")) or fb_ready,
+                            "usedFallbackParam": bool((not res.get("ok")) and fb_ready),
+                            "error": "" if (res.get("ok") or fb_ready) else str(res.get("error") or "window_not_found"),
                             "elapsedMs": round((time.perf_counter() - step_t0) * 1000.0, 1),
                             "axControlCount": res.get("axControlCount", 0),
                             "ocrCount": res.get("ocrCount", 0),
@@ -2413,6 +2643,30 @@ class AppUseStudio:
 
                 if action == "focus_and_type":
                     text_val = str(st.get("text") or "")
+                    if shadow_mode and risk_profile.get("tier") == "high_risk_social" and bool(st.get("submitAfter")):
+                        shadow_previews.append(
+                            {
+                                "step": idx,
+                                "action": action,
+                                "kind": "outbound_message_intercepted",
+                                "targetApp": dict(tapp),
+                                "text": text_val,
+                                "reason": "Shadow 模式已拦截高风险社交应用自动回车外发，保留拟发预览供确认",
+                            }
+                        )
+                        step_results.append(
+                            {
+                                "step": idx,
+                                "action": action,
+                                "title": st.get("title", ""),
+                                "ok": True,
+                                "shadowIntercepted": True,
+                                "dispatchChannel": "shadow_intercept",
+                                "previewText": text_val,
+                                "elapsedMs": round((time.perf_counter() - step_t0) * 1000.0, 1),
+                            }
+                        )
+                        continue
                     if latest_inspect and latest_inspect.get("ok"):
                         last_pre_state = compute_ui_state(latest_inspect, bundle_id=bid)
                     pt, source = self._resolve_element_point(st, latest_inspect)
@@ -2612,8 +2866,12 @@ class AppUseStudio:
                         cmd.extend(["--sequence", str(st["sequence"]).strip()])
                     else:
                         cmd.extend(["--combo", str(st.get("combo") or "return").strip()])
+                        if st.get("repeat"):
+                            cmd.extend(["--repeat", str(max(1, min(10, int(st["repeat"]))))])
                     if st.get("delayMs"):
                         cmd.extend(["--delay-ms", str(int(st["delayMs"]))])
+                    if not respect_human_guard:
+                        cmd.append("--skip-human-check")
                     _pace_if_needed()
                     with _acquire_hid(action):
                         res = self.engine._run_native(cmd, timeout=12.0)
@@ -2825,6 +3083,601 @@ class AppUseStudio:
                     )
                     continue
 
+                if action == "switch_app":
+                    sw_tapp = st.get("targetApp") if isinstance(st.get("targetApp"), dict) else {}
+                    sw_meta = self._resolve_target_meta(
+                        bundle_id=str(sw_tapp.get("bundleID") or st.get("bundleID") or st.get("bundleId") or ""),
+                        app_name=str(sw_tapp.get("name") or st.get("appName") or ""),
+                        app_path=str(sw_tapp.get("appPath") or st.get("appPath") or ""),
+                    )
+                    _switch_current_target(sw_meta)
+                    if not dry_run:
+                        self._lanes.update_lane(run_id, state="observing", current_action=f"switch_app:{app_name or bid}")
+                    sw_probe: Dict[str, Any] = {"ok": False}
+                    if not st.get("skipInspectProbe"):
+                        probe_cmd = ["app-use-inspect", "--no-activate", "--max-nodes", "140", *_app_args()]
+                        if shadow_mode and risk_profile.get("tier") == "safe_native" and st.get("launchIfNeeded"):
+                            probe_cmd.append("--launch")
+                        elif not shadow_mode and st.get("launchIfNeeded"):
+                            probe_cmd.append("--launch")
+                        sw_probe = self.engine._run_native(probe_cmd, timeout=12.0)
+                        if not shadow_mode and st.get("activate", True) and not sw_probe.get("ok"):
+                            with _acquire_hid("switch_app"):
+                                self.engine._run_native(["app-use-activate", *_app_args(), "--launch"], timeout=12.0)
+                            sw_probe = self.engine._run_native(["app-use-inspect", "--max-nodes", "140", *_app_args()], timeout=12.0)
+                        if sw_probe.get("ok"):
+                            latest_inspect = sw_probe
+                            modal_sw = detect_modal_blocker(sw_probe)
+                            if modal_sw.get("kind") == "auth_or_risk_gate":
+                                paused_for_human = True
+                                paused_reason = f"切换至 {app_name or bid} 时检测到登录/授权门禁: {', '.join(modal_sw.get('signals') or [])}"
+                                step_results.append(
+                                    {
+                                        "step": idx,
+                                        "action": action,
+                                        "title": st.get("title", ""),
+                                        "status": "paused_for_human",
+                                        "failureCategory": "AUTH_GATE",
+                                        "targetApp": dict(tapp),
+                                        "message": paused_reason,
+                                    }
+                                )
+                                break
+                    step_results.append(
+                        {
+                            "step": idx,
+                            "action": action,
+                            "title": st.get("title", ""),
+                            "ok": True,
+                            "targetApp": dict(tapp),
+                            "riskTier": risk_profile.get("tier"),
+                            "inspected": bool(sw_probe.get("ok")),
+                            "elapsedMs": round((time.perf_counter() - step_t0) * 1000.0, 1),
+                        }
+                    )
+                    continue
+
+                if action == "llm_extract":
+                    src_var = str(st.get("sourceVar") or "").strip()
+                    src_from_read = False
+                    src_text = ""
+                    if src_var:
+                        src_text = str(merged_params.get(src_var) or captured_vars.get(src_var) or "")
+                        src_from_read = provenance.get(src_var) in ("captured_var_from_read", "post_ui_readback", "tool_result")
+                    if not src_text.strip() and latest_inspect and latest_inspect.get("ok"):
+                        ax_s = [_clean_ui_text(x) for x in (latest_inspect.get("axTexts") or []) if _clean_ui_text(x)]
+                        ocr_s = _clean_ui_text(latest_inspect.get("ocrPreview") or "")
+                        src_text = f"{ocr_s}\n" + "\n".join(ax_s)
+                        src_from_read = True
+                    elif not src_text.strip() and final_readback:
+                        ax_s = [_clean_ui_text(x) for x in (final_readback.get("axTexts") or []) if _clean_ui_text(x)]
+                        ocr_s = _clean_ui_text(final_readback.get("ocrPreview") or "")
+                        src_text = f"{ocr_s}\n" + "\n".join(ax_s)
+                        src_from_read = True
+
+                    ext_mode = str(st.get("extractor") or "regex").strip().lower()
+                    cap_var = str(st.get("captureAs") or st.get("outputVar") or "extracted_value").strip()
+                    extracted_val = ""
+                    extra_meta: Any = None
+
+                    if ext_mode == "wechat_accounts":
+                        from .douyin_wechat_bridge import extract_wechat_accounts_from_text
+                        hits = extract_wechat_accounts_from_text(src_text)
+                        if not hits and st.get("fallbackSourceVar"):
+                            fb_text = str(merged_params.get(str(st["fallbackSourceVar"]).strip()) or "")
+                            if fb_text.strip():
+                                hits = extract_wechat_accounts_from_text(fb_text)
+                                src_from_read = False
+                        if hits:
+                            best = hits[0]
+                            extracted_val = str(best.get("account") or "").strip()
+                            extra_meta = best
+                    elif ext_mode == "number":
+                        nums = re.findall(r"-?\d+(?:\.\d+)?", src_text.replace(",", ""))
+                        if nums:
+                            extracted_val = nums[-1]
+                    elif ext_mode == "regex":
+                        pat = str(st.get("pattern") or "").strip()
+                        if pat:
+                            m = re.search(pat, src_text, flags=re.MULTILINE)
+                            if m:
+                                extracted_val = _clean_ui_text(m.group(1) if m.groups() else m.group(0))
+                        elif src_text.strip():
+                            lines = [_clean_ui_text(x) for x in src_text.splitlines() if _clean_ui_text(x)]
+                            extracted_val = lines[-1] if lines else ""
+                    else:
+                        ext_agent = str(st.get("agentId") or heal_agent_id or "").strip()
+                        if ext_agent and not ext_agent.startswith("local:") and src_text.strip():
+                            mid = ext_agent.split(":", 1)[1] if ext_agent.startswith("magpie:") else ext_agent
+                            ex_prompt = str(st.get("prompt") or "请从以下文本提取核心结构化字段，输出 JSON: {\"value\":\"...\"}").strip()
+                            llm_ex = self.engine.models.generate_chat_reply(
+                                [
+                                    {"role": "system", "content": ex_prompt},
+                                    {"role": "user", "content": src_text[:3000]},
+                                ],
+                                model_id=mid,
+                                max_tokens=500,
+                                temperature=0.1,
+                                timeout=20.0,
+                            )
+                            if llm_ex.get("ok"):
+                                obj = _extract_json_object(str(llm_ex.get("replyText") or ""))
+                                if obj:
+                                    extracted_val = str(obj.get("value") or next(iter(obj.values()), "")).strip()
+                                    extra_meta = obj
+                        if not extracted_val and src_text.strip():
+                            lines = [_clean_ui_text(x) for x in src_text.splitlines() if _clean_ui_text(x)]
+                            extracted_val = "\n".join(lines[:5])
+
+                    if not extracted_val and bool(st.get("required", True)):
+                        lane_error = f"EXTRACTION_EMPTY: 未能从采集内容抽取字段 `{cap_var}`"
+                        step_results.append(
+                            {
+                                "step": idx,
+                                "action": action,
+                                "title": st.get("title", ""),
+                                "ok": False,
+                                "error_code": "EXTRACTION_EMPTY",
+                                "error": lane_error,
+                                "elapsedMs": round((time.perf_counter() - step_t0) * 1000.0, 1),
+                            }
+                        )
+                        return {
+                            "ok": False,
+                            "runId": run_id,
+                            "dryRun": False,
+                            "executionMode": eff_mode,
+                            "failedStep": idx,
+                            "error_code": "EXTRACTION_EMPTY",
+                            "error": lane_error,
+                            "riskProfile": risk_profile,
+                            "dispatchSummary": _dispatch_summary(),
+                            "capturedVars": captured_vars,
+                            "shadowPreviews": shadow_previews,
+                            "assertionResults": assertion_results,
+                            "stepResults": step_results,
+                        }
+
+                    captured_vars[cap_var] = extracted_val
+                    merged_params[cap_var] = extracted_val
+                    provenance[cap_var] = "captured_var_from_read" if src_from_read else "extracted_var"
+                    if isinstance(extra_meta, dict):
+                        for mk, mv in extra_meta.items():
+                            k_full = f"{cap_var}_{mk}"
+                            if mv is not None:
+                                merged_params[k_full] = str(mv)
+                    step_results.append(
+                        {
+                            "step": idx,
+                            "action": action,
+                            "title": st.get("title", ""),
+                            "ok": True,
+                            "extractor": ext_mode,
+                            "captured": {cap_var: extracted_val},
+                            "provenance": provenance[cap_var],
+                            "elapsedMs": round((time.perf_counter() - step_t0) * 1000.0, 1),
+                        }
+                    )
+                    continue
+
+                if action == "llm_draft":
+                    cap_var = str(st.get("captureAs") or st.get("outputVar") or "draft_text").strip()
+                    t_prof = self.engine.tenant.get_profile() if hasattr(self.engine, "tenant") else {}
+                    biz_name = str(t_prof.get("businessName") or "智拓巨浪").strip() or "智拓巨浪"
+                    owner_name = str(t_prof.get("ownerName") or "安晓心").strip() or "安晓心"
+                    kb_q = str(st.get("kbQuery") or "").strip()
+                    kb_hits: List[str] = []
+                    if kb_q and hasattr(self.engine, "kb_search"):
+                        try:
+                            kb_res = self.engine.kb_search(kb_q, limit=2)
+                            for entry in (kb_res.get("items") or [])[:2]:
+                                body_s = str(entry.get("body") or entry.get("title") or "").strip()
+                                if body_s:
+                                    kb_hits.append(body_s[:140])
+                        except Exception:
+                            pass
+                    tpl = str(st.get("template") or "").strip()
+                    draft_val = ""
+                    if tpl:
+                        fmt_ctx = {**merged_params, "businessName": biz_name, "ownerName": owner_name, "kbSnippet": "；".join(kb_hits)}
+                        try:
+                            draft_val = tpl.format(**{k: str(v or "") for k, v in fmt_ctx.items()})
+                        except Exception:
+                            draft_val = tpl.replace("{businessName}", biz_name).replace("{ownerName}", owner_name)
+                    else:
+                        d_agent = str(st.get("agentId") or heal_agent_id or "").strip()
+                        if d_agent and not d_agent.startswith("local:"):
+                            mid = d_agent.split(":", 1)[1] if d_agent.startswith("magpie:") else d_agent
+                            d_prompt = str(st.get("prompt") or f"你是{biz_name}的{owner_name}，请生成简短自然的中文沟通文案。").strip()
+                            llm_d = self.engine.models.generate_chat_reply(
+                                [
+                                    {"role": "system", "content": d_prompt},
+                                    {"role": "user", "content": json.dumps({"context": merged_params, "kb": kb_hits}, ensure_ascii=False)},
+                                ],
+                                model_id=mid,
+                                max_tokens=450,
+                                temperature=0.3,
+                                timeout=20.0,
+                            )
+                            if llm_d.get("ok"):
+                                draft_val = str(llm_d.get("replyText") or "").strip()
+                        if not draft_val:
+                            ch_label = str(st.get("sourceLabel") or merged_params.get("source_channel_label") or "飞书").strip()
+                            draft_val = f"你好呀，我是{biz_name}的{owner_name}，刚在{ch_label}收到你发来的信息，这边加你微信详聊～"
+                    captured_vars[cap_var] = draft_val
+                    merged_params[cap_var] = draft_val
+                    provenance[cap_var] = "draft_generated"
+                    step_results.append(
+                        {
+                            "step": idx,
+                            "action": action,
+                            "title": st.get("title", ""),
+                            "ok": True,
+                            "captured": {cap_var: draft_val},
+                            "kbUsedCount": len(kb_hits),
+                            "elapsedMs": round((time.perf_counter() - step_t0) * 1000.0, 1),
+                        }
+                    )
+                    continue
+
+                if action == "branch_if":
+                    b_var = str(st.get("var") or "").strip()
+                    b_op = str(st.get("operator") or "not_empty").strip().lower()
+                    b_expected = str(st.get("value") or "")
+                    actual_v = str(merged_params.get(b_var, captured_vars.get(b_var, "")) or "")
+                    cond = False
+                    if b_op == "not_empty":
+                        cond = bool(actual_v.strip())
+                    elif b_op == "is_empty":
+                        cond = not bool(actual_v.strip())
+                    elif b_op == "equals":
+                        cond = actual_v.strip() == b_expected.strip()
+                    elif b_op == "not_equals":
+                        cond = actual_v.strip() != b_expected.strip()
+                    elif b_op == "contains":
+                        cond = b_expected.casefold() in actual_v.casefold()
+                    elif b_op == "regex_match":
+                        cond = bool(re.search(b_expected, actual_v)) if b_expected else False
+
+                    on_false = str(st.get("onFalse") or "skip_next").strip().lower()
+                    j_target = st.get("jumpToStep")
+                    if j_target is not None:
+                        try:
+                            if int(j_target) <= idx:
+                                lane_error = f"CYCLE_DETECTED: branch_if 仅支持前向跳转 ({idx} -> {j_target})"
+                                return {
+                                    "ok": False,
+                                    "runId": run_id,
+                                    "dryRun": False,
+                                    "executionMode": eff_mode,
+                                    "failedStep": idx,
+                                    "error_code": "CYCLE_DETECTED",
+                                    "error": lane_error,
+                                    "stepResults": step_results,
+                                }
+                        except Exception:
+                            pass
+
+                    branch_act = "continue"
+                    if not cond:
+                        if on_false == "stop_ok":
+                            branch_act = "stop_ok"
+                        elif on_false == "jump_to_step" and j_target is not None:
+                            j_num = int(j_target)
+                            found_p = next((p_i for p_i, s_i in enumerate(raw_steps) if int(s_i.get("step") or 0) == j_num), None)
+                            if found_p is not None and found_p >= step_pos:
+                                step_pos = found_p
+                                branch_act = f"jump_to:{j_num}"
+                        else:
+                            step_pos = min(len(raw_steps), step_pos + 1)
+                            branch_act = "skip_next"
+
+                    step_results.append(
+                        {
+                            "step": idx,
+                            "action": action,
+                            "title": st.get("title", ""),
+                            "ok": True,
+                            "var": b_var,
+                            "operator": b_op,
+                            "matched": cond,
+                            "branchAction": branch_act,
+                            "elapsedMs": round((time.perf_counter() - step_t0) * 1000.0, 1),
+                        }
+                    )
+                    if branch_act == "stop_ok":
+                        break
+                    continue
+
+                if action == "builtin_tool":
+                    tname = str(st.get("tool") or "").strip()
+                    if tname not in WHITELISTED_BUILTIN_TOOLS:
+                        lane_error = f"UNWHITELISTED_TOOL: 不允许调用非白名单工具 {tname!r}"
+                        step_results.append({"step": idx, "action": action, "ok": False, "error_code": "UNWHITELISTED_TOOL", "error": lane_error})
+                        return {
+                            "ok": False,
+                            "runId": run_id,
+                            "dryRun": False,
+                            "executionMode": eff_mode,
+                            "failedStep": idx,
+                            "error_code": "UNWHITELISTED_TOOL",
+                            "error": lane_error,
+                            "stepResults": step_results,
+                        }
+
+                    tparams = dict(st.get("params") or {})
+                    cap_var = str(st.get("captureAs") or f"tool_{tname}").strip()
+                    is_mutating = tname in ("crm_enroll", "memory_add", "wechat_add_friend")
+                    idem_key = ""
+                    if is_mutating:
+                        tgt_key = str(tparams.get("target") or tparams.get("account") or "")
+                        idem_key = str(st.get("idempotencyKey") or f"{wf.get('id', '')}:{tname}:{tgt_key}").strip()
+
+                    entries = self._idempotency_ledger.setdefault("entries", {})
+                    if is_mutating and not shadow_mode and idem_key in entries and not bool(st.get("ignoreIdempotency")):
+                        prev_e = dict(entries[idem_key])
+                        t_res = {"ok": True, "deduplicated": True, "idempotencyKey": idem_key, "previousResult": prev_e.get("result")}
+                        tool_results[cap_var] = t_res
+                        captured_vars[cap_var] = json.dumps(t_res, ensure_ascii=False)
+                        merged_params[cap_var] = captured_vars[cap_var]
+                        provenance[cap_var] = "tool_result"
+                        step_results.append(
+                            {
+                                "step": idx,
+                                "action": action,
+                                "title": st.get("title", ""),
+                                "tool": tname,
+                                "ok": True,
+                                "deduplicated": True,
+                                "idempotencyKey": idem_key,
+                                "elapsedMs": round((time.perf_counter() - step_t0) * 1000.0, 1),
+                            }
+                        )
+                        continue
+
+                    t_res: Dict[str, Any] = {}
+                    shadow_intercepted = False
+                    try:
+                        if tname == "extract_wechat_accounts":
+                            from .douyin_wechat_bridge import extract_wechat_accounts_from_text
+                            raw_txt = str(tparams.get("text") or "")
+                            hits = extract_wechat_accounts_from_text(raw_txt)
+                            t_res = {"ok": True, "count": len(hits), "accounts": hits, "bestAccount": hits[0]["account"] if hits else ""}
+                        elif tname == "kb_search":
+                            q_s = str(tparams.get("query") or "")
+                            t_res = self.engine.kb_search(q_s, limit=int(tparams.get("limit") or 3))
+                        elif tname == "omni_read":
+                            ch_s = str(tparams.get("channel") or "feishu")
+                            t_res = self.engine.omni_read_messages(channel=ch_s, limit=int(tparams.get("limit") or 10))
+                        elif shadow_mode and not (tname in ("crm_enroll", "memory_add") and bool(st.get("shadowAllowLocalCrm"))):
+                            shadow_intercepted = True
+                            t_res = {
+                                "ok": True,
+                                "shadowIntercepted": True,
+                                "tool": tname,
+                                "params": tparams,
+                                "target": tparams.get("target") or tparams.get("account") or "",
+                                "note": tparams.get("note") or tparams.get("content") or "",
+                            }
+                            shadow_previews.append({"step": idx, "action": action, "kind": f"tool:{tname}", **t_res})
+                        elif tname == "crm_enroll":
+                            tgt = str(tparams.get("target") or "").strip()
+                            if not tgt:
+                                raise ValueError("TOOL_PARAM_ERROR: crm_enroll 缺少 target 参数")
+                            tags_val = tparams.get("tags")
+                            if isinstance(tags_val, str):
+                                tags_val = [x.strip() for x in tags_val.split(",") if x.strip()]
+                            t_res = self.engine.crm_enroll_contact(
+                                tgt,
+                                stage=str(tparams.get("stage") or "初步接触"),
+                                note=str(tparams.get("note") or ""),
+                                alias=str(tparams.get("alias") or ""),
+                                tags=tags_val if isinstance(tags_val, list) else None,
+                            )
+                        elif tname == "memory_add":
+                            tgt = str(tparams.get("target") or "").strip()
+                            cnt = str(tparams.get("content") or "").strip()
+                            if not tgt or not cnt:
+                                raise ValueError("TOOL_PARAM_ERROR: memory_add 缺少 target 或 content 参数")
+                            t_res = self.engine.soul_profiler.add_memory_note(
+                                tgt,
+                                cnt,
+                                category=str(tparams.get("category") or "fact"),
+                            )
+                        elif tname == "wechat_add_friend":
+                            acc = str(tparams.get("account") or "").strip()
+                            if not acc:
+                                raise ValueError("TOOL_PARAM_ERROR: wechat_add_friend 缺少 account 参数")
+                            t_res = self.engine.wechat_add_friend(
+                                acc,
+                                greeting=str(tparams.get("greeting") or ""),
+                                remark=str(tparams.get("remark") or ""),
+                                source_channel=str(tparams.get("source_channel") or "feishu"),
+                                source_user=str(tparams.get("source_user") or ""),
+                                dry_run=bool(dry_run),
+                                confirm_send=bool(confirm_run and not dry_run),
+                                force=bool(tparams.get("force", False)),
+                                ignore_human_guard=not respect_human_guard,
+                            )
+                    except Exception as exc:
+                        t_res = {"ok": False, "error_code": "TOOL_PARAM_ERROR", "error": str(exc)}
+
+                    if not t_res.get("ok"):
+                        lane_error = str(t_res.get("error") or f"TOOL_PARAM_ERROR: {tname} failed")
+                        err_cd = str(t_res.get("error_code") or "TOOL_PARAM_ERROR")
+                        step_results.append(
+                            {
+                                "step": idx,
+                                "action": action,
+                                "title": st.get("title", ""),
+                                "tool": tname,
+                                "ok": False,
+                                "error_code": err_cd,
+                                "error": lane_error,
+                                "elapsedMs": round((time.perf_counter() - step_t0) * 1000.0, 1),
+                            }
+                        )
+                        return {
+                            "ok": False,
+                            "runId": run_id,
+                            "dryRun": False,
+                            "executionMode": eff_mode,
+                            "failedStep": idx,
+                            "error_code": err_cd,
+                            "error": lane_error,
+                            "riskProfile": risk_profile,
+                            "dispatchSummary": _dispatch_summary(),
+                            "capturedVars": captured_vars,
+                            "shadowPreviews": shadow_previews,
+                            "toolResults": tool_results,
+                            "assertionResults": assertion_results,
+                            "stepResults": step_results,
+                        }
+
+                    if is_mutating and not shadow_intercepted and idem_key:
+                        entries[idem_key] = {
+                            "tool": tname,
+                            "at": _utc_iso_now(),
+                            "result": {"ok": True, "target": tparams.get("target") or tparams.get("account") or ""},
+                        }
+                        self._save_idempotency_ledger()
+
+                    tool_results[cap_var] = t_res
+                    captured_vars[cap_var] = json.dumps(t_res, ensure_ascii=False)
+                    merged_params[cap_var] = captured_vars[cap_var]
+                    provenance[cap_var] = "tool_result"
+                    step_results.append(
+                        {
+                            "step": idx,
+                            "action": action,
+                            "title": st.get("title", ""),
+                            "tool": tname,
+                            "ok": True,
+                            "shadowIntercepted": shadow_intercepted,
+                            "captured": {cap_var: t_res},
+                            "elapsedMs": round((time.perf_counter() - step_t0) * 1000.0, 1),
+                        }
+                    )
+                    continue
+
+                if action == "assert_check":
+                    ev_src = str(st.get("evidenceSource") or "").strip()
+                    t_var = str(st.get("targetVar") or "").strip()
+                    op = str(st.get("operator") or "not_empty").strip().lower()
+                    expected_v = str(st.get("expected") or "")
+                    if ev_src not in INDEPENDENT_EVIDENCE_SOURCES:
+                        lane_error = f"SELF_CERTIFIED_ASSERTION: 禁止缺少独立 evidenceSource 的断言 ({ev_src})"
+                        return {
+                            "ok": False,
+                            "runId": run_id,
+                            "dryRun": False,
+                            "executionMode": eff_mode,
+                            "failedStep": idx,
+                            "error_code": "SELF_CERTIFIED_ASSERTION",
+                            "error": lane_error,
+                            "stepResults": step_results,
+                        }
+                    if ev_src == "captured_var_from_read" and t_var and provenance.get(t_var) in ("input_param", "draft_generated", None):
+                        lane_error = f"SELF_CERTIFIED_ASSERTION: 断言目标 `{t_var}` 来自输入参数/草稿而非独立动作后观测"
+                        return {
+                            "ok": False,
+                            "runId": run_id,
+                            "dryRun": False,
+                            "executionMode": eff_mode,
+                            "failedStep": idx,
+                            "error_code": "SELF_CERTIFIED_ASSERTION",
+                            "error": lane_error,
+                            "stepResults": step_results,
+                        }
+
+                    observed_text = ""
+                    if ev_src == "post_ui_readback":
+                        if final_readback:
+                            observed_text = f"{final_readback.get('ocrPreview', '')}\n" + "\n".join(final_readback.get("axTexts") or [])
+                        elif latest_inspect and latest_inspect.get("ok"):
+                            observed_text = f"{latest_inspect.get('ocrPreview', '')}\n" + "\n".join(latest_inspect.get("axTexts") or [])
+                    elif ev_src == "tool_result":
+                        if t_var and t_var in tool_results:
+                            observed_text = json.dumps(tool_results[t_var], ensure_ascii=False)
+                        elif t_var and t_var in captured_vars:
+                            observed_text = str(captured_vars[t_var])
+                        elif tool_results:
+                            observed_text = json.dumps(list(tool_results.values())[-1], ensure_ascii=False)
+                    elif ev_src == "crm_db":
+                        if shadow_mode and any(sp.get("kind") == "tool:crm_enroll" for sp in shadow_previews):
+                            observed_text = json.dumps([sp for sp in shadow_previews if sp.get("kind") == "tool:crm_enroll"], ensure_ascii=False)
+                        elif t_var and hasattr(self.engine, "sales_crm"):
+                            ov = self.engine.crm_overview(auto_sync=False)
+                            matches = [p for p in (ov.get("rankings") or []) if expected_v in str(p.get("displayName") or "") or t_var in json.dumps(p, ensure_ascii=False)]
+                            observed_text = json.dumps(matches, ensure_ascii=False) if matches else ""
+                    elif ev_src == "memory_store":
+                        if shadow_mode and any(sp.get("kind") == "tool:memory_add" for sp in shadow_previews):
+                            observed_text = json.dumps([sp for sp in shadow_previews if sp.get("kind") == "tool:memory_add"], ensure_ascii=False)
+                        elif hasattr(self.engine, "soul_profiler"):
+                            mem_ctx = self.engine.soul_profiler.get_contact_memory_context(t_var or expected_v)
+                            observed_text = json.dumps(mem_ctx, ensure_ascii=False) if mem_ctx else ""
+                    elif ev_src == "captured_var_from_read":
+                        observed_text = str(captured_vars.get(t_var) or "")
+
+                    passed = False
+                    if op == "not_empty":
+                        passed = bool(observed_text.strip() and observed_text.strip() != "[]")
+                    elif op == "contains":
+                        if expected_v.isdigit() and "," in observed_text:
+                            passed = (expected_v.casefold() in observed_text.casefold()) or (
+                                expected_v.casefold() in observed_text.replace(",", "").casefold()
+                            )
+                        else:
+                            passed = expected_v.casefold() in observed_text.casefold()
+                    elif op == "equals":
+                        passed = observed_text.strip() == expected_v.strip()
+                    elif op == "regex":
+                        passed = bool(re.search(expected_v, observed_text)) if expected_v else False
+                    elif op == "truthy":
+                        passed = observed_text.strip().lower() not in ("", "false", "0", "none", "null", "[]", "{}")
+
+                    a_rec = {
+                        "step": idx,
+                        "title": st.get("title", ""),
+                        "evidenceSource": ev_src,
+                        "targetVar": t_var,
+                        "operator": op,
+                        "expected": expected_v,
+                        "observedSample": observed_text[:280],
+                        "passed": passed,
+                    }
+                    assertion_results.append(a_rec)
+                    step_results.append(
+                        {
+                            "step": idx,
+                            "action": action,
+                            "title": st.get("title", ""),
+                            "ok": passed,
+                            "assertion": a_rec,
+                            "elapsedMs": round((time.perf_counter() - step_t0) * 1000.0, 1),
+                        }
+                    )
+                    if not passed:
+                        lane_error = f"ASSERTION_FAILED: {st.get('title') or ev_src} 预期 ({op} {expected_v!r}) 但实测为 {observed_text[:120]!r}"
+                        return {
+                            "ok": False,
+                            "runId": run_id,
+                            "dryRun": False,
+                            "executionMode": eff_mode,
+                            "failedStep": idx,
+                            "error_code": "ASSERTION_FAILED",
+                            "error": lane_error,
+                            "riskProfile": risk_profile,
+                            "dispatchSummary": _dispatch_summary(),
+                            "capturedVars": captured_vars,
+                            "shadowPreviews": shadow_previews,
+                            "toolResults": tool_results,
+                            "assertionResults": assertion_results,
+                            "finalReadback": final_readback,
+                            "stepResults": step_results,
+                        }
+                    continue
+
             lane_ok = True
             lane_final_state = "paused_for_human" if paused_for_human else "done"
         finally:
@@ -2862,6 +3715,8 @@ class AppUseStudio:
 
         sg_summary = self.state_graph.summary()
         dispatch_summary = _dispatch_summary()
+        all_assertions_ok = all(bool(a.get("passed", True)) for a in assertion_results) if assertion_results else True
+        evidence_level = "locate_ok" if dry_run else ("shadow_ok" if shadow_mode else "effect_ok")
         run_doc = {
             "ok": True,
             "runId": run_id,
@@ -2870,10 +3725,19 @@ class AppUseStudio:
             "targetApp": tapp,
             "riskProfile": risk_profile,
             "dispatchSummary": dispatch_summary,
+            "executionMode": eff_mode,
+            "evidenceLevel": evidence_level,
             "dryRun": bool(dry_run),
+            "shadowMode": bool(shadow_mode),
             "pausedForHuman": paused_for_human,
+            "pausedReason": paused_reason,
             "params": merged_params,
             "capturedVars": captured_vars,
+            "toolResults": tool_results,
+            "shadowPreviews": shadow_previews,
+            "assertionResults": assertion_results,
+            "allAssertionsPassed": all_assertions_ok,
+            "provenance": provenance,
             "healingEvents": healing_events,
             "workflowPatched": workflow_patched,
             "hidLeaseWaitMs": round(hid_lease_wait_ms, 2),

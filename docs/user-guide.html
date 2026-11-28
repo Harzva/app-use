@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
-  <title>WeChat Bot 使用者操作手册 — v3.0.0</title>
+  <title>WeChat Bot 使用者操作手册 — v3.2.0</title>
   <style>
     :root {
       --bg-light: #ffffff;
@@ -1175,11 +1175,11 @@
     <div class="topbar-inner">
       <div class="brand-group">
         <a class="brand" href="#top">WeChat Bot 使用者操作手册</a>
-        <span class="version-pill">v3.0.0 零配置版</span>
+        <span class="version-pill">v3.2.0 对话建流程版</span>
       </div>
       <div class="topbar-actions">
         <a class="btn" href="./index.html">返回项目首页</a>
-        <a class="btn btn-primary" href="https://github.com/Harzva/app-use/releases/tag/v3.0.0" target="_blank" rel="noopener">⬇️ 下载 macOS 安装包 v3.0.0</a>
+        <a class="btn btn-primary" href="https://github.com/Harzva/app-use/releases/tag/v3.2.0" target="_blank" rel="noopener">⬇️ 下载 macOS 安装包 v3.2.0</a>
       </div>
     </div>
   </header>
@@ -1196,12 +1196,13 @@
         <a href="#ch6">6. 给 AI 回复打分与持续优化</a>
         <a href="#ch7">7. 从影子辅助切换到一键托管</a>
         <a href="#ch8">8. 本地隐私与 10 大常见问题</a>
+        <a href="#ch9">9. AI 对话建流程与改流程</a>
       </nav>
     </aside>
 
     <main class="content">
       <details class="mobile-toc">
-        <summary>📑 目录导航（点击展开全 8 章）</summary>
+        <summary>📑 目录导航（点击展开全 9 章）</summary>
         <ol class="mobile-toc-list">
           <li><a href="#ch1">3 分钟安装软件与开启 2 项 macOS 权限</a></li>
           <li><a href="#ch2">首次打开：4 步初始化你的专属销售助手</a></li>
@@ -1211,6 +1212,7 @@
           <li><a href="#ch6">给 AI 回复打分与持续优化</a></li>
           <li><a href="#ch7">从「影子辅助模式」平滑切换到「好友一键托管」</a></li>
           <li><a href="#ch8">数据全本地隐私说明 &amp; 10 大常见问题快速排查</a></li>
+          <li><a href="#ch9">AI 对话建流程与一句话改流程（不用写代码扩展飞书等新软件）</a></li>
         </ol>
       </details>
 
@@ -2192,12 +2194,187 @@
           </details>
         </section>
       </section>
+
+      <section id="ch9" class="chapter" tabindex="-1">
+        <h2>9. AI 对话建流程与一句话改流程（不用写代码扩展飞书/钉钉/企微等新软件）</h2>
+        <p class="chapter-lead">遇到新软件或新获客链路（例如<strong>飞书 / 钉钉 / 企业微信 / 抖音 / 小红书私信 → 提取微信号 → 自报家门加微信并打上对应来源备注 → 写入后端 CRM 档案</strong>）时，无需等待开发人员改代码，也不用一次想清所有步骤——在工作台 <strong>「App-Use 流程工厂 → 🧠 AI 场景自建与自动调试工坊」</strong> 中，像聊天一样就能把流程聊出来、自动调试好，之后还能用一句话随时微调。</p>
+
+        <h3>9.1 对话式自建工作流（像聊天一样理清需求）</h3>
+        <div class="step-card">
+          <div class="step-row">
+            <div class="step-label">你要做什么</div>
+            <div class="step-body">先说一个模糊想法，让 AI 通过 1–3 个简单的选择题帮你把来源软件、客户备注和确认门禁理清，再自动生成并安全试跑。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">点哪里</div>
+            <div class="step-body">
+              <ol>
+                <li>进入工作台顶部 <strong>「App-Use 流程工厂 → 💬 对话式自建工作流（像聊天一样理清需求）」</strong>。</li>
+                <li>输入模糊需求（例如 <code>帮我搞个飞书同步</code> 或 <code>帮我把钉钉客户提取微信号加微信</code>）并点击 <strong>「发送」</strong>（也可直接点开场推荐按钮）。</li>
+                <li>直接点击 AI 发来的推荐选项按钮（或打字回答，例如 <code>备注用钉钉引流-，需要人工确认 + 发自报家门话术（推荐）</code>）。</li>
+                <li>信息齐备后，点击亮起的 <strong>「✅ 确认并自动调试」</strong> 按钮；若需单句直出或切换实机调试，可展开下方 <strong>「⚡ 高级直出与验证参数」</strong>。</li>
+              </ol>
+            </div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">屏幕会看到什么</div>
+            <div class="step-body">系统自动生成操作边界与独立验收标准（拒绝“输入即成功”的自证），并在默认的 <strong>Shadow 安全影子调试模式</strong>下真实读取界面、校验抽取和话术，同时<strong>自动拦截一切高风险外部加好友/发消息动作</strong>。右侧时间线会直观呈现结构化 <strong>Shadow 预览卡片</strong>（拟加微信号、备注、话术、CRM 标签）以及可点击放大的<strong>高清界面截图存证</strong>。</div>
+          </div>
+          <div class="step-row step-row-done">
+            <div class="step-label">✅ 完成标志</div>
+            <div class="step-body">状态徽章变为「🛡️ 影子调试通过」或「✅ 已实机验证可复用」，流程自动进入已保存列表并可一键导出为便携 Skill。</div>
+          </div>
+        </div>
+
+        <figure class="guide-shot">
+          <button type="button" class="shot-trigger" data-lightbox-src="./assets/user-guide/11-workflow-chat-studio.png" data-lightbox-title="图 11 · 对话式自建工作流与 Shadow 预览卡片" aria-label="放大查看图 11：对话式自建工作流与 Shadow 预览卡片">
+            <img src="./assets/user-guide/11-workflow-chat-studio.png" alt="AI 场景自建与自动调试工坊界面，展示对话式自建工作流、方案边界与安全体检 100 分，以及右侧逐轮自调试 Shadow 预览卡片" width="1360" height="880" loading="lazy" decoding="async" />
+            <span class="shot-zoom-pill" aria-hidden="true">🔍 点击放大查看</span>
+          </button>
+          <figcaption class="shot-caption">
+            <div class="shot-caption-head">
+              <span class="shot-caption-title">图 11 · 对话式自建工作流与 Shadow 预览卡片</span>
+              <button type="button" class="shot-zoom-link" data-lightbox-trigger aria-label="放大查看图 11：对话式自建工作流与 Shadow 预览卡片">🔍 点击放大查看</button>
+            </div>
+            <ul class="shot-callouts">
+              <li><span class="callout-num">①</span><span><strong>对话式自建工作流区</strong>：像聊天一样提出跨软件需求，通过选择题确认软件链路（如钉钉 → 微信）、备注前缀与外发人工确认门禁后，即可一键生成并试跑。</span></li>
+              <li><span class="callout-num">②</span><span><strong>方案边界、安全门禁与验收标准</strong>：自动列出跨软件护栏规则、100 分安全体检结果，以及独立于输入内容的建档核对项。</span></li>
+              <li><span class="callout-num">③</span><span><strong>逐轮自调试与 Shadow 预览卡片</strong>：在影子调试模式下安全拦截外发加好友动作，直观展示人工确认门禁、微信加好友打招呼预览、客户建档与记忆预览卡片。</span></li>
+            </ul>
+          </figcaption>
+        </figure>
+
+        <h3>9.2 一句话改当前流程（自动回归验证）</h3>
+        <div class="step-card">
+          <div class="step-row">
+            <div class="step-label">你要做什么</div>
+            <div class="step-body">流程建好后，想改备注前缀、加老客户跳过判断、给 CRM 加标签或改阶段、改打招呼话术、重命名流程或退回上一版，不用推倒重来。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">点哪里</div>
+            <div class="step-body">在工坊下方的 <strong>「✏️ 一句话改当前流程（自动回归验证）」</strong> 右侧下拉框切换要改的流程，再输入修改要求（或点快捷标签：<strong>改备注前缀</strong>、<strong>加老客户跳过判断</strong>、<strong>给CRM加标签</strong>、<strong>改打招呼话术</strong>、<strong>加人工确认门禁</strong>），点击 <strong>「✏️ 一句话修改并回归验证」</strong>。</div>
+          </div>
+          <div class="step-row">
+            <div class="step-label">常用改法示例</div>
+            <div class="step-body">
+              <ul>
+                <li>改备注前缀：<code>把备注前缀改成 飞书大客户-</code></li>
+                <li>加条件分支：<code>如果是老客户就跳过，不重复加好友</code> / <code>第3步之后加一个判断，如果微信号为空就跳过</code></li>
+                <li>给 CRM 加标签 / 改阶段：<code>给CRM加标签 高意向客户</code> / <code>把CRM阶段改成 深入沟通</code></li>
+                <li>改打招呼话术 / 重命名：<code>把打招呼语改成 你好呀，我是智拓巨浪的安晓心，这边加你微信发方案～</code> / <code>把当前流程重命名为 钉钉VIP获客</code></li>
+                <li>加门禁 / 改算例 / 撤销：<code>在发送或加好友前加一步人工确认门禁</code> / <code>把计算表达式改成 25*4 并把断言改成 100</code> / <code>撤销上次修改</code></li>
+              </ul>
+            </div>
+          </div>
+          <div class="step-row step-row-done">
+            <div class="step-label">✅ 完成标志</div>
+            <div class="step-body">界面展示版本升级（如 <code>v1 → v2</code>）、改动步骤明细与安全体检徽章，并自动完成回归验证；点改动条上的 <strong>「↩️ 撤销本次修改（回滚到 vN）」</strong> 即可一键恢复。若有人试图删除最后的验收校验或强制门禁，系统会自动拦截保护。</div>
+          </div>
+        </div>
+
+        <figure class="guide-shot">
+          <button type="button" class="shot-trigger" data-lightbox-src="./assets/user-guide/12-workflow-chat-edit-and-steps.png" data-lightbox-title="图 12 · 一句话改流程、版本对比撤销与中文步骤卡片" aria-label="放大查看图 12：一句话改流程、版本对比撤销与中文步骤卡片">
+            <img src="./assets/user-guide/12-workflow-chat-edit-and-steps.png" alt="一句话改当前流程工作区，展示快捷标签与版本对比撤销条，以及下方全中文可执行步骤卡片列表" width="1360" height="880" loading="lazy" decoding="async" />
+            <span class="shot-zoom-pill" aria-hidden="true">🔍 点击放大查看</span>
+          </button>
+          <figcaption class="shot-caption">
+            <div class="shot-caption-head">
+              <span class="shot-caption-title">图 12 · 一句话改流程、版本对比撤销与中文步骤卡片</span>
+              <button type="button" class="shot-zoom-link" data-lightbox-trigger aria-label="放大查看图 12：一句话改流程、版本对比撤销与中文步骤卡片">🔍 点击放大查看</button>
+            </div>
+            <ul class="shot-callouts">
+              <li><span class="callout-num">①</span><span><strong>一句话改当前流程区</strong>：右侧下拉切换目标流程，点选快捷标签（改备注前缀、加老客户跳过判断、给客户建档加标签等）或输入一句话修改并自动回归验证。</span></li>
+              <li><span class="callout-num">②</span><span><strong>版本对比、改动明细与一键撤销条</strong>：展示版本升级（如 <code>v1 → v2</code>）、安全体检 100 分与回归结果，点击「↩️ 撤销本次修改（回滚到 v1）」即可多步连续回退。</span></li>
+              <li><span class="callout-num">③</span><span><strong>可执行中文步骤卡片列表</strong>：清晰呈现「切换应用」「✋ 人工确认」「内置动作」与「✅ 结果验收」等中文步骤卡片，随时演练、实机执行或导出复用。</span></li>
+            </ul>
+          </figcaption>
+        </figure>
+
+        <h3>9.3 在微信里直接发 <code>#建流程</code> / <code>#改流程</code> 遥控</h3>
+        <p>除了在电脑工作台操作，你也可以在已标记为 <strong>「🧪 测试好友」</strong> 的微信小号或 <strong>「文件传输助手」</strong> 里直接发送 <code>#建流程</code> / <code>#改流程</code> 指令遥控（支持连续多轮补充细节）：</p>
+        <div class="table-wrap">
+          <table class="cmd-table">
+            <thead>
+              <tr>
+                <th scope="col">你想做什么</th>
+                <th scope="col">直接复制并改写这句话发送</th>
+                <th scope="col">发送后系统会立刻做什么</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">微信里发起多轮对话建流程</th>
+                <td>
+                  <div class="cmd-list">
+                    <div class="cmd-chip">
+                      <code>#建流程 帮我搞个飞书同步</code>
+                      <button type="button" class="copy-chip-btn" data-copy-text="#建流程 帮我搞个飞书同步">复制</button>
+                    </div>
+                  </div>
+                </td>
+                <td>启动多轮建流程会话并记住上下文；缺少细节时返回简明问题，随后直接发 <code>#建流程 备注用飞书多轮-，发前需要我确认</code> 即可自动完成构建与影子调试。</td>
+              </tr>
+              <tr>
+                <th scope="row">清空重开当前 <code>#建流程</code> 草稿</th>
+                <td>
+                  <div class="cmd-list">
+                    <div class="cmd-chip">
+                      <code>#建流程 重置</code>
+                      <button type="button" class="copy-chip-btn" data-copy-text="#建流程 重置">复制</button>
+                    </div>
+                  </div>
+                </td>
+                <td>清空未完成的建流程草稿，方便重新发起一条新需求。</td>
+              </tr>
+              <tr>
+                <th scope="row">微信里一句话改备注或标签</th>
+                <td>
+                  <div class="cmd-list">
+                    <div class="cmd-chip">
+                      <code>#改流程 把备注前缀改成 飞书大客户-</code>
+                      <button type="button" class="copy-chip-btn" data-copy-text="#改流程 把备注前缀改成 飞书大客户-">复制</button>
+                    </div>
+                  </div>
+                </td>
+                <td>自动备份旧版本、更新当前流程并做安全体检与回归验证，回传新版本号和改动摘要。</td>
+              </tr>
+              <tr>
+                <th scope="row">微信里撤销刚才的修改</th>
+                <td>
+                  <div class="cmd-list">
+                    <div class="cmd-chip">
+                      <code>#改流程 撤销</code>
+                      <button type="button" class="copy-chip-btn" data-copy-text="#改流程 撤销">复制</button>
+                    </div>
+                  </div>
+                </td>
+                <td>一键撤销上一次改动并恢复历史版本。</td>
+              </tr>
+              <tr>
+                <th scope="row">微信里插入条件判断分支</th>
+                <td>
+                  <div class="cmd-list">
+                    <div class="cmd-chip">
+                      <code>#改流程 第3步之后加一个判断，如果微信号为空就跳过</code>
+                      <button type="button" class="copy-chip-btn" data-copy-text="#改流程 第3步之后加一个判断，如果微信号为空就跳过">复制</button>
+                    </div>
+                  </div>
+                </td>
+                <td>在指定步骤后插入安全分支判断，保存新版并复跑验证。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout callout-warn">
+          <p><strong>身份门禁保护：</strong>与所有 <code>#</code> 指令一致，只有你自己（管理员 / 文件传输助手 / 已标记的「🧪 测试好友」）发出的 <code>#建流程</code> 和 <code>#改流程</code> 才会生效；外部普通客户发来的 <code>#建流程</code> / <code>#改流程</code> 会被严格拦截忽略，绝不会篡改你的自动化流程。</p>
+        </div>
+      </section>
     </main>
   </div>
 
   <footer>
-    <span>WeChat Bot 使用者操作手册 · v3.0.0 零配置版</span>
-    <span><a href="./index.html">返回项目首页</a> · <a href="https://github.com/Harzva/app-use/releases/tag/v3.0.0" target="_blank" rel="noopener">下载 macOS 安装包 v3.0.0</a></span>
+    <span>WeChat Bot 使用者操作手册 · v3.2.0 对话建流程版</span>
+    <span><a href="./index.html">返回项目首页</a> · <a href="https://github.com/Harzva/app-use/releases/tag/v3.2.0" target="_blank" rel="noopener">下载 macOS 安装包 v3.2.0</a></span>
   </footer>
 
   <dialog id="shot-lightbox" class="shot-lightbox" closedby="any" aria-labelledby="lightbox-title">

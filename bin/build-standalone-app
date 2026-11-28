@@ -13,7 +13,7 @@ VISION_BIN="$ROOT_DIR/bin/wechat-vision-ax"
 BIN_OUT="$ROOT_DIR/bin/wechat-studio-app"
 mkdir -p "$ROOT_DIR/bin" "$ROOT_DIR/dist" "/Volumes/SanDisk/Builds"
 
-APP_VERSION="3.0.0"
+APP_VERSION="3.2.0"
 
 # 版本一致性自检：五处版本声明必须一致，漏改即中止构建（防 App/插件版本错位）
 for _vf in pyproject.toml plugin.manifest.json dsh.plugin.json market/wechat-rpa-control.plugin.json; do
@@ -26,7 +26,7 @@ for _vf in pyproject.toml plugin.manifest.json dsh.plugin.json market/wechat-rpa
     exit 1
   fi
 done
-APP_BUILD="3000"
+APP_BUILD="3200"
 
 swiftc -O "$ROOT_DIR/native/wechat_vision_ax.swift" \
   -framework AppKit \

@@ -1,0 +1,24 @@
+# Implementation & Verification Tasks
+
+- [x] **0. Research & Architecture Review**
+  - [x] Research industry equivalents (识流 Thiflow, 影刀 RPA + AI Power + 魔法指令, 实在Agent, UiPath Autopilot/Maestro, Stagehand)
+  - [x] Run Omini `proposer` (`31c620da-abfc-43e7-9b81-9778b814fab1`) & `critic` (`359201c8-d0b5-4674-afa0-a7a706b70306`) reviews and capture OpenSpec artifacts
+- [x] **1. Core Meta-Algo & AppUseStudio DSL Upgrades**
+  - [x] Update `app_use_meta_algo.py` (`step_action_signature`, `optimize_and_enrich_steps`, `score_workflow_readiness`, `classify_step_failure`)
+  - [x] Fix `cli:omini` invocation in `app_use_studio.py` (`--role proposer --id <UUID>` + JSON unwrapping)
+  - [x] Implement 6 new DSL primitives (`switch_app`, `llm_extract`, `llm_draft`, `branch_if`, `builtin_tool`, `assert_check`), provenance ledger, idempotency ledger, and `shadow` mode in `AppUseStudio.run_workflow`
+- [x] **2. Self-Authoring & Self-Debugging Agent (`workflow_agent.py`)**
+  - [x] Implement `detect_apps_from_goal` & `SCENARIO_BLUEPRINTS` (including `feishu_to_wechat_crm`, `feishu_digest_to_doc`, `calc_to_textedit_report`, `generic_unseen_app`)
+  - [x] Implement `WorkflowSpecLinter` (`SELF_CERTIFIED_ASSERTION`, `CYCLE_DETECTED`, `UNWHITELISTED_TOOL`, `MISSING_OUTBOUND_GATE`, `auto_harden`)
+  - [x] Implement `WorkflowAuthorDebugger` (`propose_spec`, `author_and_debug`, `debug_existing_workflow`, root-cause patchers, fingerprint & AUTH_GATE circuit breakers, session persistence)
+- [x] **3. Engine, MCP, HTTP, CLI & Web Console Integration**
+  - [x] Wire methods in `engine.py`
+  - [x] Register MCP tools & `/api/workflow-agent/*` HTTP endpoints in `mcp_server.py`
+  - [x] Add `workflow-agent` subcommand in `cli.py`
+  - [x] Add zero-jargon "AI 场景自建与自动调试工坊" panel & status badges in `web_console.py` (no `window.confirm`)
+- [x] **4. Automated & Real Live Verification**
+  - [x] Add comprehensive tests in `tests/test_workflow_agent_v31.py` & verify full `tests/` regression discovery passes cleanly
+  - [x] Rebuild & install `/Users/mac/Applications/WeChat Bot.app`
+  - [x] Live Verification 1: Feishu -> WeChat -> CRM shadow `author-debug` + `SKILL.md` export (`shadow_verified`)
+  - [x] Live Verification 2: Real macOS Calculator intentional-bug 3-round live `debug` -> self-patch (`v1 -> v2 -> v3`) -> `verified` + visual screenshot inspection
+  - [x] Update user guide docs (`docs/USER_GUIDE.md`, `docs/user-guide.html`) & run read-only `omini verifier` audit

@@ -37,7 +37,7 @@ _SCORE_WEIGHTS: Dict[str, float] = {
 
 _HASHTAG_PREFIX_RE = re.compile(r"^\s*[#＃]")
 _LEAKED_DIRECTIVE_LINE_RE = re.compile(
-    r"(?:^|\n)\s*[#＃]\s*(?:评分|打分|话术|记住|词汇|术语|接管|停|停止|暂停|恢复|继续|[1-5]\s*[分星]|\s+\S)"
+    r"(?:^|\n)\s*[#＃]\s*(?:评分|打分|话术|记住|词汇|术语|接管|停|停止|暂停|恢复|继续|建流程|新建流程|改流程|修改流程|[1-5]\s*[分星]|\s+\S)"
 )
 
 _RATE_KEYWORD_RE = re.compile(r"^(?:评分|打分)\s*[:：]?\s*([1-5]|\d+)\s*[分星]?\s*(.*)$")
@@ -45,6 +45,8 @@ _RATE_COMPACT_RE = re.compile(r"^([1-5])\s*[分星]\s*(.*)$")
 _SCRIPT_RE = re.compile(r"^(?:话术|记住)\s*[:：]?\s*(.+)$", re.DOTALL)
 _TERM_RE = re.compile(r"^(?:词汇|术语)\s*[:：]?\s*(.+)$", re.DOTALL)
 _TAKEOVER_RE = re.compile(r"^(接管|人工接管|人工|停|停止|暂停|恢复托管|恢复|继续)(?:\s+(.*))?$")
+_WORKFLOW_CREATE_RE = re.compile(r"^(?:建流程|新建流程)\s*[:：]?\s*(.*)$", re.DOTALL)
+_WORKFLOW_EDIT_RE = re.compile(r"^(?:改流程|修改流程)\s*[:：]?\s*(.*)$", re.DOTALL)
 _ARROW_SPLIT_RE = re.compile(r"\s*(?:=>|＝＞|->|→)\s*")
 
 _FORBIDDEN_CLAUSE_RE = re.compile(
@@ -318,7 +320,30 @@ def parse_hashtag_directive(text: str) -> Dict[str, Any]:
             "rawText": raw,
         }
 
-    # 5. Default fallback: critique_rewrite
+    # 5. Workflow create / edit directives: #建流程 / #新建流程, #改流程 / #修改流程
+    wf_create_match = _WORKFLOW_CREATE_RE.match(body)
+    if wf_create_match:
+        goal = wf_create_match.group(1).strip()
+        return {
+            "ok": True,
+            "isDirective": True,
+            "intent": "workflow_create",
+            "goal": goal,
+            "rawText": raw,
+        }
+
+    wf_edit_match = _WORKFLOW_EDIT_RE.match(body)
+    if wf_edit_match:
+        instruction = wf_edit_match.group(1).strip()
+        return {
+            "ok": True,
+            "isDirective": True,
+            "intent": "workflow_edit",
+            "instruction": instruction,
+            "rawText": raw,
+        }
+
+    # 6. Default fallback: critique_rewrite
     return {
         "ok": True,
         "isDirective": True,
@@ -1081,6 +1106,8 @@ class SupervisorEvalEngine:
         knowledge_store: Optional[Any] = None,
         reply_generator: Optional[Callable[..., Any]] = None,
         takeover_cb: Optional[Callable[..., Any]] = None,
+        workflow_create_cb: Optional[Callable[..., Any]] = None,
+        workflow_edit_cb: Optional[Callable[..., Any]] = None,
     ) -> Dict[str, Any]:
         """Authorize sender, execute `#` directive, update constraints/KB/weights, and return reply."""
         norm_contact = _norm_contact(contact)
@@ -1170,6 +1197,44 @@ class SupervisorEvalEngine:
                 "definition": definition,
                 "savedEntryId": saved_id,
                 "ackMessage": f"已保存专有词汇「{term}」到词汇表",
+                "parsed": parsed,
+            }
+
+        if intent == "workflow_create":
+            goal = str(parsed.get("goal") or "").strip()
+            cb_res: Dict[str, Any] = {}
+            if workflow_create_cb is not None:
+                cb_res = dict(workflow_create_cb(norm_contact, goal) or {})
+            ack = str(cb_res.get("ackMessage") or cb_res.get("assistantReply") or "").strip()
+            if not ack:
+                ack = f"已收到建流程需求：{goal or '请补充具体应用和目标'}"
+            return {
+                "ok": bool(cb_res.get("ok", True)) if cb_res else True,
+                "handled": True,
+                "intent": intent,
+                "contact": norm_contact,
+                "goal": goal,
+                "workflowResult": cb_res,
+                "ackMessage": ack,
+                "parsed": parsed,
+            }
+
+        if intent == "workflow_edit":
+            instruction = str(parsed.get("instruction") or "").strip()
+            cb_res = {}
+            if workflow_edit_cb is not None:
+                cb_res = dict(workflow_edit_cb(norm_contact, instruction) or {})
+            ack = str(cb_res.get("ackMessage") or cb_res.get("error") or "").strip()
+            if not ack:
+                ack = f"已收到改流程指令：{instruction or '请补充具体修改内容'}"
+            return {
+                "ok": bool(cb_res.get("ok", True)) if cb_res else True,
+                "handled": True,
+                "intent": intent,
+                "contact": norm_contact,
+                "instruction": instruction,
+                "workflowResult": cb_res,
+                "ackMessage": ack,
                 "parsed": parsed,
             }
 

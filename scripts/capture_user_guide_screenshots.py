@@ -12,6 +12,7 @@ Strict privacy isolation:
 
 from __future__ import annotations
 
+import argparse
 import base64
 import json
 import os
@@ -280,6 +281,14 @@ def _create_isolated_engine(tmp_root: Path) -> Tuple[Any, Dict[str, Any]]:
     os.environ["WECHAT_PLUGIN_ARTICLE_EXPORTS"] = str(tmp_root / "exports" / "articles")
 
     from wechat_control.engine import WeChatControlEngine
+    import wechat_control.app_use_studio as aus_mod
+
+    def _isolated_artifact_dir(eng: Any, subdir: str) -> Path:
+        target = snapshots_dir / subdir
+        target.mkdir(parents=True, exist_ok=True)
+        return target
+
+    aus_mod._sandisk_artifact_dir = _isolated_artifact_dir  # type: ignore[assignment]
 
     _seed_demo_histories_and_reports(reports_dir, avatars_dir, archives_dir)
 
@@ -327,6 +336,66 @@ def _create_isolated_engine(tmp_root: Path) -> Tuple[Any, Dict[str, Any]]:
             return {"ok": True, "docked": True, "mode": "verify"}
         if cmd in ("list-windows", "app-windows"):
             return {"ok": True, "windows": []}
+        if cmd == "list-mac-apps":
+            return {
+                "ok": True,
+                "frontmostBundleID": "com.tencent.xinWeChat",
+                "frontmostName": "WeChat",
+                "apps": [
+                    {
+                        "bundleID": "com.alibaba.DingTalkMac",
+                        "name": "DingTalk",
+                        "appPath": "/Applications/DingTalk.app",
+                        "running": True,
+                    },
+                    {
+                        "bundleID": "com.tencent.xinWeChat",
+                        "name": "WeChat",
+                        "appPath": "/Applications/WeChat.app",
+                        "running": True,
+                    },
+                    {
+                        "bundleID": "com.bytedance.macos.feishu",
+                        "name": "Feishu",
+                        "appPath": "/Applications/Feishu.app",
+                        "running": True,
+                    },
+                    {
+                        "bundleID": "com.tencent.WeWorkMac",
+                        "name": "WeCom",
+                        "appPath": "/Applications/WeCom.app",
+                        "running": False,
+                    },
+                    {
+                        "bundleID": "com.apple.TextEdit",
+                        "name": "TextEdit",
+                        "appPath": "/System/Applications/TextEdit.app",
+                        "running": True,
+                    },
+                    {
+                        "bundleID": "com.apple.calculator",
+                        "name": "Calculator",
+                        "appPath": "/System/Applications/Calculator.app",
+                        "running": False,
+                    },
+                ],
+            }
+        if cmd == "app-use-inspect":
+            out_idx = args.index("--out") + 1 if "--out" in args else -1
+            out_path_str = ""
+            if out_idx != -1 and out_idx < len(args):
+                out_p = Path(args[out_idx])
+                _write_demo_avatar(out_p, (22, 119, 255), (16, 185, 129))
+                out_path_str = str(out_p)
+            return {
+                "ok": True,
+                "window": {"bounds": {"x": 80, "y": 80, "width": 820, "height": 580}},
+                "axControls": [],
+                "axTexts": ["周先生：你好，麻烦加我微信号 xinghe_vip88，想约周六设计师免费上门量尺"],
+                "ocrPreview": "周先生：你好，麻烦加我微信号 xinghe_vip88，想约周六设计师免费上门量尺",
+                "ocrElements": [{"text": "xinghe_vip88", "screenCenter": {"x": 320, "y": 240}}],
+                "savedPath": out_path_str,
+            }
         return {"ok": True}
 
     engine._run_native = _mock_run_native  # type: ignore[method-assign]
@@ -832,7 +901,33 @@ def _freeze_background_polls(cdp: CdpClient) -> None:
     )
 
 
-def main() -> int:
+def _parse_only_arg(raw: str) -> set[int]:
+    if not raw or not raw.strip():
+        return set(range(1, 13))
+    out: set[int] = set()
+    for tok in raw.replace(" ", ",").split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        if "-" in tok:
+            a, b = tok.split("-", 1)
+            for n in range(int(a), int(b) + 1):
+                out.add(n)
+        else:
+            out.add(int(tok))
+    return out
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description="Capture high-DPI annotated user-guide screenshots.")
+    parser.add_argument(
+        "--only",
+        default="",
+        help="Comma-separated screenshot indices to capture (e.g. '11,12'). Default: all 1..12.",
+    )
+    args = parser.parse_args(argv)
+    selected = _parse_only_arg(args.only)
+
     if not CHROME_BIN.is_file():
         raise FileNotFoundError(f"Google Chrome not found at {CHROME_BIN}")
     if not NODE_BIN.is_file():
@@ -889,297 +984,564 @@ def main() -> int:
         # ------------------------------------------------------------------
         # 1) 01-permissions-modal.png
         # ------------------------------------------------------------------
-        demo_state["permissions_granted"] = False
-        cdp.navigate(base_url)
-        _wait_until(
-            cdp,
-            'document.getElementById("permOverlay")?.classList.contains("visible") && document.querySelectorAll("#permModalItems .perm-item").length >= 1',
-            desc="permissions modal visible",
-        )
-        _freeze_background_polls(cdp)
-        time.sleep(0.25)
-        _capture_annotated(
-            cdp,
-            "01-permissions-modal.png",
-            [
-                {"num": 1, "selector": "#permModalOpenSettings", "pos": "tl", "pad": 4},
-                {"num": 2, "selector": "#permOverlay .perm-modal-actions .btn-outline", "pos": "tr", "pad": 4},
-            ],
-        )
+        if 1 in selected:
+            demo_state["permissions_granted"] = False
+            cdp.navigate(base_url)
+            _wait_until(
+                cdp,
+                'document.getElementById("permOverlay")?.classList.contains("visible") && document.querySelectorAll("#permModalItems .perm-item").length >= 1',
+                desc="permissions modal visible",
+            )
+            _freeze_background_polls(cdp)
+            time.sleep(0.25)
+            _capture_annotated(
+                cdp,
+                "01-permissions-modal.png",
+                [
+                    {"num": 1, "selector": "#permModalOpenSettings", "pos": "tl", "pad": 4},
+                    {"num": 2, "selector": "#permOverlay .perm-modal-actions .btn-outline", "pos": "tr", "pad": 4},
+                ],
+            )
 
-        # ------------------------------------------------------------------
-        # 2) 02-wizard-step1-identity.png
-        # ------------------------------------------------------------------
-        demo_state["permissions_granted"] = True
-        cdp.navigate(base_url)
-        _wait_until(cdp, 'typeof STATE === "object" && STATE !== null', desc="STATE loaded")
-        _freeze_background_polls(cdp)
-        cdp.eval_js(
-            """
-            document.documentElement.setAttribute("data-theme", "light");
-            await openOnboardingWizard(1);
-            document.getElementById("wizOwnerName").value = "陈经理";
-            document.getElementById("wizBusinessName").value = "星河定制家居";
-            document.getElementById("wizOwnerAliases").value = "小陈, 陈顾问";
-            document.getElementById("wizProductSummary").value = "全屋环保实木定制、免费上门量尺设计与投影面积透明计价";
-            document.getElementById("wizIndustryPack").value = "general_sales";
-            document.getElementById("wizTestContacts").value = "测试小号";
-            """
-        )
-        time.sleep(0.25)
-        _capture_annotated(
-            cdp,
-            "02-wizard-step1-identity.png",
-            [
-                {"num": 1, "selectors": ["#wizardStepPanel1 > div:nth-child(1)", "#wizardStepPanel1 > div:nth-child(4)"], "pos": "tr", "pad": 6},
-                {"num": 2, "selector": "#wizSaveStep1Btn", "pos": "left", "pad": 4},
-            ],
-        )
+        need_wizard_state = any(n in selected for n in range(2, 13))
+        if need_wizard_state:
+            demo_state["permissions_granted"] = True
+            cdp.navigate(base_url)
+            _wait_until(cdp, 'typeof STATE === "object" && STATE !== null', desc="STATE loaded")
+            _freeze_background_polls(cdp)
 
-        # ------------------------------------------------------------------
-        # 3) 03-wizard-step2-discover.png
-        # ------------------------------------------------------------------
-        cdp.eval_js("await wizardSubmitStep1();")
-        _wait_until(
-            cdp,
-            '!document.getElementById("wizardStepPanel2").hidden && document.querySelectorAll(".wiz-sess-cb").length >= 3 && document.querySelectorAll(".wiz-arch-cb").length >= 1',
-            desc="wizard step 2 sessions & archives",
-        )
-        cdp.eval_js(
-            """
-            document.getElementById("wizProductDocText").value = "主推ENF级实木多层板全屋衣柜定制，支持免费上门量尺出3D效果图，采用投影面积透明计价无隐形增项。";
-            """,
-            await_promise=False,
-        )
-        time.sleep(0.25)
-        _capture_annotated(
-            cdp,
-            "03-wizard-step2-discover.png",
-            [
-                {"num": 1, "selector": "#wizDiscoveredSessions", "pos": "tr", "pad": 4},
-                {"num": 2, "selector": "#wizRunTrainBtn", "pos": "tr", "pad": 4},
-            ],
-        )
-
-        # ------------------------------------------------------------------
-        # 4) 04-wizard-step3-review.png
-        # ------------------------------------------------------------------
-        cdp.eval_js("await wizardRunTraining();")
-        _wait_until(
-            cdp,
-            '!document.getElementById("wizardStepPanel3").hidden && document.querySelectorAll("#wizDraftsList .wiz-draft-cb").length >= 1',
-            desc="wizard step 3 drafts",
-        )
-        time.sleep(0.25)
-        _capture_annotated(
-            cdp,
-            "04-wizard-step3-review.png",
-            [
-                {"num": 1, "selector": "#wizDraftsList", "pos": "tr", "pad": 4},
-                {"num": 2, "selector": "#wizardStepPanel3 .btn-solid", "pos": "left", "pad": 4},
-            ],
-        )
-
-        # ------------------------------------------------------------------
-        # 5) 05-wizard-step4-simulate.png
-        # ------------------------------------------------------------------
-        cdp.eval_js("await wizardApproveDraftsAndNext();")
-        _wait_until(cdp, '!document.getElementById("wizardStepPanel4").hidden', desc="wizard step 4")
-        cdp.eval_js(
-            """
-            document.querySelector("#wizSimChatLog .sparring-msg.sys")?.remove();
-            const wizModal = document.querySelector("#onboardingWizardOverlay .perm-modal");
-            if (wizModal) { wizModal.style.maxHeight = "92vh"; }
-            const simLog = document.getElementById("wizSimChatLog");
-            if (simLog) { simLog.style.maxHeight = "360px"; simLog.style.minHeight = "280px"; }
-            const sendBtn = document.querySelector('#wizardStepPanel4 button[onclick*="wizardSendSimTurn"]');
-            if (sendBtn) { sendBtn.style.whiteSpace = "nowrap"; sendBtn.style.flexShrink = "0"; }
-            """,
-            await_promise=False,
-        )
-        for q in (
-            "你们全屋定制用的什么板材，环保达标吗？",
-            "衣柜大概怎么收费，会有隐形增项吗？",
-            "想约设计师上门量尺看看方案，怎么安排？",
-        ):
+        need_wizard_ui = any(n in selected for n in (2, 3, 4, 5))
+        if need_wizard_ui:
+            # ------------------------------------------------------------------
+            # 2) 02-wizard-step1-identity.png
+            # ------------------------------------------------------------------
             cdp.eval_js(
-                f"""
-                document.getElementById("wizSimInput").value = {json.dumps(q, ensure_ascii=False)};
-                await wizardSendSimTurn();
+                """
+                document.documentElement.setAttribute("data-theme", "light");
+                await openOnboardingWizard(1);
+                document.getElementById("wizOwnerName").value = "陈经理";
+                document.getElementById("wizBusinessName").value = "星河定制家居";
+                document.getElementById("wizOwnerAliases").value = "小陈, 陈顾问";
+                document.getElementById("wizProductSummary").value = "全屋环保实木定制、免费上门量尺设计与投影面积透明计价";
+                document.getElementById("wizIndustryPack").value = "general_sales";
+                document.getElementById("wizTestContacts").value = "测试小号";
                 """
             )
-            time.sleep(0.15)
-        time.sleep(0.25)
-        _capture_annotated(
-            cdp,
-            "05-wizard-step4-simulate.png",
-            [
-                {"num": 1, "selector": "#wizSimChatLog", "pos": "tr", "pad": 4},
-                {"num": 2, "selector": "#wizardStepPanel4 .btn-solid:last-child", "pos": "left", "pad": 4},
-            ],
-        )
+            time.sleep(0.25)
+            if 2 in selected:
+                _capture_annotated(
+                    cdp,
+                    "02-wizard-step1-identity.png",
+                    [
+                        {"num": 1, "selectors": ["#wizardStepPanel1 > div:nth-child(1)", "#wizardStepPanel1 > div:nth-child(4)"], "pos": "tr", "pad": 6},
+                        {"num": 2, "selector": "#wizSaveStep1Btn", "pos": "left", "pad": 4},
+                    ],
+                )
 
-        # Close wizard & seed rich sparring / ratings / regression data for tabs 06..10
-        cdp.eval_js("hideOnboardingWizard();", await_promise=False)
-        _seed_post_wizard_sparring_and_eval(engine)
-        cdp.eval_js("await loadOverview(false);")
-        _freeze_background_polls(cdp)
-        time.sleep(0.3)
+            # ------------------------------------------------------------------
+            # 3) 03-wizard-step2-discover.png
+            # ------------------------------------------------------------------
+            cdp.eval_js("await wizardSubmitStep1();")
+            _wait_until(
+                cdp,
+                '!document.getElementById("wizardStepPanel2").hidden && document.querySelectorAll(".wiz-sess-cb").length >= 3 && document.querySelectorAll(".wiz-arch-cb").length >= 1',
+                desc="wizard step 2 sessions & archives",
+            )
+            cdp.eval_js(
+                """
+                document.getElementById("wizProductDocText").value = "主推ENF级实木多层板全屋衣柜定制，支持免费上门量尺出3D效果图，采用投影面积透明计价无隐形增项。";
+                """,
+                await_promise=False,
+            )
+            time.sleep(0.25)
+            if 3 in selected:
+                _capture_annotated(
+                    cdp,
+                    "03-wizard-step2-discover.png",
+                    [
+                        {"num": 1, "selector": "#wizDiscoveredSessions", "pos": "tr", "pad": 4},
+                        {"num": 2, "selector": "#wizRunTrainBtn", "pos": "tr", "pad": 4},
+                    ],
+                )
+
+            # ------------------------------------------------------------------
+            # 4) 04-wizard-step3-review.png
+            # ------------------------------------------------------------------
+            if any(n in selected for n in (4, 5)):
+                cdp.eval_js("await wizardRunTraining();")
+                _wait_until(
+                    cdp,
+                    '!document.getElementById("wizardStepPanel3").hidden && document.querySelectorAll("#wizDraftsList .wiz-draft-cb").length >= 1',
+                    desc="wizard step 3 drafts",
+                )
+                time.sleep(0.25)
+                if 4 in selected:
+                    _capture_annotated(
+                        cdp,
+                        "04-wizard-step3-review.png",
+                        [
+                            {"num": 1, "selector": "#wizDraftsList", "pos": "tr", "pad": 4},
+                            {"num": 2, "selector": "#wizardStepPanel3 .btn-solid", "pos": "left", "pad": 4},
+                        ],
+                    )
+
+            # ------------------------------------------------------------------
+            # 5) 05-wizard-step4-simulate.png
+            # ------------------------------------------------------------------
+            if 5 in selected:
+                cdp.eval_js("await wizardApproveDraftsAndNext();")
+                _wait_until(cdp, '!document.getElementById("wizardStepPanel4").hidden', desc="wizard step 4")
+                cdp.eval_js(
+                    """
+                    document.querySelector("#wizSimChatLog .sparring-msg.sys")?.remove();
+                    const wizModal = document.querySelector("#onboardingWizardOverlay .perm-modal");
+                    if (wizModal) { wizModal.style.maxHeight = "92vh"; }
+                    const simLog = document.getElementById("wizSimChatLog");
+                    if (simLog) { simLog.style.maxHeight = "360px"; simLog.style.minHeight = "280px"; }
+                    const sendBtn = document.querySelector('#wizardStepPanel4 button[onclick*="wizardSendSimTurn"]');
+                    if (sendBtn) { sendBtn.style.whiteSpace = "nowrap"; sendBtn.style.flexShrink = "0"; }
+                    """,
+                    await_promise=False,
+                )
+                for q in (
+                    "你们全屋定制用的什么板材，环保达标吗？",
+                    "衣柜大概怎么收费，会有隐形增项吗？",
+                    "想约设计师上门量尺看看方案，怎么安排？",
+                ):
+                    cdp.eval_js(
+                        f"""
+                        document.getElementById("wizSimInput").value = {json.dumps(q, ensure_ascii=False)};
+                        await wizardSendSimTurn();
+                        """
+                    )
+                    time.sleep(0.15)
+                time.sleep(0.25)
+                _capture_annotated(
+                    cdp,
+                    "05-wizard-step4-simulate.png",
+                    [
+                        {"num": 1, "selector": "#wizSimChatLog", "pos": "tr", "pad": 4},
+                        {"num": 2, "selector": "#wizardStepPanel4 .btn-solid:last-child", "pos": "left", "pad": 4},
+                    ],
+                )
+
+            cdp.eval_js("hideOnboardingWizard();", await_promise=False)
+        elif any(n in selected for n in range(6, 13)):
+            engine.setup_tenant_onboarding(
+                owner_name="陈经理",
+                business_name="星河定制家居",
+                product_summary="全屋环保实木定制、免费上门量尺设计与投影面积透明计价",
+                industry_pack="general_sales",
+                owner_aliases=["小陈", "陈顾问"],
+                test_contacts=["测试小号"],
+            )
+
+        if any(n in selected for n in range(6, 11)):
+            # Seed rich sparring / ratings / regression data for tabs 06..10
+            _seed_post_wizard_sparring_and_eval(engine)
+            cdp.eval_js("await loadOverview(false);")
+            _freeze_background_polls(cdp)
+            time.sleep(0.3)
 
         # ------------------------------------------------------------------
         # 6) 06-contacts-test-friend.png
         # ------------------------------------------------------------------
-        cdp.eval_js(
-            """
-            switchTab("care");
-            window.scrollTo(0, 0);
-            """,
-            await_promise=False,
-        )
-        _wait_until(
-            cdp,
-            'document.getElementById("tab-care")?.classList.contains("active") && document.querySelectorAll("#contactsGrid .contact-card").length >= 3',
-            desc="contacts grid rendered",
-        )
-        time.sleep(0.25)
-        _capture_annotated(
-            cdp,
-            "06-contacts-test-friend.png",
-            [
-                {"num": 1, "selector": '#contactsGrid .contact-card:first-child .contact-actions button:nth-child(2)', "pos": "tl", "pad": 4},
-            ],
-        )
+        if 6 in selected:
+            cdp.eval_js(
+                """
+                switchTab("care");
+                window.scrollTo(0, 0);
+                """,
+                await_promise=False,
+            )
+            _wait_until(
+                cdp,
+                'document.getElementById("tab-care")?.classList.contains("active") && document.querySelectorAll("#contactsGrid .contact-card").length >= 3',
+                desc="contacts grid rendered",
+            )
+            time.sleep(0.25)
+            _capture_annotated(
+                cdp,
+                "06-contacts-test-friend.png",
+                [
+                    {"num": 1, "selector": '#contactsGrid .contact-card:first-child .contact-actions button:nth-child(2)', "pos": "tl", "pad": 4},
+                ],
+            )
 
         # ------------------------------------------------------------------
         # 7) 07-composer-hashtag-and-rating.png
         # ------------------------------------------------------------------
-        cdp.eval_js(
-            f"""
-            switchTab("monitor");
-            selectChatThread(encodeURIComponent("测试小号"), encodeURIComponent("三室两厅大概110平米，主要做主卧衣柜和儿童房书桌柜"), true);
-            await runReplyPreview();
-            selectDraftFeedbackStar(2);
-            const firstTag = document.querySelector('#draftQualityFeedbackBar .tag-chip[data-tag="缺少推进"]');
-            if (firstTag) toggleDraftFeedbackTag(firstTag, "缺少推进");
-            const sendBox = document.getElementById("sendText");
-            sendBox.value = "# 不能这样说，别一上来报底价，先问对方大概做多少平米";
-            onComposerTextInput();
-            const mainPane = document.querySelector(".chat-main-pane");
-            if (mainPane) mainPane.scrollTop = mainPane.scrollHeight;
-            document.getElementById("draftQualityFeedbackBar")?.scrollIntoView({{ block: "end" }});
-            """
-        )
-        _wait_until(
-            cdp,
-            '!document.getElementById("supervisorDirectiveBanner").hidden && !document.getElementById("draftQualityFeedbackBar").hidden',
-            desc="hashtag banner & draft rating bar visible",
-        )
-        time.sleep(0.3)
-        _capture_annotated(
-            cdp,
-            "07-composer-hashtag-and-rating.png",
-            [
-                {"num": 1, "selector": "#supervisorDirectiveBanner", "pos": "left", "pad": 4},
-                {"num": 2, "selector": "#draftQualityFeedbackBar", "pos": "left", "pad": 4},
-            ],
-        )
+        if 7 in selected:
+            cdp.eval_js(
+                f"""
+                switchTab("monitor");
+                selectChatThread(encodeURIComponent("测试小号"), encodeURIComponent("三室两厅大概110平米，主要做主卧衣柜和儿童房书桌柜"), true);
+                await runReplyPreview();
+                selectDraftFeedbackStar(2);
+                const firstTag = document.querySelector('#draftQualityFeedbackBar .tag-chip[data-tag="缺少推进"]');
+                if (firstTag) toggleDraftFeedbackTag(firstTag, "缺少推进");
+                const sendBox = document.getElementById("sendText");
+                sendBox.value = "# 不能这样说，别一上来报底价，先问对方大概做多少平米";
+                onComposerTextInput();
+                const mainPane = document.querySelector(".chat-main-pane");
+                if (mainPane) mainPane.scrollTop = mainPane.scrollHeight;
+                document.getElementById("draftQualityFeedbackBar")?.scrollIntoView({{ block: "end" }});
+                """
+            )
+            _wait_until(
+                cdp,
+                '!document.getElementById("supervisorDirectiveBanner").hidden && !document.getElementById("draftQualityFeedbackBar").hidden',
+                desc="hashtag banner & draft rating bar visible",
+            )
+            time.sleep(0.3)
+            _capture_annotated(
+                cdp,
+                "07-composer-hashtag-and-rating.png",
+                [
+                    {"num": 1, "selector": "#supervisorDirectiveBanner", "pos": "left", "pad": 4},
+                    {"num": 2, "selector": "#draftQualityFeedbackBar", "pos": "left", "pad": 4},
+                ],
+            )
 
         # ------------------------------------------------------------------
         # 8) 08-sparring-quality-dashboard.png
         # ------------------------------------------------------------------
-        cdp.eval_js(
-            """
-            document.getElementById("sendText").value = "";
-            onComposerTextInput();
-            switchTab("sparring");
-            await loadSparringWorkspace(false);
-            document.getElementById("simContactInput").value = "测试小号";
-            document.getElementById("simMessageInput").value = "三室两厅衣柜大概多少钱，有优惠吗？";
-            await sendSparringSimMessage();
-            document.getElementById("simMessageInput").value = "# 不能这样说，别一上来报底价，先问对方大概做多少平米";
-            await sendSparringSimMessage();
-            await runSparringRegressionSuite();
-            window.scrollTo(0, 0);
-            """
-        )
-        _wait_until(
-            cdp,
-            'document.getElementById("tab-sparring")?.classList.contains("active") && !document.getElementById("simRegressionBox").hidden && document.querySelectorAll("#sparringTurnsLogBox > div").length >= 2',
-            desc="sparring workspace populated",
-        )
-        time.sleep(0.3)
-        _capture_annotated(
-            cdp,
-            "08-sparring-quality-dashboard.png",
-            [
-                {"num": 1, "selector": "#simChatLogBox", "pos": "tr", "pad": 4},
-                {"num": 2, "selector": "#sparringRegressionBtn", "pos": "tr", "pad": 4},
-                {"num": 3, "selector": "#qualityKpiGrid", "pos": "tr", "pad": 4},
-            ],
-        )
+        if 8 in selected:
+            cdp.eval_js(
+                """
+                document.getElementById("sendText").value = "";
+                onComposerTextInput();
+                switchTab("sparring");
+                await loadSparringWorkspace(false);
+                document.getElementById("simContactInput").value = "测试小号";
+                document.getElementById("simMessageInput").value = "三室两厅衣柜大概多少钱，有优惠吗？";
+                await sendSparringSimMessage();
+                document.getElementById("simMessageInput").value = "# 不能这样说，别一上来报底价，先问对方大概做多少平米";
+                await sendSparringSimMessage();
+                await runSparringRegressionSuite();
+                window.scrollTo(0, 0);
+                """
+            )
+            _wait_until(
+                cdp,
+                'document.getElementById("tab-sparring")?.classList.contains("active") && !document.getElementById("simRegressionBox").hidden && document.querySelectorAll("#sparringTurnsLogBox > div").length >= 2',
+                desc="sparring workspace populated",
+            )
+            time.sleep(0.3)
+            _capture_annotated(
+                cdp,
+                "08-sparring-quality-dashboard.png",
+                [
+                    {"num": 1, "selector": "#simChatLogBox", "pos": "tr", "pad": 4},
+                    {"num": 2, "selector": "#sparringRegressionBtn", "pos": "tr", "pad": 4},
+                    {"num": 3, "selector": "#qualityKpiGrid", "pos": "tr", "pad": 4},
+                ],
+            )
 
         # ------------------------------------------------------------------
         # 9) 09-hosting-workbench-home.png
         # ------------------------------------------------------------------
-        demo_state["hosting_active"] = True
-        cdp.eval_js(
-            """
-            await loadOverview(false);
-            switchTab("monitor");
-            selectChatThread(encodeURIComponent("张总（新房衣柜定制）"), "", true);
-            document.getElementById("sendText").value = "好的张总，这周六下午安排设计师带ENF级实木多层板小样免费上门量尺，量尺后出3D图和投影面积透明清单。";
-            onComposerTextInput();
-            document.getElementById("replyPreviewResult").hidden = true;
-            document.getElementById("draftQualityFeedbackBar").hidden = true;
-            const mainPane = document.querySelector(".chat-main-pane");
-            if (mainPane) mainPane.scrollTop = 0;
-            window.scrollTo(0, 0);
-            """
-        )
-        _wait_until(
-            cdp,
-            'document.getElementById("hostingBadge")?.textContent.includes("托管中") && document.querySelectorAll("#chatBubbleStream .bubble-row").length >= 3',
-            desc="hosting workbench overview ready",
-        )
-        time.sleep(0.3)
-        _capture_annotated(
-            cdp,
-            "09-hosting-workbench-home.png",
-            [
-                {"num": 1, "selectors": ["#topOnboardingWizardBtn", "#topUserGuideBtn"], "pos": "tl", "pad": 4},
-                {"num": 2, "selector": "#hostingPanel", "pos": "bl", "pad": 4},
-            ],
-        )
+        if 9 in selected:
+            demo_state["hosting_active"] = True
+            cdp.eval_js(
+                """
+                await loadOverview(false);
+                switchTab("monitor");
+                selectChatThread(encodeURIComponent("张总（新房衣柜定制）"), "", true);
+                document.getElementById("sendText").value = "好的张总，这周六下午安排设计师带ENF级实木多层板小样免费上门量尺，量尺后出3D图和投影面积透明清单。";
+                onComposerTextInput();
+                document.getElementById("replyPreviewResult").hidden = true;
+                document.getElementById("draftQualityFeedbackBar").hidden = true;
+                const mainPane = document.querySelector(".chat-main-pane");
+                if (mainPane) mainPane.scrollTop = 0;
+                window.scrollTo(0, 0);
+                """
+            )
+            _wait_until(
+                cdp,
+                'document.getElementById("hostingBadge")?.textContent.includes("托管中") && document.querySelectorAll("#chatBubbleStream .bubble-row").length >= 3',
+                desc="hosting workbench overview ready",
+            )
+            time.sleep(0.3)
+            _capture_annotated(
+                cdp,
+                "09-hosting-workbench-home.png",
+                [
+                    {"num": 1, "selectors": ["#topOnboardingWizardBtn", "#topUserGuideBtn"], "pos": "tl", "pad": 4},
+                    {"num": 2, "selector": "#hostingPanel", "pos": "bl", "pad": 4},
+                ],
+            )
 
         # ------------------------------------------------------------------
         # 10) 10-knowledge-base.png
         # ------------------------------------------------------------------
-        demo_state["hosting_active"] = False
-        cdp.eval_js(
-            """
-            switchTab("knowledge");
-            document.getElementById("kbSearchInput").value = "ENF级实木多层板 投影面积 免费上门量尺";
-            await searchKb();
-            window.scrollTo(0, 0);
-            """
-        )
-        _wait_until(
-            cdp,
-            'document.getElementById("tab-knowledge")?.classList.contains("active") && document.querySelectorAll("#kbList .kb-item").length >= 3',
-            desc="knowledge base items rendered",
-        )
-        time.sleep(0.3)
-        _capture_annotated(
-            cdp,
-            "10-knowledge-base.png",
-            [
-                {"num": 1, "selectors": ["#kbSearchInput", "#kbKindFilter", '#tab-knowledge button[onclick="searchKb()"]'], "pos": "left", "pad": 4},
-                {"num": 2, "selector": "#kbDocIngestBtn", "pos": "left", "pad": 4},
-                {"num": 3, "selector": "#kbList", "pos": "left", "pad": 4},
-            ],
-        )
+        if 10 in selected:
+            demo_state["hosting_active"] = False
+            cdp.eval_js(
+                """
+                switchTab("knowledge");
+                document.getElementById("kbSearchInput").value = "ENF级实木多层板 投影面积 免费上门量尺";
+                await searchKb();
+                window.scrollTo(0, 0);
+                """
+            )
+            _wait_until(
+                cdp,
+                'document.getElementById("tab-knowledge")?.classList.contains("active") && document.querySelectorAll("#kbList .kb-item").length >= 3',
+                desc="knowledge base items rendered",
+            )
+            time.sleep(0.3)
+            _capture_annotated(
+                cdp,
+                "10-knowledge-base.png",
+                [
+                    {"num": 1, "selectors": ["#kbSearchInput", "#kbKindFilter", '#tab-knowledge button[onclick="searchKb()"]'], "pos": "left", "pad": 4},
+                    {"num": 2, "selector": "#kbDocIngestBtn", "pos": "left", "pad": 4},
+                    {"num": 3, "selector": "#kbList", "pos": "left", "pad": 4},
+                ],
+            )
 
-        print("All 10 screenshots captured successfully in", OUT_DIR)
+        # ------------------------------------------------------------------
+        # 11) 11-workflow-chat-studio.png & 12) 12-workflow-chat-edit-and-steps.png
+        # ------------------------------------------------------------------
+        if 11 in selected or 12 in selected:
+            demo_state["hosting_active"] = False
+            cdp.eval_js(
+                """
+                switchTab("appuse");
+                await loadAppUseStudio(false);
+                const agSel = document.getElementById("appuseAgentSelect");
+                if (agSel && Array.from(agSel.options).some((o) => o.value === "local:heuristic")) {
+                  agSel.value = "local:heuristic";
+                }
+                const paramsEl = document.getElementById("appuseRunParamsInput");
+                if (paramsEl) {
+                  paramsEl.value = JSON.stringify({
+                    source_user: "周先生",
+                    raw_message: ""
+                  });
+                }
+                wfagentResetChat();
+                """
+            )
+            _wait_until(
+                cdp,
+                'document.getElementById("tab-appuse")?.classList.contains("active") && document.getElementById("wfagentChatBox") !== null',
+                desc="appuse tab active",
+            )
+            # Multi-turn conversational workflow creation via /api/workflow-agent/chat
+            cdp.eval_js('await wfagentSendChat("帮我把钉钉客户提取微信号加微信");')
+            _wait_until(
+                cdp,
+                'document.querySelectorAll("#wfagentChatOptions .kb-chip").length >= 2',
+                desc="chat turn 1 clarifying questions",
+            )
+            cdp.eval_js('await wfagentSendChat("备注用钉钉引流-，需要人工确认 + 发自报家门话术（推荐）");')
+            _wait_until(
+                cdp,
+                'document.querySelector("#wfagentChatOptions .btn-solid") !== null',
+                desc="chat turn 2 ready_to_build",
+            )
+            cdp.eval_js(
+                """
+                const paramsEl = document.getElementById("appuseRunParamsInput");
+                if (paramsEl) {
+                  paramsEl.value = JSON.stringify({
+                    source_user: "周先生",
+                    raw_message: ""
+                  });
+                }
+                """,
+                await_promise=False,
+            )
+            cdp.eval_js('await wfagentSendChat("确认开始调试");')
+            _wait_until(
+                cdp,
+                'document.getElementById("wfagentStatusPill")?.textContent.includes("影子调试") && document.querySelector("#wfagentTimelineBox .wfagent-shadow-preview") !== null && document.getElementById("wfagentSpecBox")?.textContent.includes("100 分")',
+                desc="chat turn 3 shadow_verified & preview cards",
+            )
+            cdp.eval_js(
+                """
+                window.scrollTo(0, 0);
+                const hero = document.getElementById("wfagentStudioCard");
+                if (hero) {
+                  hero.style.padding = "12px 16px";
+                  const sh = hero.querySelector(".section-header");
+                  if (sh) sh.style.marginBottom = "8px";
+                }
+                const chatBox = document.getElementById("wfagentChatBox");
+                if (chatBox) {
+                  chatBox.style.padding = "10px 12px";
+                  chatBox.style.marginBottom = "8px";
+                }
+                const chatLog = document.getElementById("wfagentChatLog");
+                if (chatLog) {
+                  const msgs = chatLog.querySelectorAll(".wfagent-chat-msg");
+                  msgs.forEach((el) => {
+                    el.style.whiteSpace = "normal";
+                    el.style.padding = "6px 10px";
+                    el.style.fontSize = "12px";
+                    el.style.lineHeight = "1.4";
+                  });
+                  chatLog.style.maxHeight = "182px";
+                  if (msgs.length >= 4) {
+                    chatLog.scrollTop = Math.max(0, msgs[3].offsetTop - chatLog.offsetTop - 8);
+                  } else {
+                    chatLog.scrollTop = chatLog.scrollHeight;
+                  }
+                }
+                const directDetails = document.getElementById("wfagentDirectPanel");
+                if (directDetails) directDetails.style.marginBottom = "8px";
+                const specBox = document.getElementById("wfagentSpecBox");
+                if (specBox) specBox.style.maxHeight = "185px";
+                const tlBox = document.getElementById("wfagentTimelineBox");
+                if (tlBox) {
+                  tlBox.style.maxHeight = "184px";
+                  tlBox.scrollTop = 0;
+                  tlBox.querySelectorAll(".wfagent-round-card").forEach((c) => {
+                    c.style.padding = "7px 10px";
+                    c.style.gap = "2px";
+                  });
+                  tlBox.querySelectorAll(".wfagent-shadow-preview").forEach((p) => {
+                    p.style.padding = "5px 8px";
+                    p.style.lineHeight = "1.34";
+                    p.style.fontSize = "11px";
+                  });
+                  tlBox.querySelectorAll("a").forEach((a) => {
+                    a.style.display = "none";
+                  });
+                }
+                """,
+                await_promise=False,
+            )
+            time.sleep(0.25)
+            rects_11 = cdp.eval_js(
+                """
+                return ["#wfagentChatBox", "#wfagentSpecBox", "#wfagentTimelineBox"].map((s) => {
+                  const el = document.querySelector(s);
+                  const r = el ? el.getBoundingClientRect() : null;
+                  return { sel: s, top: r?.top, bottom: r?.bottom, height: r?.height };
+                });
+                """,
+                await_promise=False,
+            )
+            print("rects_11:", rects_11)
+            if 11 in selected:
+                _capture_annotated(
+                    cdp,
+                    "11-workflow-chat-studio.png",
+                    [
+                        {"num": 1, "selector": "#wfagentChatBox", "pos": "tr", "pad": 4},
+                        {"num": 2, "selector": "#wfagentSpecBox", "pos": "tr", "pad": 4},
+                        {"num": 3, "selector": "#wfagentTimelineBox", "pos": "br", "pad": 4},
+                    ],
+                )
+
+        if 12 in selected:
+            cdp.eval_js(
+                """
+                const paramsEl = document.getElementById("appuseRunParamsInput");
+                if (paramsEl) {
+                  paramsEl.value = JSON.stringify({
+                    source_user: "周先生",
+                    raw_message: ""
+                  });
+                }
+                const editInp = document.getElementById("wfagentEditInput");
+                if (editInp) editInp.value = "给CRM加标签 高意向客户";
+                await wfagentChatEditCurrent();
+                """
+            )
+            _wait_until(
+                cdp,
+                'document.getElementById("wfagentEditDiffBox")?.textContent.includes("v1 → v2") && document.getElementById("wfagentEditDiffBox")?.textContent.includes("撤销本次修改") && document.querySelectorAll("#appuseStepsBox .appuse-step-card").length >= 5',
+                desc="chat edit v1 -> v2 & step cards",
+            )
+            # Frame .wfagent-edit-bar and #appuseStepsBox cleanly together in the 1360x880 viewport
+            cdp.eval_js(
+                """
+                const navTabs = document.querySelector("nav.tabs");
+                if (navTabs) navTabs.style.position = "static";
+                const appGrid = document.getElementById("appuseAppGrid");
+                const appStripCard = appGrid ? appGrid.closest(".panel-card") : null;
+                if (appStripCard) appStripCard.style.display = "none";
+                const runParamsWrap = document.getElementById("appuseRunParamsInput")?.parentElement;
+                if (runParamsWrap) runParamsWrap.style.display = "none";
+                const stepsBox = document.getElementById("appuseStepsBox");
+                if (stepsBox) {
+                  const twoCol = stepsBox.parentElement?.parentElement;
+                  if (twoCol) {
+                    twoCol.style.gridTemplateColumns = "1.15fr 0.85fr";
+                    const panel2 = twoCol.parentElement;
+                    if (panel2) {
+                      panel2.style.padding = "12px 15px";
+                      Array.from(panel2.children).forEach((ch, idx) => {
+                        if (idx < panel2.children.length - 1) ch.style.marginBottom = "5px";
+                      });
+                    }
+                  }
+                  stepsBox.style.maxHeight = "380px";
+                  stepsBox.style.gap = "3px";
+                  stepsBox.querySelectorAll(".appuse-step-card").forEach((c) => {
+                    c.style.padding = "3px 8px";
+                    c.style.fontSize = "11px";
+                    c.style.lineHeight = "1.22";
+                    const headDiv = c.children[0];
+                    if (headDiv) headDiv.style.marginBottom = "1px";
+                    const descDiv = c.children[1];
+                    if (descDiv) {
+                      descDiv.style.fontSize = "10px";
+                      descDiv.style.whiteSpace = "nowrap";
+                      descDiv.style.overflow = "hidden";
+                      descDiv.style.textOverflow = "ellipsis";
+                    }
+                    const metaDiv = c.children[2];
+                    if (metaDiv) {
+                      metaDiv.style.fontSize = "10px";
+                      metaDiv.style.marginTop = "1px";
+                    }
+                  });
+                  const cards = stepsBox.querySelectorAll(".appuse-step-card");
+                  if (cards.length >= 6) {
+                    stepsBox.scrollTop = Math.max(0, cards[5].offsetTop - stepsBox.offsetTop);
+                  } else {
+                    stepsBox.scrollTop = stepsBox.scrollHeight;
+                  }
+                }
+                const sopPre = document.getElementById("appuseSopPreview");
+                if (sopPre) {
+                  sopPre.style.maxHeight = "380px";
+                  sopPre.style.fontSize = "11.5px";
+                }
+                const editBar = document.querySelector(".wfagent-edit-bar");
+                if (editBar) editBar.scrollIntoView({ block: "start" });
+                window.scrollBy(0, -12);
+                """,
+                await_promise=False,
+            )
+            time.sleep(0.25)
+            rects_12 = cdp.eval_js(
+                """
+                return [".wfagent-edit-bar", "#wfagentEditDiffBox", "#appuseStepsBox"].map((s) => {
+                  const el = document.querySelector(s);
+                  const r = el ? el.getBoundingClientRect() : null;
+                  return { sel: s, top: r?.top, bottom: r?.bottom, height: r?.height };
+                });
+                """,
+                await_promise=False,
+            )
+            print("rects_12:", rects_12)
+            _capture_annotated(
+                cdp,
+                "12-workflow-chat-edit-and-steps.png",
+                [
+                    {"num": 1, "selector": ".wfagent-edit-bar", "pos": "tr", "pad": 4},
+                    {"num": 2, "selector": "#wfagentEditDiffBox", "pos": "br", "pad": 4},
+                    {"num": 3, "selector": "#appuseStepsBox", "pos": "left", "pad": 4},
+                ],
+            )
+
+        print(f"Captured screenshots ({sorted(selected)}) successfully in", OUT_DIR)
         return 0
     finally:
         if cdp is not None:

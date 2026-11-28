@@ -1077,17 +1077,34 @@ class AppUIStateGraph:
 
 def step_action_signature(step: Dict[str, Any]) -> str:
     action = str(step.get("action") or "").strip().lower()
+    tapp = step.get("targetApp") if isinstance(step.get("targetApp"), dict) else {}
     hint = (
         step.get("targetAxId")
         or step.get("targetAxTitle")
         or step.get("matchText")
         or step.get("combo")
         or step.get("sequence")
+        or tapp.get("bundleID")
+        or tapp.get("name")
+        or step.get("bundleId")
+        or step.get("bundleID")
+        or step.get("appName")
+        or step.get("tool")
+        or step.get("outputVar")
+        or step.get("captureAs")
+        or step.get("var")
+        or step.get("evidenceSource")
+        or step.get("expected")
         or ""
     )
     if not hint and step.get("relX") is not None and step.get("relY") is not None:
         hint = f"{step.get('relX')},{step.get('relY')}"
     return f"{action}:{clean_ui_text(hint)[:48]}"
+
+
+_PRESERVED_COGNITIVE_ACTIONS = frozenset(
+    {"switch_app", "llm_extract", "llm_draft", "branch_if", "builtin_tool", "assert_check"}
+)
 
 
 def optimize_and_enrich_steps(
@@ -1107,6 +1124,7 @@ def optimize_and_enrich_steps(
             stagnant_indices.add(int(log["stepIndex"]))
 
     cleaned: List[Dict[str, Any]] = []
+    old_to_new: Dict[int, int] = {}
     prev_action = ""
     for raw_idx, raw in enumerate(steps or [], start=1):
         if not isinstance(raw, dict):
@@ -1115,44 +1133,53 @@ def optimize_and_enrich_steps(
         action = str(st.get("action") or "").strip().lower()
         step_num = int(st.get("step") or raw_idx)
 
-        # Collapse duplicate back-to-back activate_app
-        if action == "activate_app" and prev_action == "activate_app":
-            continue
+        if action not in _PRESERVED_COGNITIVE_ACTIONS:
+            # Collapse duplicate back-to-back activate_app
+            if action == "activate_app" and prev_action == "activate_app":
+                continue
 
-        # Prune verified stagnant no-op clicks/scrolls lacking assertions/captures
-        if (
-            action in ("click_element", "scroll")
-            and step_num in stagnant_indices
-            and not st.get("captureAs")
-            and not st.get("expectText")
-        ):
-            continue
+            # Prune verified stagnant no-op clicks/scrolls lacking assertions/captures
+            if (
+                action in ("click_element", "scroll")
+                and step_num in stagnant_indices
+                and not st.get("captureAs")
+                and not st.get("expectText")
+            ):
+                continue
 
-        # Enrich interactive steps with multi-factor anchor bundles when inspection exists
-        if inspection and inspection.get("ok") and action in ("click_element", "focus_and_type"):
-            if not (st.get("neighborTexts") and st.get("relX") is not None):
-                res = SemanticElementGrounder.resolve_best(st, inspection, min_score=0.40)
-                bundle = res.get("anchorBundle") or {}
-                if bundle:
-                    if not st.get("targetAxId") and bundle.get("targetAxId"):
-                        st["targetAxId"] = bundle["targetAxId"]
-                    if not st.get("targetAxTitle") and bundle.get("targetAxTitle"):
-                        st["targetAxTitle"] = bundle["targetAxTitle"]
-                    if not st.get("targetRole") and bundle.get("targetRole"):
-                        st["targetRole"] = bundle["targetRole"]
-                    if st.get("relX") is None and bundle.get("relX") is not None:
-                        st["relX"] = bundle["relX"]
-                    if st.get("relY") is None and bundle.get("relY") is not None:
-                        st["relY"] = bundle["relY"]
-                    if not st.get("neighborTexts") and bundle.get("neighborTexts"):
-                        st["neighborTexts"] = bundle["neighborTexts"]
+            # Enrich interactive steps with multi-factor anchor bundles when inspection exists
+            if inspection and inspection.get("ok") and action in ("click_element", "focus_and_type"):
+                if not (st.get("neighborTexts") and st.get("relX") is not None):
+                    res = SemanticElementGrounder.resolve_best(st, inspection, min_score=0.40)
+                    bundle = res.get("anchorBundle") or {}
+                    if bundle:
+                        if not st.get("targetAxId") and bundle.get("targetAxId"):
+                            st["targetAxId"] = bundle["targetAxId"]
+                        if not st.get("targetAxTitle") and bundle.get("targetAxTitle"):
+                            st["targetAxTitle"] = bundle["targetAxTitle"]
+                        if not st.get("targetRole") and bundle.get("targetRole"):
+                            st["targetRole"] = bundle["targetRole"]
+                        if st.get("relX") is None and bundle.get("relX") is not None:
+                            st["relX"] = bundle["relX"]
+                        if st.get("relY") is None and bundle.get("relY") is not None:
+                            st["relY"] = bundle["relY"]
+                        if not st.get("neighborTexts") and bundle.get("neighborTexts"):
+                            st["neighborTexts"] = bundle["neighborTexts"]
 
         cleaned.append(st)
+        old_to_new[step_num] = len(cleaned)
         prev_action = action
 
-    # Re-index step numbers cleanly
+    # Re-index step numbers cleanly & remap forward branch_if jumpToStep if needed
     for idx, st in enumerate(cleaned, start=1):
         st["step"] = idx
+        if str(st.get("action") or "").strip().lower() == "branch_if" and st.get("jumpToStep") is not None:
+            try:
+                old_j = int(st["jumpToStep"])
+                if old_j in old_to_new:
+                    st["jumpToStep"] = old_to_new[old_j]
+            except Exception:
+                pass
     return cleaned
 
 
@@ -1181,29 +1208,33 @@ def score_workflow_readiness(workflow: Dict[str, Any]) -> Dict[str, Any]:
 
     # 2. Post-action verification / readback coverage (25 pts)
     has_wait = any(s.get("action") == "wait_and_read" for s in steps)
+    has_assert = any(s.get("action") == "assert_check" for s in steps)
     has_expect_or_cap = any(bool(s.get("expectText") or s.get("captureAs") or s.get("waitUntilStable") or s.get("waitUntilChanged")) for s in steps)
-    if has_wait and has_expect_or_cap:
+    if has_assert or (has_wait and has_expect_or_cap):
         verify_pts = 25.0
     elif has_wait:
         verify_pts = 18.0
-        recommendations.append("建议在 wait_and_read 步骤开启 captureAs、expectText、waitUntilChanged 或 waitUntilStable。")
+        recommendations.append("建议在 wait_and_read 步骤开启 captureAs、expectText、waitUntilChanged 或增加 assert_check 独立断言。")
     elif any(s.get("action") == "inspect_ui" for s in steps):
         verify_pts = 10.0
-        recommendations.append("建议在关键动作后增加 wait_and_read 回读验收步骤。")
+        recommendations.append("建议在关键动作后增加 wait_and_read / assert_check 独立验证步骤。")
     else:
         verify_pts = 0.0
-        recommendations.append("流程缺少回读验收（wait_and_read），无法感知执行是否成功。")
+        recommendations.append("流程缺少独立回读或断言验收（wait_and_read / assert_check），无法感知执行是否成功。")
 
     # 3. Safety & gate hygiene (15 pts)
-    has_activate = any(s.get("action") == "activate_app" for s in steps)
+    has_activate = any(s.get("action") in ("activate_app", "switch_app") for s in steps)
     has_gates = bool(workflow.get("safetyGates")) or any(s.get("action") == "pause_for_human" for s in steps)
     safety_pts = (8.0 if has_activate else 0.0) + (7.0 if has_gates else 3.0)
     if not has_activate:
-        recommendations.append("建议以 activate_app 作为首步，确保跨应用切换焦点稳定。")
+        recommendations.append("建议以 activate_app 或 switch_app 作为首步，确保跨应用切换焦点稳定。")
 
     # 4. Dynamic parameterization & output pipeline capability (15 pts)
     params = workflow.get("parameters") or []
-    has_cap = any(bool(s.get("captureAs")) for s in steps)
+    has_cap = any(
+        bool(s.get("captureAs") or s.get("outputVar")) or s.get("action") in ("llm_extract", "llm_draft", "builtin_tool")
+        for s in steps
+    )
     param_pts = (10.0 if params else 4.0) + (5.0 if has_cap else 1.0)
     if not params and not has_cap:
         recommendations.append("可将固定输入抽为 {{参数}} 并为末尾读数增加 captureAs，便于跨应用串联复用。")
@@ -1281,6 +1312,38 @@ def classify_step_failure(
             "dismissCombo": str(modal.get("dismissCombo") or "escape"),
             "signals": modal.get("signals") or [],
             "reason": f"检测到可关闭模态弹窗 ({', '.join(modal.get('signals') or [])})，尝试发送 Escape 关闭后重试。",
+        }
+
+    if action == "llm_extract" or "extraction_empty" in err_low or "extract_empty" in err_low:
+        return {
+            "category": "EXTRACTION_EMPTY",
+            "recommendedStrategy": "broaden_extractor_or_wait",
+            "requiresHuman": False,
+            "reason": f"信息抽取结果为空 ({error_msg})，需要放宽抽取范围或先刷新前置界面内容。",
+        }
+
+    if action == "builtin_tool" or "tool_param_error" in err_low or "unwhitelisted_tool" in err_low:
+        return {
+            "category": "TOOL_PARAM_ERROR",
+            "recommendedStrategy": "repair_tool_params",
+            "requiresHuman": False,
+            "reason": f"内置工具参数或名称校验未通过 ({error_msg})。",
+        }
+
+    if action == "assert_check" or "assertion_failed" in err_low or "self_certified_assertion" in err_low:
+        return {
+            "category": "ASSERTION_FAILED",
+            "recommendedStrategy": "diagnose_post_condition",
+            "requiresHuman": False,
+            "reason": f"验收断言未通过 ({error_msg})，需回查动作后真实状态或等待结算完成。",
+        }
+
+    if "window_not_found" in err_low or "missing_nav" in err_low or "not running" in err_low:
+        return {
+            "category": "MISSING_NAV_STEP",
+            "recommendedStrategy": "insert_switch_or_activate",
+            "requiresHuman": False,
+            "reason": f"目标页面或应用窗口尚未打开/就绪 ({error_msg})。",
         }
 
     if action in ("click_element", "focus_and_type") and (

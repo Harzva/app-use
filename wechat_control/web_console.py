@@ -349,6 +349,116 @@ WEB_CONSOLE_HTML = r"""<!DOCTYPE html>
       overflow-y: auto;
       margin: 0;
     }
+    .wfagent-hero {
+      border: 1px solid rgba(22, 119, 255, 0.28);
+      background: linear-gradient(135deg, rgba(22, 119, 255, 0.05), rgba(16, 185, 129, 0.04));
+    }
+    .wfagent-round-card {
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 12.5px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .wfagent-badge-pass { background: rgba(16, 185, 129, 0.14); color: #047857; border: 1px solid rgba(16, 185, 129, 0.35); }
+    .wfagent-badge-fix { background: rgba(245, 158, 11, 0.14); color: #b45309; border: 1px solid rgba(245, 158, 11, 0.35); }
+    .wfagent-badge-gate { background: rgba(220, 38, 38, 0.12); color: #b91c1c; border: 1px solid rgba(220, 38, 38, 0.3); }
+    .wfagent-chat-box {
+      background: var(--surface);
+      border: 1px solid rgba(22, 119, 255, 0.22);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .wfagent-chat-log {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 230px;
+      overflow-y: auto;
+      padding: 10px;
+      border-radius: 10px;
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      margin-bottom: 8px;
+    }
+    .wfagent-chat-msg {
+      max-width: 86%;
+      padding: 8px 11px;
+      border-radius: 10px;
+      font-size: 12.5px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .wfagent-chat-msg.is-user {
+      align-self: flex-end;
+      background: var(--primary-soft);
+      border: 1px solid rgba(7, 193, 96, 0.28);
+      color: var(--text);
+    }
+    .wfagent-chat-msg.is-assistant {
+      align-self: flex-start;
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      color: var(--text);
+    }
+    .wfagent-chat-options {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .wfagent-edit-bar {
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: 12px;
+      padding: 11px 12px;
+      margin-top: 10px;
+    }
+    .wfagent-edit-diff {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border-radius: 9px;
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .wfagent-shadow-preview {
+      margin-top: 6px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      background: rgba(245, 158, 11, 0.08);
+      border: 1px solid rgba(245, 158, 11, 0.28);
+      font-size: 11.5px;
+      line-height: 1.5;
+      color: var(--text-secondary);
+    }
+    .wfagent-direct-details {
+      border: 1px dashed var(--border-strong);
+      border-radius: 10px;
+      padding: 8px 11px;
+      margin-bottom: 10px;
+      background: var(--surface);
+    }
+    .wfagent-direct-details > summary {
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      list-style: none;
+    }
+    .wfagent-direct-details[open] > summary {
+      margin-bottom: 10px;
+    }
 
     /* Magpie Multi-Provider & Model Grid */
     .provider-grid {
@@ -4879,9 +4989,185 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
           </details>
         </div>
       </div>
+
+      <div class="panel-card" style="margin-top:14px;">
+        <div class="section-header">
+          <div>
+            <div class="section-title">🧲 抖音引流获客 → 提取微信号 → 微信加好友闭环</div>
+            <div class="section-desc">读取抖音私信并回复引导对方留微信号 → 自动提取微信号/手机号并写入 CRM → 微信「添加朋友」查号与打招呼加好友（含每日上限与冷却护栏）</div>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" class="btn-solid sm" onclick="douyinFunnelRunCycle(false, false, true)">🔍 扫描抖音私信并提取微信号 (Dry-Run)</button>
+            <button type="button" class="btn-outline sm" onclick="loadDouyinFunnel()">🔄 刷新漏斗状态</button>
+          </div>
+        </div>
+
+        <div id="dyFunnelStatsStrip" style="display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:8px; margin-bottom:12px;"></div>
+
+        <div class="grid-2" style="margin-bottom:12px;">
+          <div style="border:1px solid var(--border); border-radius:12px; padding:12px; background:var(--surface-soft);">
+            <div style="font-weight:600; font-size:13px; margin-bottom:8px;">⚙️ 抖音引流 &amp; 微信加好友护栏配置</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+              <div style="grid-column:1 / -1;">
+                <label style="font-size:11.5px; color:var(--text-muted); display:block; margin-bottom:3px;">抖音私信引导留微信号话术</label>
+                <input id="dyCfgReplyTpl" type="text" class="input" placeholder="你好，方便发一下你的微信号吗？这边加你发详细资料～" />
+              </div>
+              <div style="grid-column:1 / -1;">
+                <label style="font-size:11.5px; color:var(--text-muted); display:block; margin-bottom:3px;">微信添加朋友验证打招呼语</label>
+                <input id="dyCfgGreetingTpl" type="text" class="input" placeholder="你好呀，我是智拓巨浪的安晓心，刚在抖音看到你发来的消息，这边加你微信详聊～" />
+              </div>
+              <div>
+                <label style="font-size:11.5px; color:var(--text-muted); display:block; margin-bottom:3px;">微信备注前缀</label>
+                <input id="dyCfgRemarkPrefix" type="text" class="input" placeholder="抖音引流-" />
+              </div>
+              <div>
+                <label style="font-size:11.5px; color:var(--text-muted); display:block; margin-bottom:3px;">每日微信加好友上限</label>
+                <input id="dyCfgDailyLimit" type="number" min="1" max="50" class="input" value="15" />
+              </div>
+            </div>
+            <div style="margin-top:8px;">
+              <button type="button" class="btn-outline sm" onclick="douyinFunnelSaveConfig()">💾 保存引流配置</button>
+            </div>
+          </div>
+
+          <div style="border:1px solid var(--border); border-radius:12px; padding:12px; background:var(--surface-soft);">
+            <div style="font-weight:600; font-size:13px; margin-bottom:8px;">🧪 单号微信查号 / 加好友联调</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+              <div>
+                <label style="font-size:11.5px; color:var(--text-muted); display:block; margin-bottom:3px;">微信号 / 手机号</label>
+                <input id="wxQuickAccount" type="text" class="input" placeholder="如：wxid_xxx 或 13800138000" />
+              </div>
+              <div>
+                <label style="font-size:11.5px; color:var(--text-muted); display:block; margin-bottom:3px;">设置备注（可选）</label>
+                <input id="wxQuickRemark" type="text" class="input" placeholder="抖音引流-客户昵称" />
+              </div>
+              <div style="grid-column:1 / -1;">
+                <label style="font-size:11.5px; color:var(--text-muted); display:block; margin-bottom:3px;">验证打招呼语</label>
+                <input id="wxQuickGreeting" type="text" class="input" placeholder="你好呀，我是智拓巨浪的安晓心，刚在抖音看到你发来的消息，这边加你微信详聊～" />
+              </div>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+              <button type="button" class="btn-outline sm" onclick="wechatQuickAddFriend(false, true)">🔍 查号演练（不发送）</button>
+              <button type="button" id="wxQuickConfirmBtn" class="btn-outline sm" style="color:var(--danger); border-color:rgba(220,38,38,0.35);" onclick="wechatQuickAddFriend(true, false)">➕ 确认发送好友申请</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="dyFunnelLeadsBox" style="font-size:12.5px; color:var(--text-secondary); background:var(--surface-soft); border:1px solid var(--border); border-radius:12px; padding:10px; max-height:280px; overflow:auto;">
+          点击上方「扫描抖音私信并提取微信号」，即可查看已提取微信号的抖音线索并一键加微信。
+        </div>
+      </div>
     </section>
 
     <section id="tab-appuse" class="tab-panel">
+      <div class="panel-card wfagent-hero" id="wfagentStudioCard">
+        <div class="section-header">
+          <div>
+            <div class="section-title">🧠 AI 场景自建与自动调试工坊（一句话跨软件自动写流程 · 自动修 Bug）</div>
+            <div class="section-desc">不用找程序员改代码！用大白话说出你的新需求（例如：飞书客户加微信并写入 CRM 档案），AI 自动识别相关软件、生成验收标准、试跑排错打补丁，并锁定成日常可一键复用的工作流。</div>
+          </div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+            <span class="pill" id="wfagentStatusPill">待命 · 零黑话自建</span>
+          </div>
+        </div>
+        <div id="wfagentChatBox" class="wfagent-chat-box">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+            <div>
+              <div style="font-size:13px; font-weight:700;">💬 对话式自建工作流（像聊天一样理清需求）</div>
+              <div style="font-size:11.5px; color:var(--text-muted);">先说个模糊想法（如「帮我搞个飞书同步」），AI 会发几个小选择题帮您补齐条件与安全门禁，确认后自动生成并安全试跑。</div>
+            </div>
+            <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+              <select id="wfagentChatHistorySelect" class="input" style="width:auto; min-width:150px; padding:4px 8px; font-size:11.5px;" onchange="wfagentSelectHistoryChat(this.value)">
+                <option value="">最近对话会话…</option>
+              </select>
+              <button type="button" class="btn-outline sm" id="wfagentChatResetBtn" onclick="wfagentResetChat()">🆕 新建对话</button>
+            </div>
+          </div>
+          <div id="wfagentChatLog" class="wfagent-chat-log"></div>
+          <div id="wfagentChatOptions" class="wfagent-chat-options"></div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input id="wfagentChatInput" type="text" class="input" placeholder="像聊天一样说想法（例如：帮我搞个飞书同步，或直接点击上方推荐选项）" onkeydown="if(event.key==='Enter'){event.preventDefault();wfagentSendChat();}" />
+            <button type="button" class="btn-solid sm" id="wfagentChatSendBtn" style="flex-shrink:0;" onclick="wfagentSendChat()">发送</button>
+          </div>
+        </div>
+        <details id="wfagentDirectPanel" class="wfagent-direct-details">
+          <summary>
+            <span>⚡ 高级直出与验证参数（点击展开单句直出 / 切换实机 Live）</span>
+            <span class="pill" id="wfagentModeSummaryBadge" style="font-size:11px;">安全影子调试 Shadow</span>
+          </summary>
+          <div style="margin-bottom:8px;">
+            <textarea id="wfagentGoalInput" class="input" rows="2" placeholder="用大白话描述你要新增的跨软件工作流（例如：从飞书客户聊天中提取微信号，用智拓巨浪话术自报家门加微信，备注飞书引流并写入后端CRM档案）"></textarea>
+          </div>
+          <div class="kb-chip-row" style="margin-bottom:10px;">
+            <button type="button" class="kb-chip" onclick="wfagentFillChip('feishu_wx')">🪶 飞书客户引流加微信 + CRM 建档</button>
+            <button type="button" class="kb-chip" onclick="wfagentFillChip('feishu_doc')">📋 飞书待办汇总写文档简报</button>
+            <button type="button" class="kb-chip" onclick="wfagentFillChip('calc_doc')">🧮 计算器验算 + 文本编辑出报告（本机实测）</button>
+          </div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px; font-size:12.5px;">
+            <label style="display:inline-flex; align-items:center; gap:6px;">
+              <span>验证模式：</span>
+              <select id="wfagentModeSelect" class="input" style="width:auto; min-width:240px; padding:4px 8px; font-size:12px;" onchange="wfagentSyncModeSummary()">
+                <option value="shadow">安全影子调试 Shadow · 推荐（绝不乱发外部消息）</option>
+                <option value="dry_run">仅静态方案与控件预检 (Dry-Run)</option>
+                <option value="live">实机联跑调试 Live（需二次确认 · 适合本地办公软件）</option>
+              </select>
+            </label>
+            <label style="display:inline-flex; align-items:center; gap:6px;">
+              <span>最多自动修补轮次：</span>
+              <input id="wfagentMaxRoundsInput" type="number" min="1" max="5" value="4" class="input" style="width:62px; padding:4px 8px; font-size:12px;" />
+            </label>
+            <label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer;">
+              <input id="wfagentOminiChk" type="checkbox" />
+              <span>启用 Omini 独立安全审查</span>
+            </label>
+            <label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer;">
+              <input id="wfagentExportSkillChk" type="checkbox" checked />
+              <span>验证通过后自动导出 Skill</span>
+            </label>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button type="button" class="btn-outline sm" id="wfagentSpecBtn" onclick="wfagentProposeSpec()">1️⃣ 生成方案与验收标准 (Spec)</button>
+            <button type="button" class="btn-solid sm" id="wfagentRunBtn" onclick="wfagentRunAuthorDebugClick()">2️⃣ 自动写流程并自己调试好</button>
+            <button type="button" class="btn-outline sm" id="wfagentRepairCurrentBtn" onclick="wfagentDebugCurrentWorkflow()">🔧 对当前已载入流程一键智能修复</button>
+          </div>
+        </details>
+        <div class="grid-2" style="gap:10px;">
+          <div style="background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:10px;">
+            <div style="font-size:12px; font-weight:600; margin-bottom:6px;">📄 方案边界、安全门禁与验收标准</div>
+            <div id="wfagentSpecBox" style="font-size:12px; color:var(--text-secondary); max-height:220px; overflow-y:auto;">点击「生成方案与验收标准」或「自动写流程并自己调试好」，这里会显示识别到的应用、安全门禁与独立验收项。</div>
+          </div>
+          <div style="background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:10px;">
+            <div style="font-size:12px; font-weight:600; margin-bottom:6px;">🔁 逐轮自调试与补丁时间线</div>
+            <div id="wfagentTimelineBox" style="display:flex; flex-direction:column; gap:6px; max-height:220px; overflow-y:auto;">
+              <div style="font-size:12px; color:var(--text-muted);">尚未运行自调试循环；失败会自动定位根因、生成补丁版本并复跑验证。</div>
+            </div>
+          </div>
+        </div>
+        <div class="wfagent-edit-bar">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
+            <div style="font-size:12.5px; font-weight:700;">✏️ 一句话改当前流程（自动回归验证）</div>
+            <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+              <select id="wfagentEditWorkflowSelect" class="input" style="width:auto; min-width:160px; max-width:240px; padding:3px 8px; font-size:11.5px;" onchange="wfagentPickEditWorkflow(this.value)">
+                <option value="">切换要修改的流程…</option>
+              </select>
+              <span class="pill" id="wfagentEditTargetPill" style="font-size:11px;">尚未载入工作流</span>
+            </div>
+          </div>
+          <div class="kb-chip-row" style="margin-bottom:8px;">
+            <button type="button" class="kb-chip" onclick="wfagentFillEditChip('remark')">🏷️ 改备注前缀</button>
+            <button type="button" class="kb-chip" onclick="wfagentFillEditChip('branch')">🔀 加老客户跳过判断</button>
+            <button type="button" class="kb-chip" onclick="wfagentFillEditChip('crm_tag')">🔖 给CRM加标签</button>
+            <button type="button" class="kb-chip" onclick="wfagentFillEditChip('greeting')">💬 改打招呼话术</button>
+            <button type="button" class="kb-chip" onclick="wfagentFillEditChip('gate')">✋ 加人工确认门禁</button>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input id="wfagentEditInput" type="text" class="input" placeholder="用一句话修改已载入的工作流（例如：把备注前缀改成 飞书大客户- / 第3步之后加个判断如果微信号为空就跳过）" onkeydown="if(event.key==='Enter'){event.preventDefault();wfagentChatEditCurrent();}" />
+            <button type="button" class="btn-outline sm" id="wfagentEditBtn" style="flex-shrink:0;" onclick="wfagentChatEditCurrent()">✏️ 一句话修改并回归验证</button>
+          </div>
+          <div id="wfagentEditDiffBox" class="wfagent-edit-diff" style="color:var(--text-muted);">载入或生成工作流后，可在这里用一句话微调步骤、备注、分支或计算表达式；系统会自动备份旧版本并做安全体检与回归验证。</div>
+        </div>
+      </div>
+
       <div class="panel-card">
         <div class="section-header">
           <div>
@@ -5485,7 +5771,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       const more = document.querySelector(".nav-more");
       if (more) more.open = false;
       if (tab === "stats") loadBackgroundObservation();
-      if (tab === "omni") loadOmniChannels(false);
+      if (tab === "omni") { loadOmniChannels(false); loadDouyinFunnel(); }
       if (tab === "appuse") loadAppUseStudio(false);
       if (tab === "moments") loadMoments(false);
       if (tab === "sparring") loadSparringWorkspace(false);
@@ -11443,6 +11729,187 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       showToast("已释放 ego-browser 代理受控标签页");
     }
 
+    let DY_FUNNEL_ARMED_ID = "";
+    let WX_QUICK_ARMED = false;
+
+    function renderDouyinFunnel(data) {
+      const counts = data?.counts || {};
+      const quota = data?.quota || {};
+      const cfg = data?.config || {};
+      const strip = document.getElementById("dyFunnelStatsStrip");
+      if (strip) {
+        const cards = [
+          ["总线索", counts.total ?? 0],
+          ["待留微信号", counts.awaitingWechat ?? 0],
+          ["已提取微信号", counts.wechatCaptured ?? 0],
+          ["已发好友申请", counts.friendRequested ?? 0],
+          ["今日加好友余量", `${quota.remaining ?? 0}/${quota.dailyLimit ?? 15}`],
+        ];
+        strip.innerHTML = cards.map(([lbl, val]) => `
+          <div style="border:1px solid var(--border); border-radius:10px; padding:8px 10px; background:var(--surface-soft);">
+            <div style="font-size:11px; color:var(--text-muted);">${escapeHtml(lbl)}</div>
+            <div style="font-size:16px; font-weight:700; margin-top:2px;">${escapeHtml(String(val))}</div>
+          </div>
+        `).join("");
+      }
+      const rEl = document.getElementById("dyCfgReplyTpl");
+      const gEl = document.getElementById("dyCfgGreetingTpl");
+      const pEl = document.getElementById("dyCfgRemarkPrefix");
+      const lEl = document.getElementById("dyCfgDailyLimit");
+      if (rEl && !rEl.matches(":focus")) rEl.value = cfg.replyTemplate || "";
+      if (gEl && !gEl.matches(":focus")) gEl.value = cfg.wechatGreetingTemplate || "";
+      if (pEl && !pEl.matches(":focus")) pEl.value = cfg.wechatRemarkPrefix || "[抖音]";
+      if (lEl && !lEl.matches(":focus")) lEl.value = String(cfg.dailyAddLimit ?? 15);
+
+      const box = document.getElementById("dyFunnelLeadsBox");
+      if (!box) return;
+      const leads = Array.isArray(data?.leads) ? data.leads : [];
+      if (!leads.length) {
+        box.innerHTML = `<div style="color:var(--text-muted);">暂无抖音引流线索。可点击「扫描抖音私信并提取微信号」或先在抖音收到用户消息。</div>`;
+        return;
+      }
+      box.innerHTML = leads.map((l) => {
+        const wxBadge = l.wechatAccount
+          ? `<span class="pill" style="background:rgba(16,185,129,0.12); color:#047857;">微信号: ${escapeHtml(l.wechatAccount)}</span>`
+          : `<span class="pill">未留微信号</span>`;
+        return `
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 4px; border-bottom:1px solid var(--border); flex-wrap:wrap;">
+            <div style="min-width:220px; flex:1;">
+              <div style="font-weight:600;">${escapeHtml(l.douyinUser || "抖音访客")} ${wxBadge} <span class="pill">${escapeHtml(l.status || "new_message")}</span></div>
+              <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">${escapeHtml(l.lastIncoming || "")}</div>
+            </div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+              <button type="button" class="btn-outline sm" onclick="douyinFunnelSuggestReply('${escapeHtml(l.douyinUser || "")}')">💬 生成引导回复</button>
+              ${l.wechatAccount ? `
+                <button type="button" class="btn-outline sm" onclick="douyinFunnelAddWechat('${escapeHtml(l.leadId)}', false, true)">🔍 微信查号演练</button>
+                <button type="button" class="btn-outline sm" style="color:var(--danger); border-color:rgba(220,38,38,0.35);" onclick="douyinFunnelAddWechat('${escapeHtml(l.leadId)}', true, false, this)">➕ 发好友申请</button>
+              ` : ""}
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    async function loadDouyinFunnel() {
+      try {
+        const { data } = await apiJson("/api/douyin-funnel/overview");
+        if (data?.ok) renderDouyinFunnel(data);
+      } catch (_) {}
+    }
+
+    async function douyinFunnelSaveConfig() {
+      const updates = {
+        replyTemplate: document.getElementById("dyCfgReplyTpl")?.value?.trim() || "",
+        wechatGreetingTemplate: document.getElementById("dyCfgGreetingTpl")?.value?.trim() || "",
+        wechatRemarkPrefix: document.getElementById("dyCfgRemarkPrefix")?.value?.trim() || "[抖音]",
+        dailyAddLimit: Number(document.getElementById("dyCfgDailyLimit")?.value || 15),
+      };
+      const { data } = await apiJson("/api/douyin-funnel/config", {
+        method: "POST",
+        body: JSON.stringify({ updates }),
+      });
+      omniShowResult(data);
+      showToast("已保存抖音引流与微信加好友配置");
+      await loadDouyinFunnel();
+    }
+
+    async function douyinFunnelRunCycle(autoReply, autoAddWechat, dryRun) {
+      showToast("正在读取抖音私信并提取微信号...");
+      const { data } = await apiJson("/api/douyin-funnel/run-cycle", {
+        method: "POST",
+        body: JSON.stringify({
+          auto_reply: Boolean(autoReply),
+          auto_add_wechat: Boolean(autoAddWechat),
+          dry_run: Boolean(dryRun),
+          confirm_send: !dryRun,
+        }),
+      });
+      omniShowResult(data);
+      if (data?.overview) renderDouyinFunnel(data.overview);
+      if (data?.loginRequired) showToast("请先在抖音窗口扫码登录后再扫描");
+      else if (data?.ok) showToast(`已扫描 ${data.messageCount || 0} 条消息，提取 ${data.ingest?.capturedCount || 0} 个微信号`);
+    }
+
+    async function douyinFunnelSuggestReply(douyinUser) {
+      const { data } = await apiJson("/api/douyin-funnel/suggest-reply", {
+        method: "POST",
+        body: JSON.stringify({ douyin_user: douyinUser, surface: "dm" }),
+      });
+      omniShowResult(data);
+      const replyBox = document.getElementById("omniReplyInput");
+      const chSel = document.getElementById("omniChannelSelect");
+      const tgtIn = document.getElementById("omniTargetInput");
+      if (chSel) chSel.value = "douyin";
+      if (tgtIn) tgtIn.value = douyinUser;
+      if (replyBox && data?.text) replyBox.value = data.text;
+      showToast("已生成抖音合规引流话术到上方输入框");
+    }
+
+    async function douyinFunnelAddWechat(leadId, liveSend, probeUi, btnEl) {
+      if (liveSend && DY_FUNNEL_ARMED_ID !== leadId) {
+        DY_FUNNEL_ARMED_ID = leadId;
+        if (btnEl) btnEl.textContent = "⚠️ 再次点击确认实发";
+        showToast("再次点击按钮将真实发送微信好友申请");
+        setTimeout(() => {
+          if (DY_FUNNEL_ARMED_ID === leadId) {
+            DY_FUNNEL_ARMED_ID = "";
+            if (btnEl) btnEl.textContent = "➕ 发好友申请";
+          }
+        }, 6000);
+        return;
+      }
+      DY_FUNNEL_ARMED_ID = "";
+      const { data } = await apiJson("/api/douyin-funnel/add-wechat", {
+        method: "POST",
+        body: JSON.stringify({
+          lead: leadId,
+          dry_run: !liveSend,
+          probe_ui: Boolean(probeUi),
+          confirm_send: Boolean(liveSend),
+        }),
+      });
+      omniShowResult(data);
+      showToast(data?.sent ? "已发送微信好友申请" : `微信查号结果：${data?.lookupStatus || data?.status || "完成"}`);
+      await loadDouyinFunnel();
+    }
+
+    async function wechatQuickAddFriend(liveSend, probeUi) {
+      const account = (document.getElementById("wxQuickAccount")?.value || "").trim();
+      if (!account) {
+        showToast("请输入要查找或添加的微信号 / 手机号");
+        return;
+      }
+      const btn = document.getElementById("wxQuickConfirmBtn");
+      if (liveSend && !WX_QUICK_ARMED) {
+        WX_QUICK_ARMED = true;
+        if (btn) btn.textContent = "⚠️ 再次点击确认实发";
+        showToast("为防误触，请在 6 秒内再次点击确认发送好友申请");
+        setTimeout(() => {
+          WX_QUICK_ARMED = false;
+          if (btn) btn.textContent = "➕ 确认发送好友申请";
+        }, 6000);
+        return;
+      }
+      WX_QUICK_ARMED = false;
+      if (btn) btn.textContent = "➕ 确认发送好友申请";
+      const greeting = (document.getElementById("wxQuickGreeting")?.value || "").trim();
+      const remark = (document.getElementById("wxQuickRemark")?.value || "").trim();
+      const { data } = await apiJson("/api/wechat/add-friend", {
+        method: "POST",
+        body: JSON.stringify({
+          account,
+          greeting,
+          remark,
+          source_channel: "douyin",
+          dry_run: !liveSend,
+          probe_ui: Boolean(probeUi),
+          confirm_send: Boolean(liveSend),
+        }),
+      });
+      omniShowResult(data);
+      showToast(data?.sent ? "已发送微信好友申请" : `查号完成：${data?.lookupStatus || data?.status || "OK"}`);
+    }
+
     // ------------------------------------------------------------------
     // Universal App-Use & Any-Agent SOP Studio (#tab-appuse)
     // ------------------------------------------------------------------
@@ -11573,6 +12040,91 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       }
     }
 
+    const WFAGENT_APP_LABELS = {
+      "com.bytedance.macos.feishu": "飞书",
+      "com.tencent.xinWeChat": "微信",
+      "com.tencent.WeWorkMac": "企业微信",
+      "com.alibaba.DingTalkMac": "钉钉",
+      "com.ss.iphone.ugc.Aweme": "抖音",
+      "com.xingin.xhs": "小红书",
+      "com.apple.calculator": "计算器",
+      "com.apple.TextEdit": "文本编辑",
+      "com.apple.Notes": "备忘录",
+      "com.apple.Safari": "Safari 浏览器",
+    };
+
+    const WFAGENT_ACTION_LABELS = {
+      switch_app: "切换应用",
+      activate_app: "打开应用",
+      inspect_ui: "读取界面",
+      wait_and_read: "等待回读",
+      llm_extract: "提取信息",
+      llm_draft: "生成话术",
+      branch_if: "条件判断",
+      pause_for_human: "✋ 人工确认",
+      builtin_tool: "内置动作",
+      assert_check: "✅ 结果验收",
+      focus_and_type: "输入文字",
+      press_shortcut: "快捷键",
+      click: "点击按钮",
+    };
+
+    const WFAGENT_RISK_LABELS = {
+      high_risk_social: "高风控社交·已护栏",
+      moderate_agent_or_web: "中风控·网页/AI",
+      safe_native: "低风险原生应用",
+    };
+
+    const WFAGENT_PHASE_LABELS = {
+      clarifying: "待补充细节",
+      ready_to_build: "待确认生成",
+      built_and_debugged: "已完成调试",
+    };
+
+    const WFAGENT_STATUS_LABELS = {
+      shadow_verified: "影子验证通过",
+      verified: "实机验证通过",
+      dry_run_passed: "静态预检通过",
+      effect_ok: "实机结果已验收",
+      shadow_only: "影子安全预览",
+      dry_run_only: "静态预检",
+      shadow: "影子模式",
+      live: "实机模式",
+      dry_run: "预检模式",
+    };
+
+    function wfagentFormatAppLabel(bid) {
+      return WFAGENT_APP_LABELS[bid] || bid;
+    }
+
+    function wfagentFormatStepMeta(s) {
+      if (!s || typeof s !== "object") return "";
+      const p = s.params && typeof s.params === "object" ? s.params : {};
+      if (s.action === "builtin_tool") {
+        if (s.tool === "wechat_add_friend" && p.remark) return `备注：${p.remark}`;
+        if (s.tool === "crm_enroll") {
+          const tags = Array.isArray(p.tags) ? p.tags.join("/") : "";
+          return `阶段：${p.stage || "-"}${tags ? ` · 标签：${tags}` : ""}`;
+        }
+        return s.tool ? `工具：${s.tool}` : "";
+      }
+      if (s.action === "branch_if") {
+        return `判断：${s.var || ""} ${s.operator || ""}${s.value ? " " + s.value : ""}`.trim();
+      }
+      if (s.action === "assert_check") {
+        return `验收包含：${s.expected || "非空"}`;
+      }
+      if (s.action === "press_shortcut") {
+        return s.combo ? `快捷键：${s.combo}` : (s.sequence ? `按键：${s.sequence}` : "");
+      }
+      return "";
+    }
+
+    function wfagentPickEditWorkflow(wid) {
+      if (!wid) return;
+      loadSavedAppUseWorkflow(encodeURIComponent(wid));
+    }
+
     function renderAppUseWorkflow(wf) {
       APPUSE_CURRENT_WF = wf || null;
       appuseResetLiveArm();
@@ -11580,11 +12132,22 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       const stepsEl = document.getElementById("appuseStepsBox");
       const sopEl = document.getElementById("appuseSopPreview");
       const paramsEl = document.getElementById("appuseRunParamsInput");
+      const editPillEl = document.getElementById("wfagentEditTargetPill");
+      const editSelEl = document.getElementById("wfagentEditWorkflowSelect");
       if (!wf) {
         if (metaEl) metaEl.textContent = "等待生成或选择流程";
         if (stepsEl) stepsEl.innerHTML = `<div style="font-size:12px; color:var(--text-muted);">暂无步骤</div>`;
         if (sopEl) sopEl.textContent = "等待 Agent 生成 SOP…";
+        if (editPillEl) { editPillEl.textContent = "尚未载入工作流"; editPillEl.className = "pill"; }
+        if (editSelEl) editSelEl.value = "";
         return;
+      }
+      if (editPillEl) {
+        editPillEl.textContent = `当前修改对象：${wf.name || wf.id} (v${wf.version || 1})`;
+        editPillEl.className = "pill ok";
+      }
+      if (editSelEl && Array.from(editSelEl.options).some((o) => o.value === wf.id)) {
+        editSelEl.value = wf.id;
       }
       const tapp = wf.targetApp || {};
       const bag = wf.builderAgent || {};
@@ -11600,8 +12163,10 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       const readyBadge = document.getElementById("appuseReadinessBadge");
       if (readyBadge) {
         const rd = wf.readiness || {};
-        readyBadge.textContent = rd.score !== undefined ? `就绪度：${rd.grade || "-"} (${rd.score}分)` : "就绪度：已加载";
-        readyBadge.className = "pill " + (Number(rd.score || 0) >= 70 ? "ok" : "");
+        const vMap = { verified: "✅ 已实机验证", shadow_verified: "🛡️ 影子验证通过", dry_run_only: "🧪 仅静态演练" };
+        const vTxt = wf.verificationStatus && vMap[wf.verificationStatus] ? ` · ${vMap[wf.verificationStatus]}` : "";
+        readyBadge.textContent = (rd.score !== undefined ? `就绪度：${rd.grade || "-"} (${rd.score}分)` : "就绪度：已加载") + vTxt;
+        readyBadge.className = "pill " + (wf.verificationStatus === "verified" || Number(rd.score || 0) >= 70 ? "ok" : "");
       }
       if (sopEl) sopEl.textContent = wf.sopMarkdown || "";
       if (paramsEl) {
@@ -11611,23 +12176,41 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       }
       if (stepsEl) {
         const steps = wf.steps || [];
-        stepsEl.innerHTML = steps.map((s) => `
-          <div class="appuse-step-card">
+        stepsEl.innerHTML = steps.map((s) => {
+          const actionLabel = WFAGENT_ACTION_LABELS[s.action] || s.action;
+          const stepMeta = wfagentFormatStepMeta(s);
+          const accentStyle = s.action === "pause_for_human"
+            ? "border-left:3px solid #f59e0b;"
+            : (s.action === "assert_check" ? "border-left:3px solid #10b981;" : "");
+          return `
+          <div class="appuse-step-card" style="${accentStyle}">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:3px; flex-wrap:wrap;">
-              <strong>Step ${s.step} · ${escapeHtml(s.title)}</strong>
+              <strong>第 ${s.step} 步 · ${escapeHtml(s.title)}</strong>
               <span style="display:inline-flex; gap:4px; align-items:center;">
-                ${s.captureAs ? `<span class="pill ok">var: ${escapeHtml(s.captureAs)}</span>` : ""}
-                <span class="pill">${escapeHtml(s.action)}</span>
+                ${s.captureAs ? `<span class="pill ok">输出：${escapeHtml(s.captureAs)}</span>` : ""}
+                <span class="pill" title="${escapeHtml(s.action)}">${escapeHtml(actionLabel)}</span>
               </span>
             </div>
             <div style="font-size:12px; color:var(--text-secondary);">${escapeHtml(s.description || "")}</div>
+            ${stepMeta ? `<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${escapeHtml(stepMeta)}</div>` : ""}
           </div>
-        `).join("");
+        `;
+        }).join("");
       }
     }
 
     function renderSavedAppUseWorkflows() {
       const box = document.getElementById("appuseSavedList");
+      const editSel = document.getElementById("wfagentEditWorkflowSelect");
+      if (editSel) {
+        const curId = APPUSE_CURRENT_WF?.id || editSel.value || "";
+        editSel.innerHTML = `<option value="">切换要修改的流程 (${APPUSE_WORKFLOWS.length})…</option>` + APPUSE_WORKFLOWS.map((wf) => (
+          `<option value="${escapeHtml(wf.id)}">${escapeHtml(wf.name || wf.id)} (v${wf.version || 1})</option>`
+        )).join("");
+        if (curId && APPUSE_WORKFLOWS.some((w) => w.id === curId)) {
+          editSel.value = curId;
+        }
+      }
       if (!box) return;
       if (!APPUSE_WORKFLOWS.length) {
         box.innerHTML = `<div style="font-size:12.5px; color:var(--text-muted);">暂未保存 App-Use 流程，请在上方选择一个应用与 Agent 自动生成。</div>`;
@@ -11638,6 +12221,12 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         const st = wf.stats || {};
         const gradeTag = rd.grade ? `<span class="pill ${Number(rd.score || 0) >= 70 ? "ok" : ""}" style="font-size:10.5px;">${escapeHtml(rd.grade)} (${rd.score ?? "-"})</span>` : "";
         const rateTag = st.runs ? ` · 成功率 ${Math.round(Number(st.successRate || 0) * 100)}% (${st.runs}次)` : "";
+        const vMap = {
+          verified: `<span class="pill wfagent-badge-pass" style="font-size:10.5px;">✅ 已验证</span>`,
+          shadow_verified: `<span class="pill wfagent-badge-fix" style="font-size:10.5px;">🛡️ 影子验证</span>`,
+          dry_run_only: `<span class="pill" style="font-size:10.5px;">🧪 仅演练</span>`,
+        };
+        const vTag = vMap[wf.verificationStatus] || "";
         return `
         <div class="appuse-step-card" style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
           <div style="min-width:0;">
@@ -11645,10 +12234,12 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
               <span>${escapeHtml(wf.name)}</span>
               <span style="font-weight:400; color:var(--text-muted);">v${wf.version || 1}</span>
               ${gradeTag}
+              ${vTag}
             </div>
             <div style="font-size:11px; color:var(--text-muted);">${escapeHtml((wf.targetApp || {}).name || "")} · ${(wf.steps || []).length} 步 · ${escapeHtml((wf.builderAgent || {}).modelId || "")}${escapeHtml(rateTag)}</div>
           </div>
           <div style="display:flex; gap:6px; flex-shrink:0;">
+            <button type="button" class="btn-outline sm" onclick="wfagentDebugSaved('${encArg(wf.id)}')">🔧 修复</button>
             <button type="button" class="btn-outline sm" onclick="loadSavedAppUseWorkflow('${encArg(wf.id)}')">载入</button>
             <button type="button" class="btn-outline sm" onclick="deleteSavedAppUseWorkflow('${encArg(wf.id)}')">删除</button>
           </div>
@@ -11689,6 +12280,7 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
       renderAppUseStateGraph();
       renderAppUseConcurrency();
       renderAppUseRecording(recRes.data || {});
+      await wfagentLoadSessions();
       if (!APPUSE_CURRENT_WF && APPUSE_WORKFLOWS.length) {
         renderAppUseWorkflow(APPUSE_WORKFLOWS[0]);
       }
@@ -12418,6 +13010,647 @@ POST /api/watch-once      -> 立即执行一轮实时监控巡检</pre>
         } else {
           showToast(data?.error || "安装失败");
         }
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = prev; }
+      }
+    }
+
+    // Workflow Agent Self-Authoring & Self-Debugging Studio (v3.1)
+    let WFAGENT_LIVE_ARMED = false;
+    let WFAGENT_LIVE_TIMER = null;
+
+    function wfagentResetLiveArm() {
+      WFAGENT_LIVE_ARMED = false;
+      clearTimeout(WFAGENT_LIVE_TIMER);
+      const btn = document.getElementById("wfagentRunBtn");
+      if (btn) btn.textContent = "2️⃣ 自动写流程并自己调试好";
+    }
+
+    function wfagentSyncModeSummary() {
+      const modeEl = document.getElementById("wfagentModeSelect");
+      const badge = document.getElementById("wfagentModeSummaryBadge");
+      if (!modeEl || !badge) return;
+      const labels = {
+        shadow: "安全影子调试 Shadow",
+        dry_run: "静态预检 Dry-Run",
+        live: "实机联跑 Live",
+      };
+      badge.textContent = labels[modeEl.value] || modeEl.value || "Shadow";
+      badge.className = modeEl.value === "live" ? "pill wfagent-badge-fix" : "pill";
+    }
+
+    function wfagentFillChip(kind) {
+      const goalEl = document.getElementById("wfagentGoalInput");
+      const modeEl = document.getElementById("wfagentModeSelect");
+      if (!goalEl) return;
+      if (kind === "feishu_wx") {
+        goalEl.value = "从飞书客户聊天中提取微信号，用智拓巨浪话术自报家门加微信，备注飞书引流并写入后端CRM档案";
+        if (modeEl) modeEl.value = "shadow";
+      } else if (kind === "feishu_doc") {
+        goalEl.value = "读取飞书当前聊天或待办内容，提炼关键事项并在文本编辑中新建简报文档保存";
+        if (modeEl) modeEl.value = "shadow";
+      } else if (kind === "calc_doc") {
+        goalEl.value = "打开计算器计算 125*8 并提取数值结果，随后切换到文本编辑新建文档写入计算简报并回读验证";
+        if (modeEl) modeEl.value = "live";
+      }
+      wfagentSyncModeSummary();
+      wfagentResetLiveArm();
+    }
+
+    function wfagentRenderSpec(spec, lintReport) {
+      const box = document.getElementById("wfagentSpecBox");
+      if (!box) return;
+      if (!spec) { box.textContent = "暂无方案"; return; }
+      const apps = (spec.targetApps || []).map((a) => {
+        const nm = wfagentFormatAppLabel(a.bundleID) !== a.bundleID
+          ? wfagentFormatAppLabel(a.bundleID)
+          : (a.name || a.bundleID);
+        const rk = WFAGENT_RISK_LABELS[a.riskTier] || a.riskTier || "低风险原生应用";
+        return `${nm} [${rk}]`;
+      }).join(" → ");
+      const lintOk = lintReport ? lintReport.ok : true;
+      const criticHtml = spec.ominiCriticReview?.review
+        ? `<div style="margin-top:6px; padding:6px 8px; border-radius:8px; background:rgba(22,119,255,0.06);"><strong>Omini 安全审查：</strong>${escapeHtml(spec.ominiCriticReview.review)}</div>`
+        : "";
+      box.innerHTML = `
+        <div style="margin-bottom:4px;"><strong>涉及软件链路：</strong>${escapeHtml(apps || "自动识别")}</div>
+        <div style="margin-bottom:4px;"><strong>安全体检评分：</strong><span class="pill ${lintOk ? "wfagent-badge-pass" : "wfagent-badge-gate"}">${lintReport?.score ?? 100} 分 (${lintOk ? "安全校验通过" : "存在告警"})</span></div>
+        <div style="margin-bottom:4px;"><strong>安全护栏：</strong>${(spec.safetyBoundaries || []).slice(0, 3).map((x) => escapeHtml(x)).join(" · ")}</div>
+        <div><strong>独立验收项：</strong>${(spec.acceptanceCriteria || []).map((x) => escapeHtml(x)).join(" / ") || "动作后 UI/工具独立断言"}</div>
+        ${criticHtml}
+      `;
+    }
+
+    function wfagentRenderShadowPreviewsHtml(previews) {
+      const list = Array.isArray(previews) ? previews : [];
+      if (!list.length) return "";
+      const items = list.slice(0, 5).map((p) => {
+        if (!p || typeof p !== "object") return "";
+        const tool = String(p.tool || p.action || "");
+        const params = p.params && typeof p.params === "object" ? p.params : {};
+        if (tool === "wechat_add_friend") {
+          const acct = params.account ? `账号：${params.account}` : "";
+          const rem = params.remark ? `备注：${params.remark}` : "";
+          const gr = params.greeting ? `打招呼：「${params.greeting}」` : "（无自我介绍打招呼语）";
+          const txt = [acct, rem, gr].filter(Boolean).join(" · ");
+          return `<div>➕ <strong>微信加好友（Shadow 已拦截未真实外发）</strong>：${escapeHtml(txt)}</div>`;
+        }
+        if (tool === "crm_enroll") {
+          const tags = Array.isArray(params.tags) ? params.tags.join(", ") : "";
+          return `<div>📇 <strong>CRM 建档预览</strong>：${escapeHtml(params.target || "")}${tags ? ` · 标签 [${escapeHtml(tags)}]` : ""}</div>`;
+        }
+        if (tool === "memory_add") {
+          return `<div>🧠 <strong>本我记忆预览</strong>：${escapeHtml(params.content || params.target || "")}</div>`;
+        }
+        if (p.action === "pause_for_human") {
+          return `<div>✋ <strong>人工确认门禁</strong>：${escapeHtml(p.message || "发送前暂停确认")}</div>`;
+        }
+        return `<div>🛡️ <strong>${escapeHtml(tool || "拦截动作")}</strong>：${escapeHtml(JSON.stringify(params || p).slice(0, 120))}</div>`;
+      }).filter(Boolean).join("");
+      return items ? `<div class="wfagent-shadow-preview">${items}</div>` : "";
+    }
+
+    function wfagentRenderTimeline(sessionDoc) {
+      const pill = document.getElementById("wfagentStatusPill");
+      const box = document.getElementById("wfagentTimelineBox");
+      if (pill) {
+        const sMap = {
+          verified: ["✅ 已实机验证可复用", "pill wfagent-badge-pass"],
+          shadow_verified: ["🛡️ 影子调试通过（外发已安全预览）", "pill wfagent-badge-fix"],
+          dry_run_passed: ["🧪 静态方案演练通过", "pill ok"],
+          paused_auth_gate: ["🔐 遇到登录/授权弹窗已暂停", "pill wfagent-badge-gate"],
+          needs_human_demo: ["🎬 连续同因失败，建议录制一次人工示范", "pill wfagent-badge-gate"],
+        };
+        const chosen = sMap[sessionDoc?.status] || [`状态：${sessionDoc?.status || "完成"}`, "pill"];
+        pill.textContent = chosen[0];
+        pill.className = chosen[1];
+      }
+      if (!box) return;
+      const rounds = sessionDoc?.debugRounds || [];
+      if (!rounds.length) {
+        box.innerHTML = `<div style="font-size:12px; color:var(--text-muted);">暂无调试轮次记录。</div>`;
+        return;
+      }
+      const lastPreviews = Array.isArray(sessionDoc?.lastRun?.shadowPreviews) ? sessionDoc.lastRun.shadowPreviews : [];
+      box.innerHTML = rounds.map((r, idx) => {
+        const artName = r.artifactName || (r.screenshotPath ? String(r.screenshotPath).split(/[\\/]/).pop() : "");
+        const thumbHtml = artName
+          ? `<a href="/api/app-use/artifact/${encodeURIComponent(artName)}" target="_blank" title="点击查看高清截图存证" style="display:inline-flex; align-items:center; gap:6px; margin-top:4px; text-decoration:none;"><img src="/api/app-use/artifact/${encodeURIComponent(artName)}" alt="调试截图" style="width:96px; max-height:60px; object-fit:cover; border-radius:6px; border:1px solid var(--border);" loading="lazy" /><span style="font-size:11px; color:var(--text-muted);">📸 查看界面截图</span></a>`
+          : "";
+        const roundPreviews = Array.isArray(r.shadowPreviews) && r.shadowPreviews.length
+          ? r.shadowPreviews
+          : (idx === rounds.length - 1 ? lastPreviews : []);
+        const previewHtml = wfagentRenderShadowPreviewsHtml(roundPreviews);
+        const modeOrEvRaw = String(r.evidenceLevel || r.executionMode || "");
+        const modeOrEvLabel = WFAGENT_STATUS_LABELS[modeOrEvRaw] || modeOrEvRaw;
+        return `
+        <div class="wfagent-round-card">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; flex-wrap:wrap;">
+            <strong>第 ${r.round} 轮 · 流程 v${r.workflowVersion} (${escapeHtml(modeOrEvLabel)})</strong>
+            <span class="pill ${r.ok ? "wfagent-badge-pass" : "wfagent-badge-gate"}">${r.ok ? "✅ 全部断言通过" : `❌ ${escapeHtml(r.failureCategory || r.errorCode || "未通过")}`}</span>
+          </div>
+          ${r.error ? `<div style="color:#b91c1c; font-size:11.5px;">失败原因：${escapeHtml(r.error)}</div>` : ""}
+          ${r.patchSummary ? `<div style="color:#b45309; font-size:11.5px;">🔧 自动诊断与补丁：${escapeHtml(r.patchSummary)}</div>` : ""}
+          ${(r.shadowPreviewsCount || 0) > 0 ? `<div style="color:var(--text-secondary); font-size:11.5px;">🛡️ Shadow 模式已安全拦截 ${r.shadowPreviewsCount} 处高风险外发/门禁</div>` : ""}
+          ${previewHtml}
+          ${thumbHtml}
+        </div>
+      `;
+      }).join("");
+    }
+
+    async function wfagentProposeSpec() {
+      const goal = document.getElementById("wfagentGoalInput")?.value?.trim() || "";
+      if (!goal) { showToast("请先输入你的场景需求"); return; }
+      const useCritic = Boolean(document.getElementById("wfagentOminiChk")?.checked);
+      const agentId = document.getElementById("appuseAgentSelect")?.value || "";
+      const btn = document.getElementById("wfagentSpecBtn");
+      if (btn) { btn.disabled = true; btn.textContent = "⏳ 正在识别软件与生成 Spec…"; }
+      try {
+        const { data } = await apiJson("/api/workflow-agent/spec", {
+          method: "POST",
+          body: JSON.stringify({ goal, agent_id: agentId, inspect_live: true, use_omini_critic: useCritic }),
+        });
+        if (data?.ok) {
+          wfagentRenderSpec(data.spec, data.lintReport);
+          if (data.workflow) renderAppUseWorkflow(data.workflow);
+          document.getElementById("appuseRunReceiptBox").textContent = JSON.stringify(data.spec, null, 2);
+          showToast("已生成 OpenSpec 方案与独立验收标准");
+        } else {
+          showToast(data?.error || "Spec 生成失败");
+        }
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "1️⃣ 生成方案与验收标准 (Spec)"; }
+      }
+    }
+
+    function wfagentRunAuthorDebugClick() {
+      const mode = document.getElementById("wfagentModeSelect")?.value || "shadow";
+      if (mode === "live" && !WFAGENT_LIVE_ARMED) {
+        WFAGENT_LIVE_ARMED = true;
+        const btn = document.getElementById("wfagentRunBtn");
+        if (btn) btn.textContent = "⚠️ 再次点击确认实机联跑调试";
+        clearTimeout(WFAGENT_LIVE_TIMER);
+        WFAGENT_LIVE_TIMER = setTimeout(wfagentResetLiveArm, 5000);
+        return;
+      }
+      wfagentResetLiveArm();
+      wfagentRunAuthorDebug();
+    }
+
+    async function wfagentRunAuthorDebug() {
+      const goal = document.getElementById("wfagentGoalInput")?.value?.trim() || "";
+      if (!goal) { showToast("请先输入你想让 AI 自建的场景需求"); return; }
+      const mode = document.getElementById("wfagentModeSelect")?.value || "shadow";
+      const maxRounds = Number(document.getElementById("wfagentMaxRoundsInput")?.value || 4) || 4;
+      const useCritic = Boolean(document.getElementById("wfagentOminiChk")?.checked);
+      const autoExport = Boolean(document.getElementById("wfagentExportSkillChk")?.checked);
+      const agentId = document.getElementById("appuseAgentSelect")?.value || "";
+      const btn = document.getElementById("wfagentRunBtn");
+      if (btn) { btn.disabled = true; btn.textContent = "⏳ AI 正在自建并多轮调试…"; }
+      try {
+        const { data } = await apiJson("/api/workflow-agent/author-debug", {
+          method: "POST",
+          body: JSON.stringify({
+            goal,
+            agent_id: agentId,
+            mode,
+            max_debug_rounds: maxRounds,
+            confirm_run: mode === "live",
+            respect_human_guard: true,
+            inspect_live: true,
+            use_omini_critic: useCritic,
+            auto_export_skill: autoExport,
+          }),
+        });
+        if (data?.spec) wfagentRenderSpec(data.spec, data.spec.lintReport);
+        wfagentRenderTimeline(data);
+        if (data?.workflow) renderAppUseWorkflow(data.workflow);
+        document.getElementById("appuseRunReceiptBox").textContent = JSON.stringify(data, null, 2);
+        await appuseRefreshWorkflowsList();
+        await appuseRefreshRuns();
+        showToast(data?.ok ? `自调试成功 (${data.roundsUsed} 轮 · ${data.status})` : `已结束 (${data?.status || data?.error || "需关注"})`);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "2️⃣ 自动写流程并自己调试好"; }
+      }
+    }
+
+    async function wfagentDebugSaved(encodedId) {
+      const wid = decodeURIComponent(encodedId);
+      await wfagentDebugWorkflowById(wid);
+    }
+
+    async function wfagentDebugCurrentWorkflow() {
+      if (!APPUSE_CURRENT_WF?.id) { showToast("请先生成或载入一条已保存流程"); return; }
+      await wfagentDebugWorkflowById(APPUSE_CURRENT_WF.id);
+    }
+
+    async function wfagentDebugWorkflowById(wid) {
+      const mode = document.getElementById("wfagentModeSelect")?.value || "shadow";
+      const maxRounds = Number(document.getElementById("wfagentMaxRoundsInput")?.value || 3) || 3;
+      const agentId = document.getElementById("appuseAgentSelect")?.value || "";
+      const btn = document.getElementById("wfagentRepairCurrentBtn");
+      if (btn) { btn.disabled = true; btn.textContent = "⏳ 智能诊断修复中…"; }
+      try {
+        const { data } = await apiJson("/api/workflow-agent/debug", {
+          method: "POST",
+          body: JSON.stringify({
+            workflow_id: wid,
+            mode: mode === "live" ? "shadow" : mode,
+            max_debug_rounds: maxRounds,
+            confirm_run: false,
+            agent_id: agentId,
+          }),
+        });
+        wfagentRenderTimeline(data);
+        if (data?.workflow) renderAppUseWorkflow(data.workflow);
+        document.getElementById("appuseRunReceiptBox").textContent = JSON.stringify(data, null, 2);
+        await appuseRefreshWorkflowsList();
+        showToast(data?.ok ? "智能修复与重跑验证通过" : `修复未完成：${data?.status || data?.error || ""}`);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "🔧 对当前已载入流程一键智能修复"; }
+      }
+    }
+
+    async function wfagentLoadSessions() {
+      try {
+        const { data } = await apiJson("/api/workflow-agent/sessions?limit=5");
+        const latest = (data?.sessions || [])[0];
+        if (latest) {
+          if (latest.spec) wfagentRenderSpec(latest.spec, latest.spec.lintReport);
+          wfagentRenderTimeline(latest);
+        }
+      } catch (e) { /* ignore */ }
+      await wfagentLoadChats(true);
+    }
+
+    // Conversational Chat-to-Workflow & Chat-to-Edit (v3.2)
+    let WFAGENT_CHAT_ID = "";
+    let WFAGENT_CHAT_MESSAGES = [];
+    let WFAGENT_CHATS_LIST = [];
+
+    function wfagentGetParamsSafe() {
+      try {
+        const raw = document.getElementById("appuseRunParamsInput")?.value?.trim() || "{}";
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+      } catch (e) {
+        return {};
+      }
+    }
+
+    function wfagentRenderChatLog(messages, collectedConfig) {
+      const logEl = document.getElementById("wfagentChatLog");
+      if (!logEl) return;
+      const list = Array.isArray(messages) ? messages : [];
+      if (!list.length) {
+        logEl.innerHTML = `
+          <div class="wfagent-chat-msg is-assistant">你好！直接用大白话告诉我你想让软件自动做什么（例如「帮我搞个飞书同步」或「帮我把钉钉客户提取微信号加微信」），我会通过几个简单的选择题帮你理清条件、客户备注和确认门禁，然后自动生成并安全试跑。</div>
+          <div class="kb-chip-row" style="margin:2px 0 0;">
+            <button type="button" class="kb-chip" onclick="wfagentPickChatOption('${encArg("帮我搞个飞书同步")}')">💬 试一试：帮我搞个飞书同步</button>
+            <button type="button" class="kb-chip" onclick="wfagentPickChatOption('${encArg("帮我把钉钉客户提取微信号加微信")}')">🔔 试一试：钉钉客户引流加微信</button>
+            <button type="button" class="kb-chip" onclick="wfagentPickChatOption('${encArg("读取飞书待办汇总并写文本简报")}')">📋 试一试：飞书待办写简报</button>
+          </div>
+        `;
+        return;
+      }
+      logEl.innerHTML = list.map((m) => {
+        const isUser = m.role === "user";
+        const roleLabel = isUser ? "你" : "AI 流程助手";
+        const tsTxt = m.at ? ` · ${escapeHtml(String(m.at).slice(11, 19))}` : "";
+        return `
+          <div class="wfagent-chat-msg ${isUser ? "is-user" : "is-assistant"}">
+            <div style="font-size:10.5px; color:var(--text-muted); margin-bottom:2px;">${roleLabel}${tsTxt}</div>
+            <div>${escapeHtml(m.text || "")}</div>
+          </div>
+        `;
+      }).join("");
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function wfagentRenderChatOptions(phase, questions, collectedConfig) {
+      const box = document.getElementById("wfagentChatOptions");
+      if (!box) return;
+      const parts = [];
+      const cfg = collectedConfig && typeof collectedConfig === "object" ? collectedConfig : {};
+      const cfgTags = [];
+      const appLabels = Array.isArray(cfg.targetAppLabels) && cfg.targetAppLabels.length
+        ? cfg.targetAppLabels
+        : (Array.isArray(cfg.targetApps) ? cfg.targetApps.map(wfagentFormatAppLabel) : []);
+      if (appLabels.length) {
+        cfgTags.push(`软件：${appLabels.join(" → ")}`);
+      }
+      if (cfg.remarkPrefix) {
+        cfgTags.push(`备注前缀：${cfg.remarkPrefix}`);
+      }
+      if (cfg.skipGreeting) {
+        cfgTags.push("不发自我介绍");
+      } else if (cfg.greeting) {
+        cfgTags.push(`话术：${String(cfg.greeting).slice(0, 18)}${String(cfg.greeting).length > 18 ? "…" : ""}`);
+      }
+      if (cfg.requireConfirm !== undefined) {
+        cfgTags.push(cfg.requireConfirm ? "外发需人工确认" : "无需外发门禁");
+      }
+      if (cfgTags.length) {
+        parts.push(`<div style="display:flex; gap:6px; flex-wrap:wrap;">${cfgTags.map((t) => `<span class="pill" style="font-size:11px;">${escapeHtml(t)}</span>`).join("")}</div>`);
+      }
+      const qList = Array.isArray(questions) ? questions : [];
+      qList.forEach((q) => {
+        const opts = Array.isArray(q.options) ? q.options : [];
+        const qTitle = q.question ? `<div style="font-size:11.5px; font-weight:600; color:var(--text-secondary); margin-bottom:4px;">${escapeHtml(q.question)}</div>` : "";
+        const pills = opts.map((opt) => `<button type="button" class="kb-chip" onclick="wfagentPickChatOption('${encArg(opt)}')">${escapeHtml(opt)}</button>`).join("");
+        parts.push(`<div>${qTitle}<div class="kb-chip-row" style="margin-bottom:2px;">${pills}</div></div>`);
+      });
+      if (phase === "ready_to_build") {
+        parts.push(`
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <button type="button" class="btn-solid sm" onclick="wfagentConfirmChatBuild()">✅ 确认并自动调试</button>
+            <span style="font-size:11.5px; color:var(--text-muted);">也可以继续补充条件，或直接点左侧按钮开始生成并调试。</span>
+          </div>
+        `);
+      } else if (phase === "built_and_debugged") {
+        parts.push(`<div style="display:flex; gap:6px; align-items:center;"><span class="pill wfagent-badge-pass">🎉 已完成生成与自动调试 · 可在下方继续「一句话改当前流程」</span></div>`);
+      }
+      box.innerHTML = parts.join("");
+    }
+
+    function wfagentPickChatOption(encodedOption) {
+      const opt = decodeURIComponent(encodedOption || "");
+      if (!opt) return;
+      wfagentSendChat(opt);
+    }
+
+    function wfagentConfirmChatBuild() {
+      wfagentSendChat("确认开始调试");
+    }
+
+    function wfagentResetChat() {
+      WFAGENT_CHAT_ID = "";
+      WFAGENT_CHAT_MESSAGES = [];
+      const sel = document.getElementById("wfagentChatHistorySelect");
+      if (sel) sel.value = "";
+      const inp = document.getElementById("wfagentChatInput");
+      if (inp) { inp.value = ""; inp.focus(); }
+      wfagentRenderChatLog([], {});
+      wfagentRenderChatOptions("", [], {});
+      showToast("已开启新的对话式建流程会话");
+    }
+
+    function wfagentApplyChatPayload(data) {
+      if (!data) return;
+      if (data.chatId) WFAGENT_CHAT_ID = data.chatId;
+      if (Array.isArray(data.messages)) {
+        WFAGENT_CHAT_MESSAGES = data.messages;
+      } else if (data.assistantReply) {
+        WFAGENT_CHAT_MESSAGES = [...WFAGENT_CHAT_MESSAGES, { role: "assistant", text: data.assistantReply }];
+      }
+      wfagentRenderChatLog(WFAGENT_CHAT_MESSAGES, data.collectedConfig);
+      wfagentRenderChatOptions(data.phase, data.questions, data.collectedConfig);
+      if (data.collectedConfig?.goal) {
+        const goalEl = document.getElementById("wfagentGoalInput");
+        if (goalEl) goalEl.value = data.collectedConfig.goal;
+      }
+      if (data.spec) wfagentRenderSpec(data.spec, data.spec.lintReport || data.workflow?.lintReport);
+      if (data.workflow) renderAppUseWorkflow(data.workflow);
+      if (data.debugSession) wfagentRenderTimeline(data.debugSession);
+      if (data.debugSession || data.workflow) {
+        const receiptEl = document.getElementById("appuseRunReceiptBox");
+        if (receiptEl) receiptEl.textContent = JSON.stringify(data.debugSession || data.workflow, null, 2);
+      }
+    }
+
+    async function wfagentLoadChats(autoRestoreLatest) {
+      try {
+        const { data } = await apiJson("/api/workflow-agent/chats?limit=20");
+        const chats = Array.isArray(data?.chats) ? data.chats : [];
+        WFAGENT_CHATS_LIST = chats;
+        const sel = document.getElementById("wfagentChatHistorySelect");
+        if (sel) {
+          sel.innerHTML = `<option value="">最近对话会话 (${chats.length})…</option>` + chats.map((c) => {
+            const firstMsg = (c.messages || []).find((m) => m.role === "user")?.text || c.collectedConfig?.goal || c.chatId;
+            const shortTitle = String(firstMsg || c.chatId).slice(0, 22);
+            const phaseLabel = WFAGENT_PHASE_LABELS[c.phase] || c.phase || "";
+            return `<option value="${escapeHtml(c.chatId)}">${escapeHtml(shortTitle)}${phaseLabel ? ` (${escapeHtml(phaseLabel)})` : ""}</option>`;
+          }).join("");
+          if (WFAGENT_CHAT_ID && chats.some((c) => c.chatId === WFAGENT_CHAT_ID)) {
+            sel.value = WFAGENT_CHAT_ID;
+          }
+        }
+        if (autoRestoreLatest && !WFAGENT_CHAT_ID && chats.length && !WFAGENT_CHAT_MESSAGES.length) {
+          wfagentRenderChatLog([], {});
+        } else if (!WFAGENT_CHAT_MESSAGES.length) {
+          wfagentRenderChatLog([], {});
+        }
+      } catch (e) {
+        if (!WFAGENT_CHAT_MESSAGES.length) wfagentRenderChatLog([], {});
+      }
+    }
+
+    function wfagentSelectHistoryChat(chatId) {
+      if (!chatId) { wfagentResetChat(); return; }
+      const found = WFAGENT_CHATS_LIST.find((c) => c.chatId === chatId);
+      if (!found) return;
+      WFAGENT_CHAT_ID = found.chatId;
+      wfagentApplyChatPayload(found);
+      showToast("已恢复历史对话会话");
+    }
+
+    async function wfagentPostJson(url, payload) {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload || {}),
+      });
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (e) {
+        data = { ok: false, error: "HTTP " + res.status };
+      }
+      return { status: res.status, data };
+    }
+
+    async function wfagentSendChat(overrideMsg) {
+      const inp = document.getElementById("wfagentChatInput");
+      const msg = String(overrideMsg !== undefined ? overrideMsg : (inp?.value || "")).trim();
+      if (!msg) { showToast("请先输入想法或点击上方选项"); return; }
+      if (inp && overrideMsg === undefined) inp.value = "";
+      WFAGENT_CHAT_MESSAGES = [...WFAGENT_CHAT_MESSAGES, { role: "user", text: msg }];
+      wfagentRenderChatLog(
+        [...WFAGENT_CHAT_MESSAGES, { role: "assistant", text: "⏳ 正在分析你的需求并准备方案…" }],
+        {}
+      );
+      const btn = document.getElementById("wfagentChatSendBtn");
+      if (btn) { btn.disabled = true; btn.textContent = "⏳ 思考中…"; }
+      try {
+        const mode = document.getElementById("wfagentModeSelect")?.value || "shadow";
+        const agentId = document.getElementById("appuseAgentSelect")?.value || "";
+        const { data } = await wfagentPostJson("/api/workflow-agent/chat", {
+          chat_id: WFAGENT_CHAT_ID || "",
+          message: msg,
+          agent_id: agentId,
+          mode,
+          auto_run_on_confirm: true,
+          params: wfagentGetParamsSafe(),
+        });
+        if (data?.ok) {
+          wfagentApplyChatPayload(data);
+          if (data.workflow || data.debugSession) {
+            await appuseRefreshWorkflowsList();
+            await appuseRefreshRuns();
+          }
+          await wfagentLoadChats(false);
+          if (data.phase === "built_and_debugged") {
+            showToast("对话需求已转为可复用工作流并完成自动调试");
+          }
+        } else {
+          const errMsg = data?.error || "对话请求失败，请重试";
+          WFAGENT_CHAT_MESSAGES = [...WFAGENT_CHAT_MESSAGES, { role: "assistant", text: `⚠️ ${errMsg}` }];
+          wfagentRenderChatLog(WFAGENT_CHAT_MESSAGES, {});
+          showToast(errMsg);
+        }
+      } catch (err) {
+        const errMsg = err?.message || String(err || "对话请求异常");
+        WFAGENT_CHAT_MESSAGES = [...WFAGENT_CHAT_MESSAGES, { role: "assistant", text: `⚠️ ${errMsg}` }];
+        wfagentRenderChatLog(WFAGENT_CHAT_MESSAGES, {});
+        showToast(errMsg);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "发送"; }
+      }
+    }
+
+    function wfagentFillEditChip(kind) {
+      const inp = document.getElementById("wfagentEditInput");
+      if (!inp) return;
+      if (kind === "remark") {
+        inp.value = "把备注前缀改成 飞书VIP-";
+      } else if (kind === "branch") {
+        inp.value = "如果是老客户就跳过，不重复加好友";
+      } else if (kind === "crm_tag") {
+        inp.value = "给CRM加标签 高意向客户";
+      } else if (kind === "greeting") {
+        inp.value = "把打招呼语改成 你好呀，我是智拓巨浪的安晓心，这边加你微信发方案～";
+      } else if (kind === "gate") {
+        inp.value = "在发送或加好友前加一步人工确认门禁";
+      }
+      inp.focus();
+    }
+
+    function wfagentFormatMsgItem(item) {
+      if (typeof item === "string") return item;
+      if (item && typeof item === "object") {
+        return item.message || item.summary || item.code || JSON.stringify(item);
+      }
+      return String(item ?? "");
+    }
+
+    function wfagentRenderEditDiff(data) {
+      const box = document.getElementById("wfagentEditDiffBox");
+      if (!box) return;
+      if (!data) return;
+      const lint = data.lintReport || {};
+      const lintOk = lint.ok !== false;
+      const lintBadge = `<span class="pill ${lintOk ? "wfagent-badge-pass" : "wfagent-badge-gate"}" style="font-size:11px;">安全体检 ${lint.score ?? 100} 分 (${lintOk ? "通过" : "已拦截风险"})</span>`;
+      if (!data.ok) {
+        const errs = Array.isArray(lint.errors) && lint.errors.length
+          ? `<div style="margin-top:4px; color:#b91c1c;">${lint.errors.map((e) => escapeHtml(wfagentFormatMsgItem(e))).join("；")}</div>`
+          : "";
+        box.innerHTML = `<div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;"><span class="pill wfagent-badge-gate">❌ 未应用修改（保留原版）</span>${lintBadge}</div><div style="margin-top:4px; color:#b91c1c;">${escapeHtml(data.error || "修改未通过安全校验")}</div>${errs}`;
+        return;
+      }
+      const prevVer = Number(data.previousVersion || 0);
+      const nextVer = Number(data.newVersion || 0);
+      const edits = Array.isArray(data.appliedEdits) && data.appliedEdits.length
+        ? `<div style="margin-top:4px;"><strong>已应用修改：</strong>${data.appliedEdits.map((x) => escapeHtml(wfagentFormatMsgItem(x))).join(" · ")}</div>`
+        : "";
+      if (data.rolledBack) {
+        box.innerHTML = `<div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;"><span class="pill wfagent-badge-pass" style="font-size:11px;">↩️ 已撤销并回滚 (v${prevVer || "?"} → v${nextVer || 1})</span></div>${edits}`;
+        return;
+      }
+      const verTag = `<span class="pill ok" style="font-size:11px;">v${prevVer || 1} → v${nextVer || 2}</span>`;
+      const vRun = data.verificationRun || {};
+      const vStatusTxt = WFAGENT_STATUS_LABELS[vRun.status] || vRun.status;
+      const vBadge = vRun.status ? `<span class="pill ${vRun.ok ? "wfagent-badge-pass" : "wfagent-badge-fix"}" style="font-size:11px;">回归验证：${escapeHtml(vStatusTxt)}</span>` : "";
+      const undoBtn = (prevVer > 0 && nextVer > prevVer)
+        ? `<button type="button" class="btn-outline sm" style="padding:2px 8px; font-size:11px;" onclick="wfagentUndoLastEdit()">↩️ 撤销本次修改（回滚到 v${escapeHtml(String(prevVer))}）</button>`
+        : "";
+      const diffs = Array.isArray(data.stepDiffs) && data.stepDiffs.length
+        ? `<ul style="margin:4px 0 0 18px; padding:0;">${data.stepDiffs.map((d) => `<li>${escapeHtml(wfagentFormatMsgItem(d))}</li>`).join("")}</ul>`
+        : "";
+      box.innerHTML = `<div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">${verTag}${lintBadge}${vBadge}${undoBtn}</div>${edits}${diffs}`;
+    }
+
+    async function wfagentUndoLastEdit() {
+      if (!APPUSE_CURRENT_WF?.id) {
+        showToast("当前没有可回滚的工作流");
+        return;
+      }
+      const { data } = await apiJson("/api/app-use/rollback", {
+        method: "POST",
+        body: JSON.stringify({ workflow_id: APPUSE_CURRENT_WF.id, revision_index: -1 }),
+      });
+      if (data?.ok && data.workflow) {
+        renderAppUseWorkflow(data.workflow);
+        await appuseRefreshWorkflowsList();
+        const box = document.getElementById("wfagentEditDiffBox");
+        if (box) {
+          const fromVer = data.workflow.rolledBackFromVersion || "";
+          box.innerHTML = `<div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;"><span class="pill wfagent-badge-pass" style="font-size:11px;">↩️ 已撤销上次修改并回滚到 v${escapeHtml(String(fromVer || data.workflow.version || 1))}</span></div>`;
+        }
+        showToast("已撤销本次修改并恢复历史版本");
+      } else {
+        showToast(data?.error || "暂无可回滚的历史版本");
+      }
+    }
+
+    async function wfagentChatEditCurrent() {
+      if (!APPUSE_CURRENT_WF?.id) {
+        showToast("请先生成或载入一条要修改的工作流");
+        return;
+      }
+      const inp = document.getElementById("wfagentEditInput");
+      const instruction = inp?.value?.trim() || "";
+      if (!instruction) {
+        showToast("请输入一句话修改要求，例如：把备注前缀改成 飞书VIP-");
+        return;
+      }
+      const btn = document.getElementById("wfagentEditBtn");
+      const prev = btn ? btn.textContent : "✏️ 一句话修改并回归验证";
+      if (btn) { btn.disabled = true; btn.textContent = "⏳ 修改并回归验证中…"; }
+      try {
+        const rawMode = document.getElementById("wfagentModeSelect")?.value || "shadow";
+        const safeMode = rawMode === "dry_run" ? "dry_run" : "shadow";
+        const agentId = document.getElementById("appuseAgentSelect")?.value || "";
+        const { data } = await wfagentPostJson("/api/workflow-agent/chat-edit", {
+          workflow_id: APPUSE_CURRENT_WF.id,
+          instruction,
+          agent_id: agentId,
+          mode: safeMode,
+          auto_verify: true,
+          confirm_run: false,
+          respect_human_guard: true,
+          params: wfagentGetParamsSafe(),
+        });
+        wfagentRenderEditDiff(data);
+        if (data?.ok) {
+          if (inp) inp.value = "";
+          if (data.workflow) renderAppUseWorkflow(data.workflow);
+          if (data.verificationRun) {
+            if (Array.isArray(data.verificationRun.debugRounds)) {
+              wfagentRenderTimeline(data.verificationRun);
+            }
+            const receiptEl = document.getElementById("appuseRunReceiptBox");
+            if (receiptEl) receiptEl.textContent = JSON.stringify(data, null, 2);
+          }
+          await appuseRefreshWorkflowsList();
+          showToast(`流程已升级至 v${data.newVersion || "?"} 并完成回归验证`);
+        } else {
+          showToast(data?.error || "修改未通过校验，已保留原版本");
+        }
+      } catch (err) {
+        const errObj = { ok: false, error: err?.message || String(err || "修改请求失败"), lintReport: { ok: false, score: 0, errors: [] } };
+        wfagentRenderEditDiff(errObj);
+        showToast(errObj.error);
       } finally {
         if (btn) { btn.disabled = false; btn.textContent = prev; }
       }

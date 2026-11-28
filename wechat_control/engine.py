@@ -28,6 +28,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from .agent_dispatcher import WeChatAgentDispatcher
 from .app_use_studio import AppUseStudio
+from .workflow_agent import WorkflowAuthorDebugger, WorkflowSpecLinter
 from .article_exporter import WeChatArticleExporter
 from .auth_gate import StudioAuthGate, StudioPluginUnauthorizedError
 from .benchmark_suite import WeChatRPABenchmarkSuite
@@ -38,6 +39,7 @@ from .coevolution_engine import DualProductCoevolutionEngine
 from .contact_profiler import ContactBindingStore, ContactStyleProfiler, ContextualAIChatGenerator
 from .corpus_discovery import CorpusDiscoveryEngine
 from .doc_ingestor import ALLOWED_TEST_CONTACTS, AppWindowBinder, DocumentKnowledgeIngestor
+from .douyin_wechat_bridge import DouyinWeChatFunnel
 from .human_activity_guard import HumanActivityGuard
 from .knowledge_kf_engine import DEFAULT_OPENBOT_KNOWLEDGE_DB, PersonaSwitchEngine, WeChatKnowledgeStore
 from .live_inspector import WeChatLiveInspector, _matches_target, _slugify_target
@@ -560,9 +562,17 @@ class WeChatControlEngine:
             config_path=resolved_auth.parent / "omni_channels.json",
             http_requester=model_http_requester,
         )
+        self.douyin_funnel = DouyinWeChatFunnel(
+            self,
+            state_path=resolved_auth.parent / "douyin_wechat_funnel.json",
+        )
         self.app_use = AppUseStudio(
             self,
             store_path=resolved_auth.parent / "app_use_workflows.json",
+        )
+        self.workflow_agent = WorkflowAuthorDebugger(
+            self,
+            sessions_path=resolved_auth.parent / "workflow_agent_sessions.json",
         )
         self.hosting_manager = HostingManager(
             self,
@@ -6241,6 +6251,7 @@ class WeChatControlEngine:
         mode: str = "auto",
         dry_run: bool = True,
         confirm_send: bool = False,
+        surface: str = "comment",
     ) -> Dict[str, Any]:
         will_live = (not dry_run) and bool(confirm_send)
         self._require("send_text_live" if will_live else "send_text_dry_run")
@@ -6251,6 +6262,7 @@ class WeChatControlEngine:
             mode=mode,
             dry_run=dry_run,
             confirm_send=confirm_send,
+            surface=surface,
         )
 
     def omni_extract_leads(
@@ -6291,6 +6303,146 @@ class WeChatControlEngine:
             action_type=action_type,
             target_view=target_view,
             dry_run=dry_run,
+        )
+
+    # ------------------------------------------------------------------
+    # Douyin -> WeChat Lead Funnel & Add Friend (v3.0.1)
+    # ------------------------------------------------------------------
+
+    def wechat_add_friend(
+        self,
+        account: str,
+        *,
+        greeting: str = "",
+        remark: str = "",
+        source_channel: str = "douyin",
+        source_user: str = "",
+        dry_run: bool = True,
+        probe_ui: bool = False,
+        confirm_send: bool = False,
+        force: bool = False,
+        ignore_human_guard: bool = False,
+    ) -> Dict[str, Any]:
+        return self.douyin_funnel.adder.add_friend(
+            account,
+            greeting=greeting,
+            remark=remark,
+            source_channel=source_channel,
+            source_user=source_user,
+            dry_run=dry_run,
+            probe_ui=probe_ui,
+            confirm_send=confirm_send,
+            force=force,
+            ignore_human_guard=ignore_human_guard,
+        )
+
+    def douyin_funnel_overview(self) -> Dict[str, Any]:
+        self._require("status")
+        return self.douyin_funnel.overview()
+
+    def douyin_funnel_update_config(self, updates: Dict[str, Any]) -> Dict[str, Any]:
+        self._require("status")
+        return self.douyin_funnel.update_config(updates)
+
+    def douyin_funnel_ingest(
+        self,
+        messages: List[Dict[str, Any]],
+        *,
+        douyin_user: str = "",
+        source: str = "manual",
+        sync_crm: bool = True,
+    ) -> Dict[str, Any]:
+        self._require("read_messages")
+        return self.douyin_funnel.ingest_messages(
+            messages,
+            douyin_user=douyin_user,
+            source=source,
+            sync_crm=sync_crm,
+        )
+
+    def douyin_funnel_suggest_reply(
+        self,
+        douyin_user: str,
+        *,
+        incoming_text: str = "",
+        surface: str = "dm",
+    ) -> Dict[str, Any]:
+        self._require("read_messages")
+        return self.douyin_funnel.suggest_reply(
+            douyin_user,
+            incoming_text=incoming_text,
+            surface=surface,
+        )
+
+    def douyin_funnel_reply(
+        self,
+        douyin_user: str,
+        *,
+        text: str = "",
+        surface: str = "dm",
+        mode: str = "auto",
+        dry_run: bool = True,
+        confirm_send: bool = False,
+    ) -> Dict[str, Any]:
+        will_live = (not dry_run) and bool(confirm_send)
+        self._require("send_text_live" if will_live else "send_text_dry_run")
+        return self.douyin_funnel.reply_lead(
+            douyin_user,
+            text=text,
+            surface=surface,
+            mode=mode,
+            dry_run=dry_run,
+            confirm_send=confirm_send,
+        )
+
+    def douyin_funnel_add_wechat(
+        self,
+        lead_key_or_account: str,
+        *,
+        greeting: str = "",
+        remark: str = "",
+        dry_run: bool = True,
+        probe_ui: bool = False,
+        confirm_send: bool = False,
+        force: bool = False,
+        ignore_human_guard: bool = False,
+    ) -> Dict[str, Any]:
+        will_live = (not dry_run) and bool(confirm_send)
+        self._require("send_text_live" if will_live else "send_text_dry_run")
+        return self.douyin_funnel.add_lead_to_wechat(
+            lead_key_or_account,
+            greeting=greeting,
+            remark=remark,
+            dry_run=dry_run,
+            probe_ui=probe_ui,
+            confirm_send=confirm_send,
+            force=force,
+            ignore_human_guard=ignore_human_guard,
+        )
+
+    def douyin_funnel_run_cycle(
+        self,
+        *,
+        target: str = "",
+        limit: int = 20,
+        auto_reply: bool = False,
+        auto_add_wechat: bool = False,
+        dry_run: bool = True,
+        probe_ui: bool = False,
+        confirm_send: bool = False,
+        launch_if_needed: bool = False,
+    ) -> Dict[str, Any]:
+        will_live = (not dry_run) and bool(confirm_send) and (auto_reply or auto_add_wechat)
+        self._require("send_text_live" if will_live else "read_messages")
+        return self.douyin_funnel.run_cycle(
+            target=target,
+            limit=limit,
+            auto_reply=auto_reply,
+            auto_add_wechat=auto_add_wechat,
+            dry_run=dry_run,
+            probe_ui=probe_ui,
+            confirm_send=confirm_send,
+            launch_if_needed=launch_if_needed,
         )
 
     # ------------------------------------------------------------------
@@ -6664,6 +6816,171 @@ class WeChatControlEngine:
             app_name=app_name,
             app_path=app_path,
         )
+
+    # ------------------------------------------------------------------
+    # Self-Authoring & Self-Debugging Workflow Agent (v3.1)
+    # ------------------------------------------------------------------
+
+    def workflow_agent_templates(self) -> Dict[str, Any]:
+        self._require("status")
+        return self.workflow_agent.list_templates()
+
+    def workflow_agent_propose_spec(
+        self,
+        goal: str,
+        *,
+        target_apps: Optional[List[str]] = None,
+        agent_id: str = "",
+        inspect_live: bool = True,
+        use_omini_critic: bool = False,
+    ) -> Dict[str, Any]:
+        self._require("status")
+        return self.workflow_agent.propose_spec(
+            goal,
+            target_apps=target_apps,
+            agent_id=agent_id,
+            inspect_live=inspect_live,
+            use_omini_critic=use_omini_critic,
+        )
+
+    def workflow_agent_author_and_debug(
+        self,
+        goal: str,
+        *,
+        target_apps: Optional[List[str]] = None,
+        agent_id: str = "",
+        mode: str = "shadow",
+        max_debug_rounds: int = 4,
+        confirm_run: bool = False,
+        respect_human_guard: bool = True,
+        inspect_live: bool = True,
+        use_omini_critic: bool = False,
+        auto_export_skill: bool = False,
+        params: Optional[Dict[str, Any]] = None,
+        initial_workflow: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        will_live = str(mode or "").strip().lower() == "live" and bool(confirm_run)
+        self._require("send_text_live" if will_live else "send_text_dry_run")
+        res = self.workflow_agent.author_and_debug(
+            goal,
+            target_apps=target_apps,
+            agent_id=agent_id,
+            mode=mode,
+            max_debug_rounds=max_debug_rounds,
+            confirm_run=confirm_run,
+            respect_human_guard=respect_human_guard,
+            inspect_live=inspect_live,
+            use_omini_critic=use_omini_critic,
+            auto_export_skill=auto_export_skill,
+            params=params,
+            initial_workflow=initial_workflow,
+        )
+        self.audit.log(
+            "workflow_agent_author_debug",
+            "ok" if res.get("ok") else "warn",
+            {"mode": mode, "status": res.get("status"), "roundsUsed": res.get("roundsUsed"), "workflowId": res.get("workflowId")},
+        )
+        return res
+
+    def workflow_agent_debug_existing(
+        self,
+        workflow_id: str,
+        *,
+        mode: str = "shadow",
+        max_debug_rounds: int = 3,
+        confirm_run: bool = False,
+        respect_human_guard: bool = True,
+        agent_id: str = "",
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        will_live = str(mode or "").strip().lower() == "live" and bool(confirm_run)
+        self._require("send_text_live" if will_live else "send_text_dry_run")
+        return self.workflow_agent.debug_existing_workflow(
+            workflow_id,
+            mode=mode,
+            max_debug_rounds=max_debug_rounds,
+            confirm_run=confirm_run,
+            respect_human_guard=respect_human_guard,
+            agent_id=agent_id,
+            params=params,
+        )
+
+    def workflow_agent_list_sessions(self, *, limit: int = 20) -> Dict[str, Any]:
+        self._require("status")
+        return self.workflow_agent.list_sessions(limit=limit)
+
+    def workflow_agent_lint(self, workflow: Dict[str, Any]) -> Dict[str, Any]:
+        self._require("status")
+        return WorkflowSpecLinter.lint(workflow)
+
+    def workflow_agent_list_chats(self, *, limit: int = 20) -> Dict[str, Any]:
+        self._require("status")
+        return self.workflow_agent.list_chat_sessions(limit=limit)
+
+    def workflow_agent_chat_turn(
+        self,
+        message: str,
+        *,
+        chat_id: str = "",
+        agent_id: str = "",
+        mode: str = "shadow",
+        auto_run_on_confirm: bool = True,
+        confirm_run: bool = False,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        will_live = str(mode or "").strip().lower() == "live" and bool(confirm_run)
+        self._require("send_text_live" if will_live else "send_text_dry_run")
+        res = self.workflow_agent.chat_turn(
+            message,
+            chat_id=chat_id,
+            agent_id=agent_id,
+            mode=mode,
+            auto_run_on_confirm=auto_run_on_confirm,
+            confirm_run=confirm_run,
+            params=params,
+        )
+        self.audit.log(
+            "workflow_agent_chat_turn",
+            "ok" if res.get("ok") else "warn",
+            {"chatId": res.get("chatId"), "phase": res.get("phase"), "mode": mode},
+        )
+        return res
+
+    def workflow_agent_chat_edit(
+        self,
+        workflow_id: str,
+        instruction: str,
+        *,
+        agent_id: str = "",
+        mode: str = "shadow",
+        auto_verify: bool = True,
+        confirm_run: bool = False,
+        respect_human_guard: bool = True,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        will_live = str(mode or "").strip().lower() == "live" and bool(confirm_run) and bool(auto_verify)
+        self._require("send_text_live" if will_live else "send_text_dry_run")
+        res = self.workflow_agent.chat_edit_workflow(
+            workflow_id,
+            instruction,
+            agent_id=agent_id,
+            mode=mode,
+            auto_verify=auto_verify,
+            confirm_run=confirm_run,
+            respect_human_guard=respect_human_guard,
+            params=params,
+        )
+        self.audit.log(
+            "workflow_agent_chat_edit",
+            "ok" if res.get("ok") else "warn",
+            {
+                "workflowId": workflow_id,
+                "previousVersion": res.get("previousVersion"),
+                "newVersion": res.get("newVersion"),
+                "mode": mode,
+            },
+        )
+        return res
 
     # ------------------------------------------------------------------
     # Zero-FDE Onboarding, Self-Training, Test Sandbox & Quality Loop (v3)
@@ -7111,6 +7428,104 @@ class WeChatControlEngine:
                 return self.monitor.takeover_contact(target_name, reason=f"supervisor_hashtag:{action}")
             return self.monitor.resume_contact(target_name)
 
+        def _workflow_create_cb(sender_contact: str, goal: str) -> Dict[str, Any]:
+            clean_goal = str(goal or "").strip()
+            if not clean_goal:
+                return {"ok": False, "ackMessage": "请在 #建流程 后补充目标描述，例如：#建流程 从飞书提取微信号加微信"}
+            if clean_goal in ("重置", "清空", "重新开始", "取消", "重置对话"):
+                self.workflow_agent.set_contact_active_chat(sender_contact, "")
+                return {
+                    "ok": True,
+                    "reset": True,
+                    "ackMessage": "已清空当前 #建流程 草稿，重新发送「#建流程 你的需求」即可开启新流程。",
+                }
+            m_fresh = re.match(r"^(?:新建|重新)(?:对话|流程)?[\s:：]+(.+)$", clean_goal)
+            if m_fresh:
+                self.workflow_agent.set_contact_active_chat(sender_contact, "")
+                clean_goal = m_fresh.group(1).strip()
+
+            active_cid = self.workflow_agent.get_contact_active_chat(sender_contact)
+            res = self.workflow_agent.chat_turn(
+                clean_goal,
+                chat_id=active_cid,
+                mode="shadow",
+                auto_run_on_confirm=True,
+            )
+            if res.get("ok") and res.get("phase") == "ready_to_build":
+                res = self.workflow_agent.chat_turn(
+                    "确认",
+                    chat_id=str(res.get("chatId") or ""),
+                    mode="shadow",
+                    auto_run_on_confirm=True,
+                )
+
+            phase = str(res.get("phase") or "")
+            cid = str(res.get("chatId") or "")
+            if phase == "built_and_debugged":
+                self.workflow_agent.set_contact_active_chat(sender_contact, "")
+                wf = res.get("workflow") or {}
+                ack = (
+                    f"已通过指令创建并Shadow调试流程《{wf.get('name', '自建流程')}》"
+                    f"(ID: {wf.get('id', '')}，状态: {(res.get('debugSession') or {}).get('status', '')})"
+                )
+            elif phase == "clarifying" and cid:
+                self.workflow_agent.set_contact_active_chat(sender_contact, cid)
+                ack = (
+                    str(res.get("assistantReply") or "请补充流程细节")
+                    + "\n（继续发送「#建流程 你的回复」即可补充；发送「#建流程 重置」重新开始）"
+                )
+            else:
+                ack = str(res.get("assistantReply") or "已记录建流程需求")
+            return {**res, "ackMessage": ack}
+
+        def _workflow_edit_cb(_contact: str, instruction: str) -> Dict[str, Any]:
+            if not str(instruction or "").strip():
+                return {"ok": False, "ackMessage": "请在 #改流程 后补充修改内容，例如：#改流程 把备注前缀改成 飞书VIP-"}
+            m_wid = re.search(r"\b(wf_[A-Za-z0-9_]+)\b", instruction)
+            if m_wid:
+                target_wid = m_wid.group(1)
+                clean_inst = instruction.replace(target_wid, "").strip(" ，,：:")
+            else:
+                order = list(self.app_use._state.get("order") or [])
+                wf_map = self.app_use._state.get("workflows") or {}
+                target_wid = next((wid for wid in order if wid in wf_map), "")
+                if not target_wid and wf_map:
+                    target_wid = next(iter(wf_map.keys()))
+                clean_inst = instruction
+            if not target_wid:
+                return {"ok": False, "ackMessage": "暂无可修改的流程，请先使用 #建流程 创建工作流。"}
+            res = self.workflow_agent.chat_edit_workflow(
+                target_wid,
+                clean_inst or instruction,
+                mode="shadow",
+                auto_verify=True,
+            )
+            if not res.get("ok") and not m_wid and res.get("error_code") == "remark_field_not_found":
+                for cand_wid in order:
+                    if cand_wid == target_wid or cand_wid not in wf_map:
+                        continue
+                    cand_res = self.workflow_agent.chat_edit_workflow(
+                        cand_wid,
+                        clean_inst or instruction,
+                        mode="shadow",
+                        auto_verify=True,
+                    )
+                    if cand_res.get("ok"):
+                        target_wid = cand_wid
+                        res = cand_res
+                        break
+            if res.get("ok"):
+                if res.get("rolledBack"):
+                    rb_wf = res.get("workflow") or {}
+                    restored_ver = rb_wf.get("rolledBackFromVersion") or rb_wf.get("version") or 1
+                    ack = f"已撤销并回滚流程 {target_wid}（恢复历史版本 v{restored_ver}）"
+                else:
+                    edits = "；".join(res.get("appliedEdits") or [])
+                    ack = f"已更新流程 {target_wid} (v{res.get('previousVersion')} -> v{res.get('newVersion')})：{edits}"
+            else:
+                ack = str(res.get("error") or "流程修改未生效")
+            return {**res, "ackMessage": ack}
+
         return self.supervisor_eval.handle_hashtag_directive(
             contact,
             raw_text,
@@ -7119,6 +7534,8 @@ class WeChatControlEngine:
             knowledge_store=self.knowledge,
             reply_generator=reply_gen,
             takeover_cb=_takeover_cb,
+            workflow_create_cb=_workflow_create_cb,
+            workflow_edit_cb=_workflow_edit_cb,
         )
 
     def submit_reply_rating(

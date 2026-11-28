@@ -908,6 +908,65 @@ MCP_TOOLS: List[Dict[str, Any]] = [
         },
     },
     {
+        "name": "wechat_add_friend",
+        "description": "Search and optionally add a WeChat friend by WeChat ID or phone number via macOS WeChat Add Friend UI, with dry-run, UI probe, daily quota, and cooldown guards.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "account": {"type": "string"},
+                "greeting": {"type": "string", "default": ""},
+                "remark": {"type": "string", "default": ""},
+                "source_channel": {"type": "string", "default": "douyin"},
+                "source_user": {"type": "string", "default": ""},
+                "dry_run": {"type": "boolean", "default": True},
+                "probe_ui": {"type": "boolean", "default": False},
+                "confirm_send": {"type": "boolean", "default": False},
+                "force": {"type": "boolean", "default": False},
+            },
+            "required": ["account"],
+        },
+    },
+    {
+        "name": "douyin_wechat_funnel_status",
+        "description": "Inspect the Douyin -> WeChat lead acquisition funnel overview, extracted WeChat accounts, daily add-friend quota, and templates.",
+        "inputSchema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "douyin_wechat_funnel_run",
+        "description": "Read Douyin DMs, extract customer WeChat accounts, optionally draft/send ask-WeChat DM replies, and optionally dry-run/send WeChat friend requests.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "target": {"type": "string", "default": ""},
+                "limit": {"type": "integer", "default": 20},
+                "auto_reply": {"type": "boolean", "default": False},
+                "auto_add_wechat": {"type": "boolean", "default": False},
+                "dry_run": {"type": "boolean", "default": True},
+                "probe_ui": {"type": "boolean", "default": False},
+                "confirm_send": {"type": "boolean", "default": False},
+                "launch_if_needed": {"type": "boolean", "default": False},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "douyin_wechat_add_lead",
+        "description": "Trigger WeChat friend lookup/request for a captured Douyin lead (by leadId, douyinUser, or WeChat account).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "lead": {"type": "string"},
+                "greeting": {"type": "string", "default": ""},
+                "remark": {"type": "string", "default": ""},
+                "dry_run": {"type": "boolean", "default": True},
+                "probe_ui": {"type": "boolean", "default": False},
+                "confirm_send": {"type": "boolean", "default": False},
+                "force": {"type": "boolean", "default": False},
+            },
+            "required": ["lead"],
+        },
+    },
+    {
         "name": "app_use_list_apps",
         "description": "Discover running and installed macOS applications across System, Applications, User, and SanDisk, automatically tagging AI Agent Apps vs standard productivity apps.",
         "inputSchema": {
@@ -1149,6 +1208,101 @@ MCP_TOOLS: List[Dict[str, Any]] = [
                 "app_path": {"type": "string", "default": ""},
             },
             "required": [],
+        },
+    },
+    {
+        "name": "workflow_agent_propose_spec",
+        "description": "Auto-detect target macOS apps from plain-language request, inspect UI read-only, build OpenSpec WorkflowSpec + initial workflow + static linter report.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "goal": {"type": "string"},
+                "target_apps": {"type": "array", "items": {"type": "string"}},
+                "agent_id": {"type": "string", "default": ""},
+                "inspect_live": {"type": "boolean", "default": True},
+                "use_omini_critic": {"type": "boolean", "default": False},
+            },
+            "required": ["goal"],
+        },
+    },
+    {
+        "name": "workflow_agent_author_and_debug",
+        "description": "Self-author a cross-app workflow from natural language and run a bounded closed-loop self-debugging cycle (dry_run | shadow | live) with automatic patching & independent assertion verification.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "goal": {"type": "string"},
+                "target_apps": {"type": "array", "items": {"type": "string"}},
+                "agent_id": {"type": "string", "default": ""},
+                "mode": {"type": "string", "enum": ["dry_run", "shadow", "live"], "default": "shadow"},
+                "max_debug_rounds": {"type": "integer", "default": 4},
+                "confirm_run": {"type": "boolean", "default": False},
+                "respect_human_guard": {"type": "boolean", "default": True},
+                "use_omini_critic": {"type": "boolean", "default": False},
+                "auto_export_skill": {"type": "boolean", "default": False},
+                "params": {"type": "object"},
+            },
+            "required": ["goal"],
+        },
+    },
+    {
+        "name": "workflow_agent_debug_existing",
+        "description": "Run the closed-loop self-debugger & auto-patcher against an already saved App-Use workflow ID.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workflow_id": {"type": "string"},
+                "mode": {"type": "string", "enum": ["dry_run", "shadow", "live"], "default": "shadow"},
+                "max_debug_rounds": {"type": "integer", "default": 3},
+                "confirm_run": {"type": "boolean", "default": False},
+                "agent_id": {"type": "string", "default": ""},
+                "params": {"type": "object"},
+            },
+            "required": ["workflow_id"],
+        },
+    },
+    {
+        "name": "workflow_agent_list_sessions",
+        "description": "List recent Workflow Agent self-authoring & self-debugging sessions with patch diffs and assertion results.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"limit": {"type": "integer", "default": 20}},
+            "required": [],
+        },
+    },
+    {
+        "name": "workflow_agent_chat_turn",
+        "description": "Multi-turn conversational workflow builder: clarifies underspecified goals, collects parameters, generates OpenSpec + workflow, and auto-debugs on confirmation.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "chat_id": {"type": "string", "default": ""},
+                "message": {"type": "string"},
+                "agent_id": {"type": "string", "default": ""},
+                "mode": {"type": "string", "enum": ["dry_run", "shadow", "live"], "default": "shadow"},
+                "auto_run_on_confirm": {"type": "boolean", "default": True},
+                "confirm_run": {"type": "boolean", "default": False},
+                "params": {"type": "object"},
+            },
+            "required": ["message"],
+        },
+    },
+    {
+        "name": "workflow_agent_chat_edit",
+        "description": "Edit an existing saved workflow via natural-language instruction with WorkflowSpecLinter safety guards and optional automatic verification.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workflow_id": {"type": "string"},
+                "instruction": {"type": "string"},
+                "agent_id": {"type": "string", "default": ""},
+                "mode": {"type": "string", "enum": ["dry_run", "shadow", "live"], "default": "shadow"},
+                "auto_verify": {"type": "boolean", "default": True},
+                "confirm_run": {"type": "boolean", "default": False},
+                "respect_human_guard": {"type": "boolean", "default": True},
+                "params": {"type": "object"},
+            },
+            "required": ["workflow_id", "instruction"],
         },
     },
     {
@@ -1775,6 +1929,41 @@ class WeChatMCPServer:
                 messages=args.get("messages") if isinstance(args.get("messages"), list) else None,
                 sync_crm=bool(args.get("sync_crm", True)),
             )
+        if name == "wechat_add_friend":
+            return self.engine.wechat_add_friend(
+                str(args["account"]),
+                greeting=str(args.get("greeting") or ""),
+                remark=str(args.get("remark") or ""),
+                source_channel=str(args.get("source_channel") or "douyin"),
+                source_user=str(args.get("source_user") or ""),
+                dry_run=bool(args.get("dry_run", True)),
+                probe_ui=bool(args.get("probe_ui", False)),
+                confirm_send=bool(args.get("confirm_send", False)),
+                force=bool(args.get("force", False)),
+            )
+        if name == "douyin_wechat_funnel_status":
+            return self.engine.douyin_funnel_overview()
+        if name == "douyin_wechat_funnel_run":
+            return self.engine.douyin_funnel_run_cycle(
+                target=str(args.get("target") or ""),
+                limit=int(args.get("limit", 20)),
+                auto_reply=bool(args.get("auto_reply", False)),
+                auto_add_wechat=bool(args.get("auto_add_wechat", False)),
+                dry_run=bool(args.get("dry_run", True)),
+                probe_ui=bool(args.get("probe_ui", False)),
+                confirm_send=bool(args.get("confirm_send", False)),
+                launch_if_needed=bool(args.get("launch_if_needed", False)),
+            )
+        if name == "douyin_wechat_add_lead":
+            return self.engine.douyin_funnel_add_wechat(
+                str(args["lead"]),
+                greeting=str(args.get("greeting") or ""),
+                remark=str(args.get("remark") or ""),
+                dry_run=bool(args.get("dry_run", True)),
+                probe_ui=bool(args.get("probe_ui", False)),
+                confirm_send=bool(args.get("confirm_send", False)),
+                force=bool(args.get("force", False)),
+            )
         if name == "app_use_list_apps":
             return self.engine.app_use_list_apps(
                 include_installed=bool(args.get("include_installed", True)),
@@ -1909,6 +2098,59 @@ class WeChatMCPServer:
                 bundle_id=str(args.get("bundle_id") or ""),
                 app_name=str(args.get("app_name") or ""),
                 app_path=str(args.get("app_path") or ""),
+            )
+        if name == "workflow_agent_propose_spec":
+            return self.engine.workflow_agent_propose_spec(
+                str(args.get("goal") or ""),
+                target_apps=args.get("target_apps"),
+                agent_id=str(args.get("agent_id") or ""),
+                inspect_live=bool(args.get("inspect_live", True)),
+                use_omini_critic=bool(args.get("use_omini_critic", False)),
+            )
+        if name == "workflow_agent_author_and_debug":
+            return self.engine.workflow_agent_author_and_debug(
+                str(args.get("goal") or ""),
+                target_apps=args.get("target_apps"),
+                agent_id=str(args.get("agent_id") or ""),
+                mode=str(args.get("mode") or "shadow"),
+                max_debug_rounds=int(args.get("max_debug_rounds", 4) or 4),
+                confirm_run=bool(args.get("confirm_run", False)),
+                respect_human_guard=bool(args.get("respect_human_guard", True)),
+                use_omini_critic=bool(args.get("use_omini_critic", False)),
+                auto_export_skill=bool(args.get("auto_export_skill", False)),
+                params=args.get("params") if isinstance(args.get("params"), dict) else None,
+            )
+        if name == "workflow_agent_debug_existing":
+            return self.engine.workflow_agent_debug_existing(
+                str(args.get("workflow_id") or ""),
+                mode=str(args.get("mode") or "shadow"),
+                max_debug_rounds=int(args.get("max_debug_rounds", 3) or 3),
+                confirm_run=bool(args.get("confirm_run", False)),
+                agent_id=str(args.get("agent_id") or ""),
+                params=args.get("params") if isinstance(args.get("params"), dict) else None,
+            )
+        if name == "workflow_agent_list_sessions":
+            return self.engine.workflow_agent_list_sessions(limit=int(args.get("limit", 20) or 20))
+        if name == "workflow_agent_chat_turn":
+            return self.engine.workflow_agent_chat_turn(
+                str(args.get("message") or ""),
+                chat_id=str(args.get("chat_id") or ""),
+                agent_id=str(args.get("agent_id") or ""),
+                mode=str(args.get("mode") or "shadow"),
+                auto_run_on_confirm=bool(args.get("auto_run_on_confirm", True)),
+                confirm_run=bool(args.get("confirm_run", False)),
+                params=args.get("params") if isinstance(args.get("params"), dict) else None,
+            )
+        if name == "workflow_agent_chat_edit":
+            return self.engine.workflow_agent_chat_edit(
+                str(args.get("workflow_id") or ""),
+                str(args.get("instruction") or ""),
+                agent_id=str(args.get("agent_id") or ""),
+                mode=str(args.get("mode") or "shadow"),
+                auto_verify=bool(args.get("auto_verify", True)),
+                confirm_run=bool(args.get("confirm_run", False)),
+                respect_human_guard=bool(args.get("respect_human_guard", True)),
+                params=args.get("params") if isinstance(args.get("params"), dict) else None,
             )
         if name == "wechat_onboarding_status":
             return self.engine.get_onboarding_status()
@@ -2530,6 +2772,8 @@ def create_http_server(
                     limit = int((query.get("limit") or ["20"])[0] or 20)
                     launch = str((query.get("launch") or ["0"])[0]).lower() in ("1", "true", "yes")
                     self._send_json(200, engine.omni_read_messages(ch, target=target, limit=limit, launch_if_needed=launch))
+                elif path == "/api/douyin-funnel/overview":
+                    self._send_json(200, engine.douyin_funnel_overview())
                 elif path == "/api/app-use/apps":
                     include_installed = str((query.get("include_installed") or ["1"])[0]).lower() not in ("0", "false", "no")
                     cat = str((query.get("category") or ["all"])[0])
@@ -2562,6 +2806,20 @@ def create_http_server(
                     aname = str((query.get("app_name") or query.get("appName") or [""])[0])
                     apath = str((query.get("app_path") or query.get("appPath") or [""])[0])
                     self._send_json(200, engine.app_use_risk_profile(bundle_id=bid, app_name=aname, app_path=apath))
+                elif path == "/api/workflow-agent/templates":
+                    self._send_json(200, engine.workflow_agent_templates())
+                elif path == "/api/workflow-agent/sessions":
+                    try:
+                        limit_v = int((query.get("limit") or ["20"])[0] or 20)
+                    except Exception:
+                        limit_v = 20
+                    self._send_json(200, engine.workflow_agent_list_sessions(limit=limit_v))
+                elif path == "/api/workflow-agent/chats":
+                    try:
+                        limit_v = int((query.get("limit") or ["20"])[0] or 20)
+                    except Exception:
+                        limit_v = 20
+                    self._send_json(200, engine.workflow_agent_list_chats(limit=limit_v))
                 elif path == "/api/onboarding/status":
                     self._send_json(200, engine.get_onboarding_status())
                 elif path == "/api/sales-packs":
@@ -3523,6 +3781,72 @@ def create_http_server(
                         dry_run=bool(body.get("dry_run", body.get("dryRun", False))),
                     )
                     self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/douyin-funnel/config":
+                    updates = body.get("updates") if isinstance(body.get("updates"), dict) else body
+                    res = engine.douyin_funnel_update_config(updates if isinstance(updates, dict) else {})
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/douyin-funnel/ingest":
+                    msgs = body.get("messages") if isinstance(body.get("messages"), list) else []
+                    res = engine.douyin_funnel_ingest(
+                        msgs,
+                        douyin_user=str(body.get("douyin_user") or body.get("douyinUser") or ""),
+                        source=str(body.get("source") or "api"),
+                        sync_crm=bool(body.get("sync_crm", body.get("syncCrm", True))),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/douyin-funnel/suggest-reply":
+                    res = engine.douyin_funnel_suggest_reply(
+                        str(body.get("douyin_user") or body.get("douyinUser") or body.get("target") or ""),
+                        incoming_text=str(body.get("incoming_text") or body.get("incomingText") or ""),
+                        surface=str(body.get("surface") or "dm"),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/douyin-funnel/reply":
+                    res = engine.douyin_funnel_reply(
+                        str(body.get("douyin_user") or body.get("douyinUser") or body.get("target") or ""),
+                        text=str(body.get("text") or ""),
+                        surface=str(body.get("surface") or "dm"),
+                        mode=str(body.get("mode") or "auto"),
+                        dry_run=bool(body.get("dry_run", body.get("dryRun", True))),
+                        confirm_send=bool(body.get("confirm_send", body.get("confirmSend", False))),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/douyin-funnel/add-wechat":
+                    res = engine.douyin_funnel_add_wechat(
+                        str(body.get("lead") or body.get("account") or body.get("douyin_user") or ""),
+                        greeting=str(body.get("greeting") or ""),
+                        remark=str(body.get("remark") or ""),
+                        dry_run=bool(body.get("dry_run", body.get("dryRun", True))),
+                        probe_ui=bool(body.get("probe_ui", body.get("probeUi", False))),
+                        confirm_send=bool(body.get("confirm_send", body.get("confirmSend", False))),
+                        force=bool(body.get("force", False)),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/douyin-funnel/run-cycle":
+                    res = engine.douyin_funnel_run_cycle(
+                        target=str(body.get("target") or ""),
+                        limit=int(body.get("limit") or 20),
+                        auto_reply=bool(body.get("auto_reply", body.get("autoReply", False))),
+                        auto_add_wechat=bool(body.get("auto_add_wechat", body.get("autoAddWechat", False))),
+                        dry_run=bool(body.get("dry_run", body.get("dryRun", True))),
+                        probe_ui=bool(body.get("probe_ui", body.get("probeUi", False))),
+                        confirm_send=bool(body.get("confirm_send", body.get("confirmSend", False))),
+                        launch_if_needed=bool(body.get("launch_if_needed", body.get("launchIfNeeded", False))),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/wechat/add-friend":
+                    res = engine.wechat_add_friend(
+                        str(body.get("account") or ""),
+                        greeting=str(body.get("greeting") or ""),
+                        remark=str(body.get("remark") or ""),
+                        source_channel=str(body.get("source_channel") or body.get("sourceChannel") or "manual"),
+                        source_user=str(body.get("source_user") or body.get("sourceUser") or ""),
+                        dry_run=bool(body.get("dry_run", body.get("dryRun", True))),
+                        probe_ui=bool(body.get("probe_ui", body.get("probeUi", False))),
+                        confirm_send=bool(body.get("confirm_send", body.get("confirmSend", False))),
+                        force=bool(body.get("force", False)),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
                 elif path == "/api/app-use/inspect":
                     raw_wid = body.get("window_id") if "window_id" in body else body.get("windowId")
                     res = engine.app_use_inspect_app(
@@ -3719,6 +4043,75 @@ def create_http_server(
                         self_heal=bool(body.get("self_heal", body.get("selfHeal", True))),
                         max_workers=mw,
                         dispatch_mode=str(body.get("dispatch_mode") or body.get("dispatchMode") or "auto"),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/workflow-agent/spec":
+                    res = engine.workflow_agent_propose_spec(
+                        str(body.get("goal") or ""),
+                        target_apps=body.get("target_apps") if "target_apps" in body else body.get("targetApps"),
+                        agent_id=str(body.get("agent_id") or body.get("agentId") or ""),
+                        inspect_live=bool(body.get("inspect_live", body.get("inspectLive", True))),
+                        use_omini_critic=bool(body.get("use_omini_critic", body.get("useOminiCritic", False))),
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/workflow-agent/author-debug":
+                    try:
+                        mr = int(body.get("max_debug_rounds", body.get("maxDebugRounds", 4)) or 4)
+                    except Exception:
+                        mr = 4
+                    res = engine.workflow_agent_author_and_debug(
+                        str(body.get("goal") or ""),
+                        target_apps=body.get("target_apps") if "target_apps" in body else body.get("targetApps"),
+                        agent_id=str(body.get("agent_id") or body.get("agentId") or ""),
+                        mode=str(body.get("mode") or "shadow"),
+                        max_debug_rounds=mr,
+                        confirm_run=bool(body.get("confirm_run", body.get("confirmRun", False))),
+                        respect_human_guard=bool(body.get("respect_human_guard", body.get("respectHumanGuard", True))),
+                        inspect_live=bool(body.get("inspect_live", body.get("inspectLive", True))),
+                        use_omini_critic=bool(body.get("use_omini_critic", body.get("useOminiCritic", False))),
+                        auto_export_skill=bool(body.get("auto_export_skill", body.get("autoExportSkill", False))),
+                        params=body.get("params") if isinstance(body.get("params"), dict) else None,
+                    )
+                    self._send_json(200 if res.get("workflowId") or res.get("ok") else 400, res)
+                elif path == "/api/workflow-agent/debug":
+                    try:
+                        mr = int(body.get("max_debug_rounds", body.get("maxDebugRounds", 3)) or 3)
+                    except Exception:
+                        mr = 3
+                    res = engine.workflow_agent_debug_existing(
+                        str(body.get("workflow_id") or body.get("workflowId") or ""),
+                        mode=str(body.get("mode") or "shadow"),
+                        max_debug_rounds=mr,
+                        confirm_run=bool(body.get("confirm_run", body.get("confirmRun", False))),
+                        respect_human_guard=bool(body.get("respect_human_guard", body.get("respectHumanGuard", True))),
+                        agent_id=str(body.get("agent_id") or body.get("agentId") or ""),
+                        params=body.get("params") if isinstance(body.get("params"), dict) else None,
+                    )
+                    self._send_json(200 if res.get("workflowId") or res.get("ok") else 400, res)
+                elif path == "/api/workflow-agent/lint":
+                    wf_obj = body.get("workflow") if isinstance(body.get("workflow"), dict) else body
+                    self._send_json(200, engine.workflow_agent_lint(wf_obj if isinstance(wf_obj, dict) else {}))
+                elif path == "/api/workflow-agent/chat":
+                    res = engine.workflow_agent_chat_turn(
+                        str(body.get("message") or ""),
+                        chat_id=str(body.get("chat_id") or body.get("chatId") or ""),
+                        agent_id=str(body.get("agent_id") or body.get("agentId") or ""),
+                        mode=str(body.get("mode") or "shadow"),
+                        auto_run_on_confirm=bool(body.get("auto_run_on_confirm", body.get("autoRunOnConfirm", True))),
+                        confirm_run=bool(body.get("confirm_run", body.get("confirmRun", False))),
+                        params=body.get("params") if isinstance(body.get("params"), dict) else None,
+                    )
+                    self._send_json(200 if res.get("ok") else 400, res)
+                elif path == "/api/workflow-agent/chat-edit":
+                    res = engine.workflow_agent_chat_edit(
+                        str(body.get("workflow_id") or body.get("workflowId") or ""),
+                        str(body.get("instruction") or ""),
+                        agent_id=str(body.get("agent_id") or body.get("agentId") or ""),
+                        mode=str(body.get("mode") or "shadow"),
+                        auto_verify=bool(body.get("auto_verify", body.get("autoVerify", True))),
+                        confirm_run=bool(body.get("confirm_run", body.get("confirmRun", False))),
+                        respect_human_guard=bool(body.get("respect_human_guard", body.get("respectHumanGuard", True))),
+                        params=body.get("params") if isinstance(body.get("params"), dict) else None,
                     )
                     self._send_json(200 if res.get("ok") else 400, res)
                 elif path == "/api/onboarding/setup":

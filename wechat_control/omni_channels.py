@@ -28,6 +28,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from .douyin_wechat_bridge import (
+    extract_wechat_accounts_from_messages,
+    extract_wechat_accounts_from_text,
+    sanitize_douyin_dm_reply,
+)
 from .io_utils import atomic_write_json
 
 REAL_USER_HOME = Path("/Users/mac") if Path("/Users/mac").is_dir() else Path.home()
@@ -175,8 +180,8 @@ CHANNEL_SPECS: Dict[str, Dict[str, Any]] = {
         "supportsVoiceCall": False,
         "supportsWebRpa": True,
         "supportsOpenProtocol": False,
-        "defaultMode": "ego_browser_web",
-        "loginHints": ["登录解锁更多精彩内容", "扫码登录", "验证码登录"],
+        "defaultMode": "auto",
+        "loginHints": ["登录解锁更多精彩内容", "扫码登录", "验证码登录", "手机号登录", "立即登录", "密码登录"],
     },
     "wechat": {
         "channelId": "wechat",
@@ -397,9 +402,17 @@ def _http_json_post(url: str, payload: Dict[str, Any], headers: Optional[Dict[st
         return {"ok": False, "status": 0, "error": str(exc)}
 
 
-def sanitize_public_channel_reply(channel: str, text: str, *, soften: bool = True) -> Dict[str, Any]:
+def sanitize_public_channel_reply(
+    channel: str,
+    text: str,
+    *,
+    soften: bool = True,
+    surface: str = "comment",
+) -> Dict[str, Any]:
     """Strip Markdown, AI buzzwords, and off-platform bait for XHS / Douyin anti-ban safety."""
     ch = normalize_channel_id(channel)
+    if ch == "douyin" and str(surface or "comment").strip().lower() == "dm":
+        return sanitize_douyin_dm_reply(text, soften=soften)
     original = str(text or "").strip()
     cleaned = original
     warnings: List[str] = []
@@ -1009,6 +1022,152 @@ def _installed_app_paths(channel: str) -> List[str]:
     return found
 
 
+def _parse_douyin_desktop_drawer(
+    elements: List[Dict[str, Any]],
+    *,
+    img_w: float,
+    img_h: float,
+    win_w: float,
+    win_h: float,
+    login_hints: List[str],
+    limit: int = 20,
+) -> Dict[str, Any]:
+    """Parse macOS Douyin desktop (`com.bytedance.douyin.desktop`) right-hand DM drawer."""
+    sx = img_w / max(win_w, 1.0)
+    sy = img_h / max(win_h, 1.0)
+
+    all_pts: List[Tuple[float, float, str]] = []
+    for e in elements:
+        txt = str(e.get("text") or "").strip()
+        center = e.get("center") or {}
+        if not txt or "x" not in center or "y" not in center:
+            continue
+        all_pts.append((float(center["x"]) / sx, float(center["y"]) / sy, txt))
+
+    all_texts = [p[2] for p in all_pts]
+    joined_top = " ".join(all_texts)
+    matched_login = [h for h in login_hints if h in joined_top]
+    has_top_login_btn = any(
+        txt == "登录" and lx >= win_w * 0.75 and ly <= 65.0
+        for lx, ly, txt in all_pts
+    )
+    if has_top_login_btn:
+        matched_login.append("登录")
+    login_required = bool(matched_login)
+
+    drawer_left = max(win_w - 375.0, win_w * 0.78)
+    drawer_pts = [(lx, ly, txt) for lx, ly, txt in all_pts if lx >= drawer_left - 10.0]
+    drawer_joined = "".join(txt for _, _, txt in drawer_pts)
+
+    hdr_msg_pt = next(
+        ((lx, ly) for lx, ly, txt in drawer_pts if "消息" in txt and 10.0 <= ly <= 110.0 and lx <= drawer_left + 130.0),
+        None,
+    )
+    has_session_list_hdr = hdr_msg_pt is not None
+    composer_pt: Optional[Dict[str, float]] = None
+    for lx, ly, txt in drawer_pts:
+        if "发送消息" in txt and ly >= win_h - 120.0:
+            composer_pt = {"x": round(lx, 1), "y": round(ly, 1)}
+            break
+
+    has_chat_view = bool(composer_pt) or (
+        not has_session_list_hdr
+        and any(cue in drawer_joined for cue in ("抖音自律", "自律公约", "只能发送一条", "请礼貌发言"))
+    )
+    drawer_open = has_session_list_hdr or has_chat_view
+
+    # Header bar sits around y=25 when video player hides top bar, or y=84 in browse mode.
+    header_y = 25.0 if any(10.0 <= ly <= 45.0 and drawer_left + 40.0 <= lx <= win_w - 50.0 for lx, ly, _ in drawer_pts) else 84.0
+    if hdr_msg_pt is not None:
+        header_y = hdr_msg_pt[1]
+
+    msg_icon_pt: Optional[Dict[str, float]] = None
+    for lx, ly, txt in all_pts:
+        if txt == "消息" and ly <= 62.0 and lx >= win_w * 0.75:
+            msg_icon_pt = {"x": round(lx, 1), "y": round(ly, 1)}
+            break
+
+    sessions: List[Dict[str, Any]] = []
+    messages: List[Dict[str, Any]] = []
+    chat_title = ""
+
+    if has_chat_view and not has_session_list_hdr:
+        hdr_parts = [
+            (lx, txt)
+            for lx, ly, txt in drawer_pts
+            if max(8.0, header_y - 18.0) <= ly <= header_y + 20.0
+            and drawer_left + 40.0 <= lx <= win_w - 60.0
+            and not re.fullmatch(r"\d{1,3}", txt)
+        ]
+        hdr_parts.sort(key=lambda item: item[0])
+        chat_title = " ".join(p[1] for p in hdr_parts[:2]).strip()
+
+        mid_x = drawer_left + (win_w - drawer_left) * 0.56
+        chat_top_y = header_y + 24.0
+        chat_pts = [
+            (ly, lx, txt)
+            for lx, ly, txt in drawer_pts
+            if chat_top_y <= ly <= win_h - 115.0
+        ]
+        chat_pts.sort(key=lambda item: (item[0], item[1]))
+        for ly, lx, txt in chat_pts:
+            if _TIMESTAMP_OCR_RE.match(txt) or re.fullmatch(r"\d{2}/\d{2}", txt):
+                continue
+            if any(
+                sys_cue in txt
+                for sys_cue in ("只能发送一条", "文字消息", "抖音自律", "律公约", "请礼貌发言", "发送消息", "自觉遵守", "自觉避守")
+            ):
+                continue
+            direction = "outgoing" if lx >= mid_x else "incoming"
+            messages.append({
+                "sender": "我" if direction == "outgoing" else (chat_title or "抖音用户"),
+                "direction": direction,
+                "text": txt,
+                "y": round(ly, 1),
+            })
+        if len(messages) > limit:
+            messages = messages[-limit:]
+    elif has_session_list_hdr:
+        row_pts = [
+            (ly, lx, txt)
+            for lx, ly, txt in drawer_pts
+            if header_y + 65.0 <= ly <= win_h - 20.0 and lx >= drawer_left + 30.0
+        ]
+        row_pts.sort(key=lambda item: (round(item[0] / 12.0), item[1]))
+        for ly, lx, txt in row_pts:
+            if _TIMESTAMP_OCR_RE.match(txt) or re.fullmatch(r"\d{1,3}|\d{2}/\d{2}|\d+天前|刚刚", txt):
+                continue
+            if txt in ("搜索", "Q 搜索") or len(txt) <= 1:
+                continue
+            if sessions and abs(ly - sessions[-1]["_y"]) < 42.0:
+                sessions[-1]["preview"] = (sessions[-1]["preview"] + " " + txt).strip()
+            else:
+                sessions.append({
+                    "title": txt[:56],
+                    "preview": "",
+                    "clickPoint": {"x": round(lx, 1), "y": round(ly, 1)},
+                    "_y": ly,
+                })
+            if len(sessions) >= limit:
+                break
+        for s in sessions:
+            s.pop("_y", None)
+
+    return {
+        "loginRequired": login_required,
+        "matchedLoginHints": matched_login,
+        "drawerOpen": drawer_open,
+        "drawerView": "chat" if (has_chat_view and not has_session_list_hdr) else ("sessions" if has_session_list_hdr else "closed"),
+        "currentChatTitle": chat_title,
+        "sessions": sessions,
+        "messages": messages,
+        "messageIconPoint": msg_icon_pt,
+        "backButtonPoint": {"x": round(drawer_left + 16.0, 1), "y": round(header_y, 1)},
+        "composerPoint": composer_pt or {"x": round(drawer_left + 130.0, 1), "y": round(win_h - 50.0, 1)},
+        "rawTextSample": all_texts[:30],
+    }
+
+
 def _parse_ocr_sidebar_and_chat(
     elements: List[Dict[str, Any]],
     *,
@@ -1020,6 +1179,16 @@ def _parse_ocr_sidebar_and_chat(
     channel: str = "",
     limit: int = 20,
 ) -> Dict[str, Any]:
+    if channel == "douyin":
+        return _parse_douyin_desktop_drawer(
+            elements,
+            img_w=img_w,
+            img_h=img_h,
+            win_w=win_w,
+            win_h=win_h,
+            login_hints=login_hints,
+            limit=limit,
+        )
     sx = img_w / max(win_w, 1.0)
     sy = img_h / max(win_h, 1.0)
 
@@ -1387,6 +1556,42 @@ class OmniChannelHub:
         if cid == "douyin":
             home_ok = bool(cached.get("loggedIn"))
             creator_ok = bool(cached.get("creatorLoggedIn"))
+            if running:
+                if cached.get("loginRequired") is True:
+                    return {
+                        "status": "scan_qr",
+                        "badgeText": "📱 抖音桌面端待扫码",
+                        "needsUserAction": True,
+                        "summary": "抖音桌面客户端已运行但尚未登录，请点击唤起窗口扫码登录，然后点击『我已扫码，核验』。",
+                        "actions": [
+                            {"label": "📲 唤起抖音扫码", "actionType": "desktop", "targetView": "home", "style": "solid"},
+                            {"label": "🔄 我已扫码，核验", "actionType": "verify", "targetView": "home", "style": "outline"},
+                            {"label": "🎨 创作者后台扫码", "actionType": "ego_login", "targetView": "creator", "style": "outline"},
+                        ],
+                    }
+                return {
+                    "status": "ready",
+                    "badgeText": "✅ 抖音桌面端已就绪",
+                    "needsUserAction": False,
+                    "summary": "本机抖音桌面客户端已登录运行，可直接读取私信列表、回复引流话术并提取客户微信号。",
+                    "actions": [
+                        {"label": "🪟 唤起抖音窗口", "actionType": "desktop", "targetView": "home", "style": "outline"},
+                        {"label": "🔄 重新核验", "actionType": "verify", "targetView": "home", "style": "outline"},
+                        {"label": "🎨 打开创作者后台", "actionType": "ego_login", "targetView": "creator", "style": "outline"},
+                    ],
+                }
+            if installed:
+                return {
+                    "status": "need_launch",
+                    "badgeText": "🚀 启动抖音桌面端",
+                    "needsUserAction": True,
+                    "summary": "已检测到本机安装抖音.app，点击下方按钮启动桌面客户端并核验私信登录状态。",
+                    "actions": [
+                        {"label": "📲 启动抖音并登录", "actionType": "desktop", "targetView": "home", "style": "solid"},
+                        {"label": "🎨 网页创作者扫码", "actionType": "ego_login", "targetView": "creator", "style": "outline"},
+                        {"label": "🔄 核验状态", "actionType": "verify", "targetView": "home", "style": "outline"},
+                    ],
+                }
             if creator_ok:
                 return {
                     "status": "ready",
@@ -1746,6 +1951,31 @@ class OmniChannelHub:
                     channel=ch,
                     limit=limit,
                 )
+                # For Douyin desktop, automatically open the DM drawer or return from
+                # single-chat view to session list when listing sessions.
+                if ch == "douyin" and not parsed["loginRequired"] and not parsed.get("drawerOpen"):
+                    icon_pt = parsed.get("messageIconPoint")
+                    wins = status.get("windows") or []
+                    if icon_pt and wins:
+                        w0 = wins[0].get("bounds") or {}
+                        abs_x = float(w0.get("x") or 0) + float(icon_pt["x"])
+                        abs_y = float(w0.get("y") or 0) + float(icon_pt["y"])
+                        self.engine._run_native(["activate", "--app", ch, "--skip-human-check"], timeout=10.0)
+                        self.engine._run_native(["click", "--x", f"{abs_x:.1f}", "--y", f"{abs_y:.1f}", "--skip-human-check"], timeout=8.0)
+                        time.sleep(0.8)
+                        ocr = self._capture_ocr_desktop(ch, shot, allow_activate=True, timeout=18.0)
+                        if ocr.get("ok"):
+                            wb = ocr.get("windowBounds") or {}
+                            parsed = _parse_ocr_sidebar_and_chat(
+                                ocr.get("elements") or [],
+                                img_w=float(ocr.get("imageWidth") or wb.get("width") or 1200),
+                                img_h=float(ocr.get("imageHeight") or wb.get("height") or 800),
+                                win_w=float(wb.get("width") or 1200),
+                                win_h=float(wb.get("height") or 800),
+                                login_hints=spec.get("loginHints") or [],
+                                channel=ch,
+                                limit=limit,
+                            )
                 return {
                     "ok": True,
                     "channel": ch,
@@ -1754,6 +1984,9 @@ class OmniChannelHub:
                     "currentChatTitle": parsed["currentChatTitle"],
                     "sessions": parsed["sessions"],
                     "messagesPreview": parsed["messages"],
+                    "drawerView": parsed.get("drawerView", ""),
+                    "backButtonPoint": parsed.get("backButtonPoint"),
+                    "composerPoint": parsed.get("composerPoint"),
                     "screenshotPath": str(shot) if shot.is_file() else "",
                 }
 
@@ -1802,6 +2035,19 @@ class OmniChannelHub:
         if sess_res.get("source") == "desktop_rpa" and target and not sess_res.get("loginRequired"):
             cur_title = str(sess_res.get("currentChatTitle") or "")
             if target not in cur_title:
+                # For Douyin desktop inside another chat view, click `<` back to reveal session list
+                if ch == "douyin" and sess_res.get("drawerView") == "chat" and not sess_res.get("sessions"):
+                    back_pt = sess_res.get("backButtonPoint")
+                    st_dy = self.engine._run_native(["status", "--app", ch], timeout=8.0)
+                    wins_dy = st_dy.get("windows") or []
+                    if back_pt and wins_dy:
+                        w0 = wins_dy[0].get("bounds") or {}
+                        bx = float(w0.get("x") or 0) + float(back_pt["x"])
+                        by = float(w0.get("y") or 0) + float(back_pt["y"])
+                        self.engine._run_native(["activate", "--app", ch, "--skip-human-check"], timeout=10.0)
+                        self.engine._run_native(["click", "--x", f"{bx:.1f}", "--y", f"{by:.1f}", "--skip-human-check"], timeout=8.0)
+                        time.sleep(0.7)
+                        sess_res = self.list_sessions(ch, limit=max(limit, 20), query=target, launch_if_needed=False)
                 match = next((s for s in sess_res.get("sessions") or [] if target in str(s.get("title") or "")), None)
                 if match and isinstance(match.get("clickPoint"), dict):
                     st = self.engine._run_native(["status", "--app", ch], timeout=8.0)
@@ -1810,8 +2056,8 @@ class OmniChannelHub:
                         w0 = wins[0].get("bounds") or {}
                         abs_x = float(w0.get("x") or 0) + float(match["clickPoint"]["x"])
                         abs_y = float(w0.get("y") or 0) + float(match["clickPoint"]["y"])
-                        self.engine._run_native(["activate", "--app", ch], timeout=10.0)
-                        self.engine._run_native(["click", "--x", f"{abs_x:.1f}", "--y", f"{abs_y:.1f}"], timeout=10.0)
+                        self.engine._run_native(["activate", "--app", ch, "--skip-human-check"], timeout=10.0)
+                        self.engine._run_native(["click", "--x", f"{abs_x:.1f}", "--y", f"{abs_y:.1f}", "--skip-human-check"], timeout=10.0)
                         time.sleep(0.6)
                         sess_res = self.list_sessions(ch, limit=limit, launch_if_needed=False)
 
@@ -1824,6 +2070,7 @@ class OmniChannelHub:
                 "currentChatTitle": sess_res.get("currentChatTitle") or "",
                 "messages": sess_res.get("messagesPreview") or [],
                 "sessions": sess_res.get("sessions") or [],
+                "composerPoint": sess_res.get("composerPoint"),
             }
         return {
             "ok": True,
@@ -1846,6 +2093,7 @@ class OmniChannelHub:
         mode: str = "auto",
         dry_run: bool = True,
         confirm_send: bool = False,
+        surface: str = "comment",
     ) -> Dict[str, Any]:
         ch = normalize_channel_id(channel)
         if ch not in CHANNEL_SPECS:
@@ -1862,6 +2110,11 @@ class OmniChannelHub:
                 silent_mode=bool(dry_run),
                 confirm_send=bool(confirm_send and not dry_run),
             )
+
+        audit: Optional[Dict[str, Any]] = None
+        if ch in ("xiaohongshu", "douyin"):
+            audit = sanitize_public_channel_reply(ch, clean_text, soften=True, surface=surface)
+            clean_text = audit["sanitized"] or clean_text
 
         req_mode = str(mode or "auto").strip().lower()
         ch_cfg = self._config.get(ch) or {}
@@ -1912,6 +2165,45 @@ class OmniChannelHub:
                     "error_code": "login_required",
                     "error": f"{CHANNEL_SPECS[ch]['label']} 当前处于未登录/扫码页面，请先登录后再发消息。",
                 }
+            if ch == "douyin":
+                wins = status.get("windows") or []
+                comp_pt = probe.get("composerPoint") or {}
+                if wins and comp_pt:
+                    w0 = wins[0].get("bounds") or {}
+                    cx = float(w0.get("x") or 0) + float(comp_pt.get("x") or 0)
+                    cy = float(w0.get("y") or 0) + float(comp_pt.get("y") or 0)
+                    paste_args = [
+                        "app-use-paste",
+                        "--bundle-id",
+                        "com.bytedance.douyin.desktop",
+                        "--x",
+                        f"{cx:.1f}",
+                        "--y",
+                        f"{cy:.1f}",
+                        "--clear",
+                        "--text",
+                        clean_text,
+                    ]
+                    if dry_run or not confirm_send:
+                        paste_args.append("--silent")
+                    else:
+                        paste_args.append("--submit")
+                    native_res = self.engine._run_native(paste_args, timeout=20.0)
+                    is_live = (not dry_run) and confirm_send
+                    if is_live:
+                        self.engine.audit.log("omni_send", "ok" if native_res.get("ok") else "error", {"channel": ch, "target": target})
+                    return {
+                        "ok": bool(native_res.get("ok")),
+                        "dryRun": not is_live,
+                        "channel": ch,
+                        "mode": "desktop_rpa",
+                        "target": target or probe.get("currentChatTitle") or "",
+                        "sent": bool(is_live and native_res.get("submitted")),
+                        "text": clean_text,
+                        "compliance": audit,
+                        "native": native_res,
+                    }
+
             if dry_run or not confirm_send:
                 # Safe non-sending paste readback if chat composer is present
                 silent_res = self.engine._run_native(
@@ -1925,6 +2217,7 @@ class OmniChannelHub:
                     "mode": "desktop_rpa",
                     "target": target or probe.get("currentChatTitle") or "",
                     "sent": False,
+                    "compliance": audit,
                     "native": silent_res,
                 }
             live_res = self.engine._run_native(
@@ -1939,30 +2232,34 @@ class OmniChannelHub:
                 "mode": "desktop_rpa",
                 "target": target,
                 "sent": bool(live_res.get("sent")),
+                "compliance": audit,
                 "native": live_res,
             }
 
         # Track B: ego-browser Web/Creator RPA (Xiaohongshu / Douyin / Web DingTalk)
         if CHANNEL_SPECS[ch].get("supportsWebRpa") and req_mode in ("auto", "web"):
-            return self.ego_browser.reply_interaction(
+            web_res = self.ego_browser.reply_interaction(
                 ch,
                 target,
                 clean_text,
                 dry_run=dry_run,
                 confirm_send=confirm_send,
             )
+            if audit is not None:
+                web_res["compliance"] = audit
+            return web_res
 
         # Fallback explicit dry_run plan
         if dry_run:
-            audit = sanitize_public_channel_reply(ch, clean_text, soften=True)
+            audit_fb = audit or sanitize_public_channel_reply(ch, clean_text, soften=True, surface=surface)
             return {
                 "ok": True,
                 "dryRun": True,
                 "simulated": True,
                 "channel": ch,
                 "target": target,
-                "text": audit["sanitized"],
-                "compliance": audit,
+                "text": audit_fb["sanitized"],
+                "compliance": audit_fb,
                 "note": f"{CHANNEL_SPECS[ch]['label']} 桌面端未进入对话界面；已生成防封合规演练文本。",
             }
 
@@ -2002,6 +2299,7 @@ class OmniChannelHub:
                 items = read.get("messages") or []
                 source = read.get("source") or "desktop_rpa"
 
+        all_extracted_wechat = extract_wechat_accounts_from_messages(items, douyin_user=target)
         leads: List[Dict[str, Any]] = []
         enrolled_names: List[str] = []
         for idx, msg in enumerate(items):
@@ -2012,25 +2310,36 @@ class OmniChannelHub:
                 continue
             tier, score, matched = score_lead_intent(txt)
             sender = str(msg.get("sender") or f"{spec['shortLabel']}访客{idx + 1}").strip()[:40]
+            msg_wx = extract_wechat_accounts_from_text(txt, context_allows_bare=True)
+            if msg_wx:
+                score = max(score, 92)
+                tier = "hot"
+                if "已留微信号" not in matched:
+                    matched = ["已留微信号", *matched]
             lead_doc = {
                 "channel": ch,
                 "sender": sender,
                 "intentTier": tier,
                 "intentScore": score,
                 "matchedSignals": matched,
+                "wechatAccounts": msg_wx,
                 "text": txt[:240],
                 "enrolledInCrm": False,
             }
             if tier in ("hot", "warm"):
                 if sync_crm and hasattr(self.engine, "sales_crm"):
                     crm_name = f"[{spec['shortLabel']}]{sender}"
+                    wx_note = f" | 微信号:{msg_wx[0]['account']}" if msg_wx else ""
+                    crm_tags = [f"渠道:{spec['shortLabel']}", f"意向:{tier}"]
+                    if msg_wx:
+                        crm_tags.append("已留微信号")
                     try:
                         self.engine.sales_crm.enroll_contact(
                             crm_name,
                             stage="已报价" if "报价" in matched else "沟通中",
-                            note=f"[{spec['label']}线索 | {tier.upper()} {score}分] {txt[:180]}",
+                            note=f"[{spec['label']}线索 | {tier.upper()} {score}分{wx_note}] {txt[:180]}",
                             alias=sender if sender != crm_name else "",
-                            tags=[f"渠道:{spec['shortLabel']}", f"意向:{tier}"],
+                            tags=crm_tags,
                         )
                         lead_doc["enrolledInCrm"] = True
                         lead_doc["crmTarget"] = crm_name
@@ -2049,6 +2358,7 @@ class OmniChannelHub:
             "hotOrWarmCount": len([l for l in leads if l["intentTier"] in ("hot", "warm")]),
             "enrolledCount": len(enrolled_names),
             "enrolledTargets": enrolled_names,
+            "extractedWechatAccounts": all_extracted_wechat,
             "leads": leads,
         }
 

@@ -625,14 +625,15 @@
       <a class="brand" href="#top">App-Use Studio</a>
       <nav class="nav" aria-label="Primary">
         <a class="nav-strong" href="./user-guide.html">📖 零黑话用户手册</a>
-        <a href="#v3-zero-fde">v3.0.0 零配置升级</a>
+        <a href="#v32-workflow-chat">v3.2.0 对话建流程</a>
+        <a href="#v3-zero-fde">v3.0.0 零配置闭环</a>
         <a href="#gallery">实机界面</a>
         <a href="#why">Why App-Use</a>
         <a href="#architecture">5 大核心算法</a>
         <a href="#risk-tiers">反风控分级</a>
         <a href="#benchmarks">实机回执</a>
         <a href="#quickstart">Quick Start</a>
-        <a href="https://github.com/Harzva/app-use/releases/tag/v3.0.0" target="_blank" rel="noopener">⬇️ 下载 v3.0.0</a>
+        <a href="https://github.com/Harzva/app-use/releases/tag/v3.2.0" target="_blank" rel="noopener">⬇️ 下载 v3.2.0</a>
         <a href="https://github.com/Harzva/app-use">GitHub</a>
       </nav>
     </div>
@@ -644,25 +645,50 @@
       <p class="lead">
         补齐智能体桌面行动最后一块拼图：<strong>Browser-Use → Computer-Use → App-Use</strong>。
         专为 macOS 打造的<strong>窗口级桌面 App-Use 与 Meta-RPA 元能力引擎</strong>——结合
-        <code>AXUIElement</code> + <code>Apple Vision OCR</code>、安全原生 App 无焦点后台并发直调，以及社交客户端三级反风控护栏；<strong>v3.0.0</strong> 全面升级为<strong>零配置客户自助闭环</strong>（4 步向导自学习、测试小号 <code>#</code> 调优、1–5★ 双轨自评分）。
+        <code>AXUIElement</code> + <code>Apple Vision OCR</code>、安全原生 App 无焦点后台并发直调，以及社交客户端三级反风控护栏；<strong>v3.2.0</strong> 在零配置自学习闭环之上，新增<strong>AI 对话建流程与一句话改流程</strong>（跨软件泛化飞书/钉钉/企微/抖音/小红书、Shadow 预览卡护栏、多步连续撤销与微信 <code>#建流程</code>/<code>#改流程</code> 遥控）。
       </p>
       <div class="meta-row">
-        <span class="tag">v3.0.0 (build 3000)</span>
+        <span class="tag">v3.2.0 (build 3200)</span>
         <span class="tag">macOS 14+ Apple Silicon</span>
-        <span class="tag">270+ Tests · 31 v3.0 Self-Train</span>
+        <span class="tag">296 Tests · 全量自动化验证</span>
         <span class="tag">Bot Studio (dsh2codex) Ready</span>
       </div>
       <div class="actions">
         <a class="btn btn-primary" href="./user-guide.html">📖 零黑话用户手册（网页版）</a>
-        <a class="btn" href="https://github.com/Harzva/app-use/releases/tag/v3.0.0" target="_blank" rel="noopener">⬇️ 下载 macOS 安装包 (v3.0.0)</a>
+        <a class="btn" href="https://github.com/Harzva/app-use/releases/tag/v3.2.0" target="_blank" rel="noopener">⬇️ 下载 macOS 安装包 (v3.2.0)</a>
         <a class="btn" href="https://github.com/Harzva/app-use">GitHub · Harzva/app-use</a>
         <a class="btn" href="#quickstart">5 分钟构建与接入</a>
         <a class="btn" href="https://harzva.github.io/">返回 Harzva 主页</a>
       </div>
     </section>
 
+    <section id="v32-workflow-chat" tabindex="-1">
+      <h2>v3.2.0 AI 对话建流程与一句话改流程亮点</h2>
+      <p class="muted">
+        遇到新软件或新获客渠道，无需写代码、也不用一次想清全部步骤——像平时聊天一样说出想法，即可自动理清细节、生成带安全护栏的跨应用流程并随时一句话修改。
+      </p>
+      <div class="grid-2">
+        <article class="card">
+          <h3>1. 跨软件多渠道对话式泛化</h3>
+          <p class="muted">覆盖飞书、钉钉、企业微信、抖音、小红书私信等跨软件线索场景。先说一个模糊想法，系统以 1–3 道通俗选择题引导确认来源、备注前缀与门禁，自动编译中文步骤卡与独立验收标准。</p>
+        </article>
+        <article class="card">
+          <h3>2. Shadow 预览卡安全护栏</h3>
+          <p class="muted">默认在影子调试模式下真实读取界面并验证抽取与话术，同时自动拦截高风险外发与加好友动作，在右侧时间线直观展示结构化 Shadow 预览卡（拟加微信号、备注、话术、CRM 标签）与高清截图存证。</p>
+        </article>
+        <article class="card">
+          <h3>3. 一句话改流程与多步连续撤销</h3>
+          <p class="muted">支持用自然语言修改备注前缀、加老客户/空号跳过判断、给 CRM 加标签、改打招呼话术或加人工确认门禁，每次修改自动保留版本（<code>v1 → v2</code>）并重跑回归验证，支持多步连续撤销并拦截危险删改。</p>
+        </article>
+        <article class="card">
+          <h3>4. 微信 <code>#建流程</code> / <code>#改流程</code> 多轮遥控</h3>
+          <p class="muted">在已标记的「测试好友」或「文件传输助手」微信窗口里，直接发 <code>#建流程</code> 多轮补充需求、发 <code>#改流程</code> 微调现有流程或 <code>#改流程 撤销</code> 回退，外部普通客户发 <code>#</code> 严格拦截隔离。</p>
+        </article>
+      </div>
+    </section>
+
     <section id="v3-zero-fde" tabindex="-1">
-      <h2>v3.0.0 零配置客户自助升级亮点</h2>
+      <h2>v3.0.0 零配置客户自助闭环基础能力</h2>
       <p class="muted">
         无需现场交付工程师手动配置人设或编写脚本，首次打开即可在 10 分钟内完成身份初始化、历史聊天自学习、测试练兵与白名单托管上线。
       </p>
@@ -714,6 +740,22 @@
             <h3>模拟对练与 1–5★ 质量看板</h3>
             <p class="muted">左侧零风险模拟客户发问并用 <code>#</code> 当场纠偏；右侧汇总 5 维自动体检均分、人工星级与一键回归验证。</p>
             <span class="gallery-card-link">查看第 6 章 · 打分与优化 →</span>
+          </div>
+        </a>
+        <a class="gallery-card" href="./user-guide.html#ch9">
+          <img src="./assets/user-guide/11-workflow-chat-studio.png" alt="v3.2.0 对话式自建工作流与 Shadow 预览卡片界面" width="1360" height="880" loading="lazy" decoding="async" />
+          <div class="gallery-card-body">
+            <h3>AI 对话建流程与 Shadow 预览卡</h3>
+            <p class="muted">通过多轮选择题理清飞书、钉钉等跨软件获客流程，右侧实时呈现 Shadow 安全拦截与结构化加好友/建档预览卡片。</p>
+            <span class="gallery-card-link">查看第 9.1 节 · 对话自建流程 →</span>
+          </div>
+        </a>
+        <a class="gallery-card" href="./user-guide.html#ch9">
+          <img src="./assets/user-guide/12-workflow-chat-edit-and-steps.png" alt="v3.2.0 一句话改流程、版本对比撤销与中文步骤卡片界面" width="1360" height="880" loading="lazy" decoding="async" />
+          <div class="gallery-card-body">
+            <h3>一句话改流程与多步撤销</h3>
+            <p class="muted">用自然语言随时改备注、加判断分支或打标签，自动版本对比与回归验证，支持多步撤销与中文步骤卡片查看。</p>
+            <span class="gallery-card-link">查看第 9.2 节 · 一句话改流程 →</span>
           </div>
         </a>
       </div>
@@ -836,11 +878,11 @@
     </section>
 
     <section id="benchmarks" tabindex="-1">
-      <h2>真机工程实测回执（v3.0.0）</h2>
+      <h2>真机工程实测回执（v3.2.0）</h2>
       <div class="grid-3">
         <div class="card">
-          <div class="stat-num">270+ 自动化测试</div>
-          <p class="muted">全库共 <code>275</code> 项单元测试（含 <strong>31 项 v3.0 零配置自训练与督导闭环专项测试</strong>），覆盖租户隔离、PII 脱敏、<code>#</code> 门禁、1–5★ 双轨闭环与元算法。</p>
+          <div class="stat-num">296 项自动化测试</div>
+          <p class="muted">全库共 <code>296</code> 项单元测试全量通过（含 <strong>v3.2.0 对话建流程与一句话改流程测试</strong>及 31 项 v3.0 自训练闭环测试），覆盖跨软件泛化、Shadow 预览卡护栏、多步连续撤销、<code>#</code> 门禁与元算法。</p>
         </div>
         <div class="card">
           <div class="stat-num">1.86x 并行加速</div>
@@ -848,7 +890,7 @@
         </div>
         <div class="card">
           <div class="stat-num">69+ MCP 工具</div>
-          <p class="muted">标准 stdio JSON-RPC 2.0 暴露 16 个 <code>app_use_*</code> 工具与 v3.0 零配置自训练/督导工具，已接通 Codex CLI 与 Bot Studio DSH。</p>
+          <p class="muted">标准 stdio JSON-RPC 2.0 暴露 16 个 <code>app_use_*</code> 工具与 v3 零配置自训练/对话建流程工具，已接通 Codex CLI 与 Bot Studio DSH。</p>
         </div>
       </div>
     </section>
@@ -876,7 +918,7 @@ WECHAT_BOT_DATA_DIR = "/Users/&lt;your-user&gt;/Library/Application Support/WeCh
   </main>
 
   <footer>
-    <span>App-Use Studio v3.0.0 (build 3000) · <a href="./user-guide.html">零黑话用户手册</a> · <a href="https://github.com/Harzva/app-use">Harzva/app-use</a></span>
+    <span>App-Use Studio v3.2.0 (build 3200) · <a href="./user-guide.html">零黑话用户手册</a> · <a href="https://github.com/Harzva/app-use">Harzva/app-use</a></span>
     <span><a href="https://harzva.github.io/">Harzva Portfolio</a></span>
   </footer>
 

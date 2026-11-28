@@ -486,6 +486,65 @@ def build_parser() -> argparse.ArgumentParser:
     p_qd.add_argument("--tag", action="append", default=[], help="Repeatable issue tag.")
     p_qd.add_argument("--comment", default="", help="Rating or critique comment.")
 
+    p_waf = sub.add_parser(
+        "wechat-add-friend",
+        help="Search or send a WeChat friend request by WeChat ID or phone number.",
+    )
+    p_waf.add_argument("--account", required=True, help="Target WeChat ID or 11-digit phone number.")
+    p_waf.add_argument("--greeting", default="", help="Friend verification greeting message.")
+    p_waf.add_argument("--remark", default="", help="Optional WeChat remark name.")
+    p_waf.add_argument("--source-user", default="", help="Optional source platform username (e.g. Douyin nickname).")
+    p_waf.add_argument("--dry-run", action="store_true", default=True, help="Dry-run without sending (default).")
+    p_waf.add_argument("--probe-ui", action="store_true", help="Open WeChat Add Friend UI and lookup without clicking Add.")
+    p_waf.add_argument("--confirm-send", action="store_true", help="Actually send the friend request.")
+    p_waf.add_argument("--force", action="store_true", help="Bypass dedup/cooldown/daily limit guard.")
+
+    p_dyf = sub.add_parser(
+        "douyin-funnel",
+        help="Run or inspect the Douyin DM -> WeChat account extraction -> WeChat add-friend funnel.",
+    )
+    p_dyf.add_argument(
+        "--action",
+        default="overview",
+        choices=["overview", "extract", "run", "add-wechat"],
+        help="Funnel action to perform.",
+    )
+    p_dyf.add_argument("--target", default="", help="Douyin user name or lead ID.")
+    p_dyf.add_argument("--account", default="", help="WeChat account when using add-wechat.")
+    p_dyf.add_argument("--text", default="", help="Sample incoming text when using --action extract.")
+    p_dyf.add_argument("--auto-reply", action="store_true", help="Also draft/send ask-WeChat DM replies.")
+    p_dyf.add_argument("--auto-add-wechat", action="store_true", help="Also dry-run/add captured WeChat IDs.")
+    p_dyf.add_argument("--dry-run", action="store_true", default=True, help="Dry-run mode (default).")
+    p_dyf.add_argument("--probe-ui", action="store_true", help="Probe live WeChat/Douyin UI without sending.")
+    p_dyf.add_argument("--confirm-send", action="store_true", help="Authorize live send / friend request.")
+
+    p_wfa = sub.add_parser(
+        "workflow-agent",
+        help="Self-authoring & self-debugging cross-app Workflow Agent (Spec -> Build -> Debug -> Verify).",
+    )
+    p_wfa.add_argument(
+        "--action",
+        default="templates",
+        choices=["templates", "spec", "author-debug", "debug", "sessions", "chat", "chat-edit"],
+        help="Workflow agent action.",
+    )
+    p_wfa.add_argument("--goal", default="", help="Plain-language cross-app workflow goal.")
+    p_wfa.add_argument("--app", action="append", default=[], help="Target app name or bundle ID (repeatable).")
+    p_wfa.add_argument("--agent-id", default="", help="Optional planner/debugger agent ID.")
+    p_wfa.add_argument("--mode", default="shadow", choices=["dry_run", "shadow", "live"], help="Verification mode.")
+    p_wfa.add_argument("--max-rounds", type=int, default=4, help="Max self-debugging rounds (1-5).")
+    p_wfa.add_argument("--confirm-run", action="store_true", help="Confirm real live execution when --mode live.")
+    p_wfa.add_argument("--use-omini-critic", action="store_true", help="Also run Omini critic audit on generated Spec.")
+    p_wfa.add_argument("--export-skill", action="store_true", help="Export verified workflow as SKILL.md.")
+    p_wfa.add_argument("--workflow-id", default="", help="Existing workflow ID for --action debug or chat-edit.")
+    p_wfa.add_argument("--chat-id", default="", help="Existing workflow-agent chat session ID for --action chat.")
+    p_wfa.add_argument("--message", default="", help="User chat message for --action chat.")
+    p_wfa.add_argument("--edit-instruction", default="", help="Natural-language edit instruction for --action chat-edit.")
+    p_wfa.add_argument("--no-auto-verify", action="store_true", help="Skip automatic verification run after --action chat-edit.")
+    p_wfa.add_argument("--params", default="{}", help="JSON runtime parameters override.")
+    p_wfa.add_argument("--ignore-human-guard", action="store_true", help="Ignore human input guard during controlled verification.")
+    p_wfa.add_argument("--no-inspect", action="store_true", help="Skip initial live window probe.")
+
     return parser
 
 
@@ -1059,6 +1118,120 @@ def main(argv: Optional[List[str]] = None) -> int:
             if args.regression:
                 return _print_json(engine.run_sparring_regression(limit=args.limit))
             return _print_json(engine.get_quality_dashboard(days=args.days))
+        if args.command == "wechat-add-friend":
+            is_live = bool(args.confirm_send)
+            return _print_json(
+                engine.wechat_add_friend(
+                    args.account,
+                    greeting=args.greeting,
+                    remark=args.remark,
+                    source_user=args.source_user,
+                    dry_run=not is_live,
+                    probe_ui=bool(args.probe_ui),
+                    confirm_send=is_live,
+                    force=bool(args.force),
+                )
+            )
+        if args.command == "douyin-funnel":
+            is_live = bool(args.confirm_send)
+            if args.action == "overview":
+                return _print_json(engine.douyin_funnel_overview())
+            if args.action == "extract":
+                msgs = [{"sender": args.target or "抖音访客", "direction": "incoming", "text": args.text}] if args.text else []
+                return _print_json(engine.douyin_funnel_ingest(msgs, douyin_user=args.target, source="cli"))
+            if args.action == "add-wechat":
+                return _print_json(
+                    engine.douyin_funnel_add_wechat(
+                        args.account or args.target,
+                        dry_run=not is_live,
+                        probe_ui=bool(args.probe_ui),
+                        confirm_send=is_live,
+                    )
+                )
+            return _print_json(
+                engine.douyin_funnel_run_cycle(
+                    target=args.target,
+                    auto_reply=bool(args.auto_reply),
+                    auto_add_wechat=bool(args.auto_add_wechat),
+                    dry_run=not is_live,
+                    probe_ui=bool(args.probe_ui),
+                    confirm_send=is_live,
+                )
+            )
+        if args.command == "workflow-agent":
+            import json as _json
+            try:
+                parsed_params = _json.loads(args.params or "{}")
+                if not isinstance(parsed_params, dict):
+                    parsed_params = {}
+            except Exception:
+                parsed_params = {}
+            if args.action == "templates":
+                return _print_json(engine.workflow_agent_templates())
+            if args.action == "sessions":
+                return _print_json(engine.workflow_agent_list_sessions())
+            if args.action == "chat":
+                return _print_json(
+                    engine.workflow_agent_chat_turn(
+                        args.message or args.goal,
+                        chat_id=args.chat_id,
+                        agent_id=args.agent_id,
+                        mode=args.mode,
+                        auto_run_on_confirm=True,
+                        confirm_run=bool(args.confirm_run),
+                        params=parsed_params,
+                    )
+                )
+            if args.action == "chat-edit":
+                return _print_json(
+                    engine.workflow_agent_chat_edit(
+                        args.workflow_id,
+                        args.edit_instruction or args.message or args.goal,
+                        agent_id=args.agent_id,
+                        mode=args.mode,
+                        auto_verify=not bool(args.no_auto_verify),
+                        confirm_run=bool(args.confirm_run),
+                        respect_human_guard=not bool(args.ignore_human_guard),
+                        params=parsed_params,
+                    )
+                )
+            if args.action == "spec":
+                return _print_json(
+                    engine.workflow_agent_propose_spec(
+                        args.goal,
+                        target_apps=args.app or None,
+                        agent_id=args.agent_id,
+                        inspect_live=not bool(args.no_inspect),
+                        use_omini_critic=bool(args.use_omini_critic),
+                    )
+                )
+            if args.action == "debug":
+                return _print_json(
+                    engine.workflow_agent_debug_existing(
+                        args.workflow_id,
+                        mode=args.mode,
+                        max_debug_rounds=args.max_rounds,
+                        confirm_run=bool(args.confirm_run),
+                        respect_human_guard=not bool(args.ignore_human_guard),
+                        agent_id=args.agent_id,
+                        params=parsed_params,
+                    )
+                )
+            return _print_json(
+                engine.workflow_agent_author_and_debug(
+                    args.goal,
+                    target_apps=args.app or None,
+                    agent_id=args.agent_id,
+                    mode=args.mode,
+                    max_debug_rounds=args.max_rounds,
+                    confirm_run=bool(args.confirm_run),
+                    respect_human_guard=not bool(args.ignore_human_guard),
+                    inspect_live=not bool(args.no_inspect),
+                    use_omini_critic=bool(args.use_omini_critic),
+                    auto_export_skill=bool(args.export_skill),
+                    params=parsed_params,
+                )
+            )
         parser.print_help()
         return 2
     except StudioPluginUnauthorizedError as exc:

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openbot-wechat-rpa-control"
-version = "3.0.0"
+version = "3.2.0"
 description = "Standalone macOS WeChat RPA + Vision OCR + FTS5 KF Knowledge + Web Console + Bridge plugin for OpenBot & AI Agents."
 requires-python = ">=3.9"
 dependencies = []

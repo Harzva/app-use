@@ -426,7 +426,7 @@ class V3ZeroFDEIntegrationTest(unittest.TestCase):
                         f"Banned engineering term found in /user-guide visible text: {term}",
                     )
 
-            # Static user-guide screenshot assets (all 10 PNGs + traversal guards)
+            # Static user-guide screenshot assets (all 12 PNGs + traversal guards)
             expected_shots = (
                 "01-permissions-modal.png",
                 "02-wizard-step1-identity.png",
@@ -438,6 +438,8 @@ class V3ZeroFDEIntegrationTest(unittest.TestCase):
                 "08-sparring-quality-dashboard.png",
                 "09-hosting-workbench-home.png",
                 "10-knowledge-base.png",
+                "11-workflow-chat-studio.png",
+                "12-workflow-chat-edit-and-steps.png",
             )
             assets_dir = REPO_ROOT / "docs" / "assets" / "user-guide"
             for idx, shot_name in enumerate(expected_shots):
@@ -539,7 +541,7 @@ class V3ZeroFDEIntegrationTest(unittest.TestCase):
             st, sim = _http_json(
                 f"{base}/api/sparring/chat",
                 method="POST",
-                payload={"contactName": "沙盒测试员", "message": "请问你们课程多少钱？"},
+                payload={"contactName": "沙盒测试员", "message": "请问你们课程多少钱？", "useLlm": False},
             )
             self.assertEqual(st, 200)
             self.assertTrue(sim["ok"])
@@ -586,19 +588,20 @@ class V3ZeroFDEIntegrationTest(unittest.TestCase):
 
     def test_06_v3_version_declarations_consistent(self) -> None:
         pyproject_text = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-        self.assertIn('version = "3.0.0"', pyproject_text)
+        self.assertIn('version = "3.2.0"', pyproject_text)
 
         for rel in (
             "plugin.manifest.json",
             "dsh.plugin.json",
             "market/wechat-rpa-control.plugin.json",
+            "package.json",
         ):
             data = json.loads((REPO_ROOT / rel).read_text(encoding="utf-8"))
-            self.assertEqual(data.get("version"), "3.0.0", f"{rel} version mismatch")
+            self.assertEqual(data.get("version"), "3.2.0", f"{rel} version mismatch")
 
         build_script = (REPO_ROOT / "bin" / "build-standalone-app").read_text(encoding="utf-8")
-        self.assertIn('APP_VERSION="3.0.0"', build_script)
-        self.assertIn('APP_BUILD="3000"', build_script)
+        self.assertIn('APP_VERSION="3.2.0"', build_script)
+        self.assertIn('APP_BUILD="3200"', build_script)
 
 
 if __name__ == "__main__":
